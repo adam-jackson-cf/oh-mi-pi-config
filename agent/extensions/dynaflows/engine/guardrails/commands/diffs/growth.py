@@ -9,9 +9,9 @@ from guardrails.foundation.findings import Finding
 from guardrails.toolkit.growth import GROWTH, check
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
-        found = check(repo, profile, parse_range(argv))
+        found = check(repo, config, parse_range(argv))
     except DiffError as error:
         return [range_finding(GROWTH, error)]
-    return apply_exceptions(found, profile)
+    return apply_exceptions(found, config)

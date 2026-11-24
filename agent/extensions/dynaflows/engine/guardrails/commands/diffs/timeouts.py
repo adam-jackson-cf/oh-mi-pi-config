@@ -26,14 +26,14 @@ FIX = (
 )
 
 
-def tier_locations(profile: dict[str, Any]) -> list[str]:
-    return adapter_declarations.locations(profile)
+def tier_locations(config: dict[str, Any]) -> list[str]:
+    return adapter_declarations.locations(config)
 
 
-def is_changed_test(path: str, profile: dict[str, Any]) -> bool:
+def is_changed_test(path: str, config: dict[str, Any]) -> bool:
     if PurePosixPath(path).name == "conftest.py":
         return True
-    return is_test_file(path, profile) or matches_any(path, tier_locations(profile))
+    return is_test_file(path, config) or matches_any(path, tier_locations(config))
 
 
 def timeouts(
@@ -73,19 +73,19 @@ def increases(
     return found
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    config = settings(profile, CHECKER)
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
+    options = settings(config, CHECKER)
     pattern = re.compile(
-        str(config.get("timeout_pattern") or DEFAULT_TIMEOUT_PATTERN), re.I
+        str(options.get("timeout_pattern") or DEFAULT_TIMEOUT_PATTERN), re.I
     )
     found: list[Finding] = []
     try:
         diff = parse_range(argv)
         for change in changed_files(repo, diff):
-            if change.status in {"A", "D"} or not is_changed_test(change.path, profile):
+            if change.status in {"A", "D"} or not is_changed_test(change.path, config):
                 continue
             for part in hunks(repo, diff, change.path):
                 found.extend(increases(change.path, part.removed, part.added, pattern))
     except DiffError as error:
         return [range_finding(RULE, error)]
-    return apply_exceptions(found, profile)
+    return apply_exceptions(found, config)

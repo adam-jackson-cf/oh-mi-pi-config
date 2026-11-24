@@ -210,16 +210,16 @@ def _folder(unit: str) -> str:
     return unit if unit == "." else unit + "/"
 
 
-def exempt(pair: Overlap, profile: dict[str, Any]) -> bool:
+def exempt(pair: Overlap, config: dict[str, Any]) -> bool:
     probes = [
         Finding(RULE, _folder(unit), "", "")
         for unit in (pair.first.unit, pair.second.unit)
     ]
-    return len(apply_exceptions(probes, profile)) < len(probes)
+    return len(apply_exceptions(probes, config)) < len(probes)
 
 
 def overlap_findings(
-    found: list[Definition], changed: set[str], cutoff: float, profile: dict[str, Any]
+    found: list[Definition], changed: set[str], cutoff: float, config: dict[str, Any]
 ) -> list[Finding]:
     return [
         Finding(
@@ -229,10 +229,10 @@ def overlap_findings(
             f"{pair.first.name} and {pair.second.file} {pair.second.name} have "
             f"3-gram similarity {pair.score:.3f} at or above {cutoff}",
             "move the shared logic into one shared mechanism both units use, or "
-            "record an owner-approved guardrails.exceptions entry {rule, path, reason}",
+            "record an owner-approved exceptions entry {rule, path, reason}",
         )
         for _, pair in sorted(overlaps(found, changed).items())
-        if pair.score >= cutoff and not exempt(pair, profile)
+        if pair.score >= cutoff and not exempt(pair, config)
     ]
 
 
@@ -319,15 +319,15 @@ def unit_definitions(
     return found
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(
         description=SUBCOMMANDS["responsibility-overlap"].summary
     )
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
-    excluded = as_list(settings(profile, "check").get("exclude")) + as_list(
-        settings(profile, "python").get("excluded_paths")
+    excluded = as_list(settings(config, "check").get("exclude")) + as_list(
+        settings(config, "python").get("excluded_paths")
     )
     try:
         units, oids = head_units(repo, args.head, excluded)
@@ -346,4 +346,4 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 "provide readable base and head commits in this repository",
             )
         ]
-    return overlap_findings(found, changed, pair_score_cutoff(), profile)
+    return overlap_findings(found, changed, pair_score_cutoff(), config)

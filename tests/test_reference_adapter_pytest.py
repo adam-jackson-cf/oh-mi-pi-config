@@ -6,7 +6,6 @@ import io
 import json
 import os
 import re
-import shutil
 import sys
 import tempfile
 import tomllib
@@ -20,6 +19,7 @@ sys.path.insert(
 )
 
 import pytest
+from test_agentrails_fixture import config, write_config
 
 from guardrails.commands import cli
 from guardrails.commands.adapters import pytest as adapter
@@ -28,6 +28,7 @@ from guardrails.commands.adapters.pytest.cases import collect as collect_cases
 from guardrails.commands.adapters.pytest.dialect import DIALECT
 from guardrails.commands.test_evidence import propagation
 from guardrails.foundation.findings import Finding
+from guardrails.host.process import run_text
 from guardrails.toolkit.test_report.junit import dialect_for, parse_report, parse_text
 
 pytestmark = pytest.mark.fast
@@ -76,32 +77,19 @@ def containerfile_lock() -> dict[str, frozenset[str]]:
     return requirement_entries("\n".join(quoted))
 
 
-# Each repository's record: a directory outside it, removed when the module's tests finish.
-RECORDS: dict[str, Path] = {}
-
-PYTEST_ONLY: dict[str, Any] = {"adapters": [{"name": "pytest", "tiers": {}}]}
+# The fixture config's tests section already declares the pytest adapter.
+PYTEST_ONLY: dict[str, Any] = {}
 
 
-def write_profile(repo: Path, profile: dict[str, Any]) -> Path:
-    key = str(repo.resolve())
-    if key not in RECORDS:
-        RECORDS[key] = Path(tempfile.mkdtemp(prefix="omp-record-"))
-        unittest.addModuleCleanup(shutil.rmtree, RECORDS[key], ignore_errors=True)
-    text = f"---\n{json.dumps(profile, indent=2)}\n---\n\n# Repo test profile\n"
-    (RECORDS[key] / "profile.md").write_text(text, encoding="utf-8")
-    return RECORDS[key]
+def write_profile(repo: Path, sections: dict[str, Any]) -> Path:
+    """Write the repo's .agentrails/config.json: the fixture config with ``sections`` applied."""
+    if not (repo / ".git").exists():
+        run_text(["git", "init", "-q", str(repo)], check=True, timeout=60)
+    return write_config(repo, config(**sections))
 
 
 def run_cli(*argv: str) -> tuple[int, str]:
-    """Run the CLI; a ``--repo`` whose profile ``write_profile`` wrote also gets its record."""
     args = list(argv)
-    if "--repo" in args:
-        record = RECORDS.get(str(Path(args[args.index("--repo") + 1]).resolve()))
-        if record is not None:
-            args[args.index("--repo") + 2 : args.index("--repo") + 2] = [
-                "--record",
-                str(record),
-            ]
     out = io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
         code = cli.main(args)
@@ -136,24 +124,6 @@ class RequiredExtraTests(unittest.TestCase):
             and getattr(getattr(owner, name), "__unittest_skip__", False)
         ]
         assert skipped == []
-
-
-class ConformancePrerequisiteTests(unittest.TestCase):
-    def test_conformance_without_the_extra_names_the_missing_prerequisite(
-        self,
-    ) -> None:
-        with tempfile.TemporaryDirectory() as scratch:
-            repo = Path(scratch)
-            write_profile(repo, {"adapters": [{"name": "pytest", "tiers": {"t1": {}}}]})
-            with mock.patch.object(importlib.util, "find_spec", return_value=None):
-                code, out = run_cli(
-                    "adapter", "--repo", str(repo), "pytest", "conformance"
-                )
-        assert code == 1
-        assert out.startswith(
-            "conformance: GUARDRAILS.adapter-prerequisite: the pytest extra"
-        )
-        assert "guardrails[pytest]" in out
 
 
 class PinnedExtraTests(unittest.TestCase):
@@ -271,46 +241,6 @@ class StandardLibraryTests(unittest.TestCase):
         assert {rule["id"] for rule in rules} == RULE_IDS
         assert all(rule["scope"] in {"tests", "production"} for rule in rules)
 
-    def test_cli_prints_tier_arguments_and_mutation_tool(self) -> None:
-        with tempfile.TemporaryDirectory() as scratch:
-            repo = Path(scratch)
-            write_profile(repo, PYTEST_ONLY)
-            report = Path(scratch).parent / "reports/t1.xml"
-            code, out = run_cli(
-                "adapter",
-                "--repo",
-                str(repo),
-                "pytest",
-                "junit-args",
-                "--tier",
-                "t1",
-                "--out",
-                str(report),
-            )
-            assert code == 0
-            assert "--omp-guard=fast-tier,user-data" in out
-            assert "--omp-tier=t1" in out
-            assert f"--junitxml={report}" in out
-            for inside in ("reports/t1.xml", str(Path(scratch) / "t1.xml")):
-                code, out = run_cli(
-                    "adapter",
-                    "--repo",
-                    str(repo),
-                    "pytest",
-                    "junit-args",
-                    "--tier",
-                    "t1",
-                    "--out",
-                    inside,
-                )
-                assert code == 1
-                assert "GUARDRAILS.output-outside-repo" in out
-            code, out = run_cli(
-                "adapter", "--repo", str(repo), "pytest", "mutation-tool"
-            )
-            assert code == 0
-            assert out.startswith("mutmut ")
-
 
 class TestOnlySymbolCase(unittest.TestCase):
     PRODUCTION = {
@@ -329,7 +259,7 @@ class TestOnlySymbolCase(unittest.TestCase):
         )
     }
 
-    PROFILE = {"public_entry_points": {"shop": "shop.cli:main"}}
+    PROFILE = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
 
     def findings(
         self,

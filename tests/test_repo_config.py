@@ -247,7 +247,6 @@ class Constants(unittest.TestCase):
         assert set(repo_config.CHECKED_SECTIONS) < set(repo_config.SECTIONS)
         assert set(repo_config.EXEMPTION_TARGETS) == profile.EXEMPTABLE
         assert whole_repo.DEFAULT_STEPS == (
-            "profile-check",
             "python-quality",
             "python-fanout",
             "python-scalability",

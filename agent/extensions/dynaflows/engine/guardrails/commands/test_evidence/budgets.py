@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.inventory import approved_targets, tests_settings
 from guardrails.host.process import run_text
 from guardrails.toolkit.test_report.junit import (
     Report,
@@ -25,7 +26,7 @@ PER_TEST = "TEST.budget.per-test-time"
 FAST_TIER = "TEST.budget.fast-tier-time"
 PROBE_TIMEOUT_S = 10
 INVALID_FIX = (
-    "rerun the profile's duration-report command on this commit and check that its report "
+    "rerun the config's duration-report command on this commit and check that its report "
     "is complete; a missing, invalid or stale report always fails"
 )
 PER_TEST_FIX = (
@@ -163,8 +164,8 @@ def validity_findings(report: Report, expected_revision: str | None) -> list[Fin
     return found
 
 
-def approved_limits(profile: dict[str, Any], machine: Machine) -> dict[str, Any] | None:
-    budget = profile.get("fast_tier_budget")
+def approved_limits(config: dict[str, Any], machine: Machine) -> dict[str, Any] | None:
+    budget = tests_settings(config, "fast_tier_budget")
     machines = budget.get("machines") if isinstance(budget, dict) else None
     for record in machines if isinstance(machines, list) else []:
         if not isinstance(record, dict) or record.get("id") != machine.id:
@@ -174,8 +175,7 @@ def approved_limits(profile: dict[str, Any], machine: Machine) -> dict[str, Any]
             and not isinstance(record.get(key), bool)
             for key in ("wall_limit_s", "per_test_limit_s")
         )
-        approval = record.get("approval")
-        if limits_ok and isinstance(approval, str) and approval.strip():
+        if limits_ok and machine.id in approved_targets(config, "budget"):
             return record
     return None
 
@@ -215,14 +215,16 @@ def baseline_prompt(report: Report, machine: Machine) -> str:
         "timing is report-only. Measure repeatedly, then ask the owner once: "
         f'"Approve a fast-tier wall limit of <value> and a per-test limit of <value> on '
         f'{machine.id}, based on these repeated measurements: <values>?" '
-        f"This run: wall {wall}, slowest test {seconds(slowest)}. On approval record the "
-        "machine's id, platform, runtime, limits and approval in fast_tier_budget.machines."
+        f"This run: wall {wall}, slowest test {seconds(slowest)}. On approval the owner "
+        "records the machine's id, platform, runtime and limits in "
+        "tests.fast_tier_budget.machines of .agentrails/config.json, with a budget "
+        "approval whose target is the machine id."
     )
 
 
 def evaluate(
     report: Report,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     expected_revision: str | None,
     machine: Machine | None = None,
 ) -> BudgetResult:
@@ -231,7 +233,7 @@ def evaluate(
     if result.findings or not runtime:
         return result
     machine = machine or probe_machine(runtime)
-    limits = approved_limits(profile, machine)
+    limits = approved_limits(config, machine)
     if limits is None:
         result.notes.append(baseline_prompt(report, machine))
         return result
@@ -247,10 +249,10 @@ def report_tier(report: Report, options: ReportOptions) -> str:
     return options.tier or report.properties.get("omp.tier", "").strip() or "t1"
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         options = report_options(repo, argv)
-        report = load_run_report(repo, profile, options)
+        report = load_run_report(repo, config, options)
     except UsageError as error:
         return [
             Finding(FAST_TIER, "budget-check", f"usage: {error}", "fix the arguments")
@@ -258,11 +260,11 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     except ReportError as error:
         path = display_path(repo, options.junit, "budget-check")
         return [invalid(path, str(error))]
-    fast_tier = evidence_settings(profile).get("fast_tier", "t1")
+    fast_tier = evidence_settings(config).get("fast_tier", "t1")
     if report_tier(report, options) != fast_tier:
         return []
     revision = options.revision or current_revision(repo)
-    result = evaluate(report, profile, revision)
+    result = evaluate(report, config, revision)
     for note in result.notes:
         print(f"{FAST_TIER}: {note}", file=sys.stderr)
     return result.findings

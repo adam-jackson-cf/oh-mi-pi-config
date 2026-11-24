@@ -178,8 +178,8 @@ describe("dynaflows extension", () => {
 			assert.deepEqual(runs(), [], "minimal mode: rails run no repo or harness check");
 			h.mode("structured");
 			assert.equal(await commit(), undefined);
-			assert.deepEqual(runs(), ["commit  AGENT=unset", `harness --repo ${h.root} --record ${h.recordDir()} AGENT=unset`],
-				"the repo command first, then the harness over the whole repo with the record; AGENT never reaches either");
+			assert.deepEqual(runs(), ["commit  AGENT=unset", `harness --repo ${h.root} AGENT=unset`],
+				"the repo command first, then the harness over the whole repo (its config); AGENT never reaches either");
 			rmSync(log);
 			process.env["FAIL_commit"] = "3";
 			let blocked = await commit();
@@ -200,7 +200,7 @@ describe("dynaflows extension", () => {
 			h.gate({ schemaVersion: 2 });
 			rmSync(log);
 			assert.equal((await commit())?.block, true, "harness checks run even when the record declares no checks.commit");
-			assert.deepEqual(runs(), [`harness --repo ${h.root} --record ${h.recordDir()} AGENT=unset`]);
+			assert.deepEqual(runs(), [`harness --repo ${h.root} AGENT=unset`]);
 			delete process.env["FAIL_harness"];
 			h.mode("minimal");
 			rmSync(log);
@@ -292,7 +292,7 @@ describe("dynaflows extension", () => {
 			};
 			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 			const project = resolve(import.meta.dir, "../agent/extensions/dynaflows/engine");
-			assert.deepEqual(seen, [["run", "--project", project, "guardrails", "check", "--repo", h.root, "--record", h.recordDir()]]);
+			assert.deepEqual(seen, [["run", "--project", project, "guardrails", "check", "--repo", h.root]]);
 		} finally { h.cleanup(); }
 	});
 
@@ -1176,7 +1176,7 @@ test("linked worktrees resolve the main checkout's record", async () => {
 	} finally { h.cleanup(); rmSync(linked, { recursive: true, force: true }); }
 });
 
-test("Python proof gates and rails accept the same schema fixtures", async () => {
+test("the Python record twin and rails accept the same gate fixtures", async () => {
 	const record = { checks: { commit: ["true"] } };
 	const cases: object[] = [
 		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} }, { schemaVersion: 2, checks: undefined },
@@ -1213,8 +1213,10 @@ test("Python proof gates and rails accept the same schema fixtures", async () =>
 			h.rawGate(JSON.stringify(value));
 			rails.push(!(await h.call("bash", { command: "git push" }))?.block);
 		}
-		const modulePath = join(import.meta.dir, "../agent/extensions/dynaflows/engine/workflows.py");
-		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('workflows',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['workflows']=module; spec.loader.exec_module(module); print(json.dumps([module.gate_policy(v) is not None for v in json.loads(sys.argv[2])]))";
+		// workflows.py reads .agentrails/config.json now; until S1f deletes both, lib/repo_record.py is
+		// the record's Python twin and must keep accepting exactly what the rails accept.
+		const modulePath = join(import.meta.dir, "../agent/extensions/dynaflows/lib/repo_record.py");
+		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('repo_record',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['repo_record']=module; spec.loader.exec_module(module); print(json.dumps([module.gate_reason(v) is None for v in json.loads(sys.argv[2])]))";
 		const result = await execute("python3", ["-c", script, modulePath, JSON.stringify(cases)]);
 		assert.deepEqual(JSON.parse(result.stdout), rails);
 	} finally { h.cleanup(); }

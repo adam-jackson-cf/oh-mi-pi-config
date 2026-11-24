@@ -7,6 +7,13 @@ from importlib import resources
 from typing import Any
 
 RULE_CATALOGUE = "guardrail-rules.json"
+# Findings about the repo's settings name the config file and the section at fault.
+CONFIG_LABEL = ".agentrails/config.json"
+
+
+def config_label(section: str) -> str:
+    """A finding path for one section of the repo's .agentrails/config.json."""
+    return f"{CONFIG_LABEL}#{section}"
 
 
 @dataclass(frozen=True)

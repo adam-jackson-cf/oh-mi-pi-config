@@ -61,16 +61,16 @@
     {
       "name": "an owner exception drops the file",
       "changed": ["pkg/dashboard.py", "pkg/report.py"],
-      "profile": {
-        "guardrails": {
-          "exceptions": [
-            {
-              "rule": "structure-naming/consumer_placement",
-              "path": "pkg/dashboard.py",
-              "reason": "the dashboard ships inside the package until the operator console splits out"
-            }
-          ]
-        }
+      "config": {
+        "exceptions": [
+          {
+            "rule": "structure-naming/consumer_placement",
+            "path": "pkg/dashboard.py",
+            "reason": "the dashboard ships inside the package until the operator console splits out",
+            "approvedBy": "example-owner",
+            "approvedAt": "2026-11-24T09:00:00Z"
+          }
+        ]
       },
       "candidates": ["pkg/report.py"]
     },

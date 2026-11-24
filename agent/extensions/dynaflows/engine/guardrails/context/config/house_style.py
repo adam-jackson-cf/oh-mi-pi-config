@@ -9,7 +9,7 @@ from typing import Any
 
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import matches
+from guardrails.foundation.inventory import config_exceptions, matches
 
 DATA_FILE = "house-style.json"
 
@@ -116,16 +116,11 @@ def test_name_problems(file_name: str) -> list[str]:
     return problems
 
 
-def apply_exceptions(findings: list[Finding], profile: dict[str, Any]) -> list[Finding]:
-    section = profile.get("guardrails")
-    exceptions = section.get("exceptions", []) if isinstance(section, dict) else []
+def apply_exceptions(findings: list[Finding], config: dict[str, Any]) -> list[Finding]:
     covered = [
         item
-        for item in exceptions
-        if isinstance(item, dict)
-        and item.get("reason")
-        and item.get("rule")
-        and item.get("path")
+        for item in config_exceptions(config)
+        if item.get("reason") and item.get("rule") and item.get("path")
     ]
     return [
         finding

@@ -17,27 +17,30 @@ from guardrails.host.process import run_bytes, run_text
 
 CASE_TIMEOUT_S = 300
 FIXTURES = Path(__file__).with_name("fixtures")
-BASE_PROFILE: dict[str, Any] = {
-    "adapters": [
-        {
-            "name": "vitest",
-            "tiers": {
-                "t1": {
-                    "location": "tests",
-                    "selector": "--testNamePattern test_fast_total",
-                }
-            },
-        }
-    ],
-    "public_entry_points": {"shop/core.ts": ["publicApi"]},
-    "tiers": {"t1": {"command": "vitest run"}},
-    "layout": {
-        "test_file_patterns": ["*.test.ts"],
-        "support_dir": "tests",
-        "fixtures_dir": "tests",
+BASE_CONFIG: dict[str, Any] = {
+    "tests": {
+        "adapters": [
+            {
+                "name": "vitest",
+                "tiers": {
+                    "t1": {
+                        "location": "tests",
+                        "selector": "--testNamePattern test_fast_total",
+                    }
+                },
+            }
+        ],
+        "public_entry_points": {"shop/core.ts": ["publicApi"]},
+        "tiers": {"t1": {"command": "vitest run"}},
+        "layout": {
+            "test_file_patterns": ["*.test.ts"],
+            "support_dir": "tests",
+            "fixtures_dir": "tests",
+        },
     },
-    "house_style": {"version": 1},
-    "guardrails": {"exceptions": []},
+    "houseStyle": {"version": 1},
+    "checkers": {},
+    "exceptions": [],
 }
 
 
@@ -64,7 +67,7 @@ def fixture_source(case_id: str) -> str:
 
 
 def native_installation(
-    repo: Path | None, profile: dict[str, Any] | None
+    repo: Path | None, config: dict[str, Any] | None
 ) -> tuple[list[str], Path]:
     root = (repo or Path.cwd()).resolve()
     modules = next(
@@ -79,12 +82,12 @@ def native_installation(
         raise ValueError(
             "Vitest is not installed locally; install the target's pinned dependencies before conformance"
         )
-    settings = (profile or {}).get("guardrails", {}).get("adapter_vitest", {})
+    settings = (config or {}).get("checkers", {}).get("adapter_vitest", {})
     command = settings.get("command")
     if command:
         argv = shlex.split(command) if isinstance(command, str) else list(command)
         if not argv:
-            raise ValueError("guardrails.adapter_vitest.command must not be empty")
+            raise ValueError("checkers.adapter_vitest.command must not be empty")
     else:
         node = shutil.which("node")
         if not node:
@@ -111,26 +114,28 @@ def build_project(
     production = case["id"].startswith("production-")
     placed = "shop/settings.ts" if production else "tests/case.test.ts"
     (project / placed).write_text(fixture_source(case["id"]), encoding="utf-8")
-    profile = copy.deepcopy(BASE_PROFILE)
+    config = copy.deepcopy(BASE_CONFIG)
     if case["id"] == "approved-static-skip":
-        profile["guardrails"]["exceptions"] = [
+        config["exceptions"] = [
             {
                 "rule": "TEST.no-evasion",
                 "path": placed,
                 "reason": "Upstream vendor outage",
+                "approvedBy": "conformance-owner",
+                "approvedAt": "2026-01-01T00:00:00Z",
             }
         ]
     if production:
-        profile["public_entry_points"][placed] = ["publicApi"]
-    return project, placed, profile
+        config["tests"]["public_entry_points"][placed] = ["publicApi"]
+    return project, placed, config
 
 
 def check_source(
-    project: Path, profile: dict[str, Any], placed: str, case: dict[str, Any]
+    project: Path, config: dict[str, Any], placed: str, case: dict[str, Any]
 ) -> tuple[bool, str]:
     from guardrails.commands.adapters.vitest.lint import lint
 
-    rules = sorted({finding.rule_id for finding in lint(project, profile, [placed])})
+    rules = sorted({finding.rule_id for finding in lint(project, config, [placed])})
     return (case["rule"] in rules) == (
         case["expect"] == "finding"
     ), f"rules reported: {rules}"
@@ -208,16 +213,16 @@ def check_run(
 def check_collection(
     root: Path,
     project: Path,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     case: dict[str, Any],
     command: list[str],
 ) -> tuple[bool, str]:
     from guardrails.commands.adapters.vitest.tiers import list_tiers
     from guardrails.toolkit.test_report.collection import read_ids
 
-    profile["guardrails"] = {"adapter_vitest": {"command": command}}
+    config["checkers"] = {"adapter_vitest": {"command": command}}
     out = root / "collections"
-    findings = list_tiers(project, profile, ["t1"], out)
+    findings = list_tiers(project, config, ["t1"], out)
     rules = [finding.rule_id for finding in findings]
     ids = read_ids(out / "t1.txt")
     if case["expect"] == "finding":
@@ -233,7 +238,7 @@ def run_conformance(
     case_ids: list[str] | None = None,
     *,
     repo: Path | None = None,
-    profile: dict[str, Any] | None = None,
+    config: dict[str, Any] | None = None,
 ) -> list[CaseResult]:
     cases = load_cases()
     unknown = sorted(set(case_ids or []) - {case["id"] for case in cases})
@@ -241,7 +246,7 @@ def run_conformance(
         raise ValueError(f"unknown conformance case(s): {', '.join(unknown)}")
     selected = [case for case in cases if not case_ids or case["id"] in case_ids]
     try:
-        command, modules = native_installation(repo, profile)
+        command, modules = native_installation(repo, config)
     except (OSError, ValueError) as error:
         return [
             CaseResult(case["id"], case["rule"], False, str(error)) for case in selected
@@ -253,17 +258,17 @@ def run_conformance(
                 prefix="omp-vitest-conformance-"
             ) as scratch:
                 root = Path(scratch).resolve()
-                project, placed, bound_profile = build_project(root, case, modules)
+                project, placed, bound_config = build_project(root, case, modules)
                 kind = case["evidence"]
                 if kind == "source":
-                    passed, detail = check_source(project, bound_profile, placed, case)
+                    passed, detail = check_source(project, bound_config, placed, case)
                 elif kind == "static-cases":
                     passed, detail = check_static_cases(project, placed, case)
                 elif kind == "run-report":
                     passed, detail = check_run(root, project, case, command)
                 elif kind == "collection":
                     passed, detail = check_collection(
-                        root, project, bound_profile, case, command
+                        root, project, bound_config, case, command
                     )
                 else:
                     passed, detail = False, f"unsupported evidence kind: {kind}"
@@ -282,7 +287,7 @@ def run_cases(
     case_ids: list[str],
     *,
     repo: Path | None = None,
-    profile: dict[str, Any] | None = None,
+    config: dict[str, Any] | None = None,
 ) -> list[Finding]:
     return [
         Finding(
@@ -291,6 +296,6 @@ def run_cases(
             f"the Vitest adapter misclassifies this case ({result.detail})",
             "fix the Vitest adapter until every canonical case passes",
         )
-        for result in run_conformance(case_ids, repo=repo, profile=profile)
+        for result in run_conformance(case_ids, repo=repo, config=config)
         if not result.passed
     ]

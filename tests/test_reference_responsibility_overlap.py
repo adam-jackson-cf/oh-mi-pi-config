@@ -116,7 +116,7 @@ class OverlapCommandTests(unittest.TestCase):
             with self.subTest(case=case["name"]):
                 repo, base, head = self.repository(case)
                 found = overlap.run(
-                    repo, case.get("profile", {}), ["--base", base, "--head", head]
+                    repo, case.get("config", {}), ["--base", base, "--head", head]
                 )
                 assert sorted((item.rule_id, item.path) for item in found) == sorted(
                     tuple(row) for row in case["findings"]
@@ -130,7 +130,7 @@ class OverlapCommandTests(unittest.TestCase):
             "src/billing/: src/shipping/summary.py summarise_orders and "
             "src/billing/report.py summarise_orders have 3-gram similarity 1.000 at "
             "or above 0.336; move the shared logic into one shared mechanism both "
-            "units use, or record an owner-approved guardrails.exceptions entry "
+            "units use, or record an owner-approved exceptions entry "
             "{rule, path, reason}"
         )
 

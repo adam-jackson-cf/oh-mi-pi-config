@@ -26,7 +26,7 @@ from guardrails.commands.adapters.go.source import (
 from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.lint import waived
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import normalized_path, repo_paths
+from guardrails.foundation.inventory import normalized_path, repo_paths, tests_settings
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -269,8 +269,8 @@ def property_seed(source: Source) -> list[Finding]:
         if name not in QUICK_CHECKS:
             continue
         values = arguments(call)
-        config = config_literal(values[-1], source.root) if values else None
-        if not seeded(config):
+        options = config_literal(values[-1], source.root) if values else None
+        if not seeded(options):
             found.append(
                 Finding(
                     SEED,
@@ -381,8 +381,8 @@ def used_names(root: SgNode, *, skip_definitions: bool = False) -> set[str]:
     }
 
 
-def entry_point_symbols(profile: dict[str, Any]) -> set[str]:
-    entries = profile.get("public_entry_points")
+def entry_point_symbols(config: dict[str, Any]) -> set[str]:
+    entries = tests_settings(config, "public_entry_points")
     symbols: set[str] = set()
     for value in entries.values() if isinstance(entries, dict) else []:
         items = value if isinstance(value, list) else [value]
@@ -395,7 +395,7 @@ def entry_point_symbols(profile: dict[str, Any]) -> set[str]:
 def test_only_symbols(
     production: dict[str, Source],
     tests: dict[str, Source],
-    profile: dict[str, Any],
+    config: dict[str, Any],
     reported: set[str],
 ) -> list[Finding]:
     production_uses: set[str] = set()
@@ -410,7 +410,7 @@ def test_only_symbols(
     for path, source in sorted(tests.items()):
         for name in used_names(source.root):
             test_uses.setdefault(name, path)
-    public = entry_point_symbols(profile)
+    public = entry_point_symbols(config)
     return [
         Finding(
             HOOKS,
@@ -451,18 +451,18 @@ def owned_type_names(sources: dict[str, Source]) -> frozenset[str]:
     )
 
 
-def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]:
+def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
     every = go_files(repo_paths(repo))
     chosen = (
         go_files([item for raw in paths if (item := normalized_path(repo, raw))])
         if paths
         else every
     )
-    owned = owned_imports(repo, profile)
+    owned = owned_imports(repo, config)
     production: dict[str, Source] = {}
     tests: dict[str, Source] = {}
     for path in every:
-        if is_test_path(path) or owned_path(path, profile):
+        if is_test_path(path) or owned_path(path, config):
             source = load(repo, path)
             if source is not None:
                 (tests if is_test_path(path) else production)[path] = source
@@ -478,9 +478,9 @@ def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]
         elif path in production:
             findings.extend(hook_findings(production[path]))
             reported.add(path)
-    findings.extend(test_only_symbols(production, tests, profile, reported))
+    findings.extend(test_only_symbols(production, tests, config, reported))
     return [
         finding
         for finding in findings
-        if not waived(finding.rule_id, finding.path, profile)
+        if not waived(finding.rule_id, finding.path, config)
     ]

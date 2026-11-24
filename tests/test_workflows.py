@@ -198,26 +198,14 @@ class SchemaTests(unittest.TestCase):
         ):
             assert self.load(self.data) == self.data
 
-    def test_gate_policy_uses_the_harness_gate_validation(self) -> None:
-        # repo_record.gate_reason owns the schema (tests/test_repo_record.py); gate_policy accepts
-        # exactly what it accepts and returns the fields freeze() and prove() consume.
-        gate = {
-            "schemaVersion": 2,
-            "checks": {"commit": ["c"], "format": ["ruff", "format"]},
-            "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-        }
-        assert workflow.gate_policy(gate) == {
-            "format": ["ruff", "format"],
-            "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-        }
-        for invalid in (
-            {k: v for k, v in gate.items() if k != "checks"},
-            {**gate, "checks": {"ci": ["c"]}},
-            {**gate, "unknownField": 3},
-            {**gate, "ownerOnlyPaths": []},
-        ):
-            with self.subTest(gate=invalid):
-                assert workflow.gate_policy(invalid) is None
+    def test_gate_policy_reads_the_validated_repo_config(self) -> None:
+        # repo_config.validate owns the schema (tests/test_repo_config.py); gate_policy returns
+        # the fields freeze() and prove() consume from a config it accepted.
+        ci = {"enabled": True, "runner": "ci-gate", "requiredContext": "gate"}
+        config = {"commands": {"commit": ["c"], "format": ["ruff", "format"]}, "ci": ci}
+        assert workflow.gate_policy(config) == {"format": ["ruff", "format"], "ci": ci}
+        off = {"commands": {"commit": ["c"]}, "ci": {"enabled": False}}
+        assert workflow.gate_policy(off) == {"format": None, "ci": {"enabled": False}}
 
     def test_journey_flag_must_be_boolean(self) -> None:
         for value in (True, False):
@@ -505,7 +493,7 @@ class HarnessCheckLogTests(unittest.TestCase):
             workflow, "run_check", side_effect=lambda *a, **k: next(outputs)
         ) as run:
             found, errors = workflow._harness_check_findings(
-                Path("/repo"), Path("/records/repos/owner/name"), "p" * 40, "h" * 40
+                Path("/repo"), "p" * 40, "h" * 40
             )
         assert found == ["src/a.py: GATE.path-check: bad name; rename it"]
         assert errors == [
@@ -1430,17 +1418,9 @@ class StructureProposalTests(unittest.TestCase):
             commands.append(cmd)
             return ok, output
 
-        record: tuple[Path, dict[str, Any]] = (Path("/records/owner/repo"), {})
-        return (
-            patch.multiple(
-                workflow,
-                run_check=run_check,
-                read_record=lambda repo: record,
-            ),
-            commands,
-        )
+        return patch.multiple(workflow, run_check=run_check), commands
 
-    def test_a_proposer_reads_the_record_and_returns_its_json(self) -> None:
+    def test_a_proposer_passes_the_repo_only_and_returns_its_json(self) -> None:
         found = {
             "pairs": [
                 {"id": "p", "det_score": 0.5, "state": {"first": {}, "second": {}}}
@@ -1450,8 +1430,8 @@ class StructureProposalTests(unittest.TestCase):
         with patched:
             assert workflow._name_pairs(Path("."), "b" * 40, "h" * 40) == found["pairs"]
         (command,) = commands
-        assert command[command.index("--record") + 1] == "/records/owner/repo"
-        assert command[command.index("name-pairs") + 1 : command.index("--record")] == [
+        assert "--record" not in command
+        assert command[command.index("name-pairs") + 1 : command.index("--base")] == [
             "--repo",
             ".",
         ]

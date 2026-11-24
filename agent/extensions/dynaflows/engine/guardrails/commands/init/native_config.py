@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, TypeGuard
 
 from guardrails.context.config.profile import PLACEHOLDER
+from guardrails.foundation.inventory import structure_settings
 
 DATA_FILE = "native-tools.json"
 HEADER = "# Proposed native-tool configuration; edit with owner approval.\n"
@@ -157,7 +158,7 @@ def real_text(value: object) -> TypeGuard[str]:
 
 
 def planned_configs(
-    repo: Path, profile: dict[str, Any]
+    repo: Path, config: dict[str, Any]
 ) -> tuple[dict[str, str], list[str]]:
     project = pyproject(repo)
     data = load_data()
@@ -181,9 +182,7 @@ def planned_configs(
             )
         else:
             planned[path] = render_mypy(data, version, names, roots)
-    structure: dict[str, Any] = (
-        profile["structure"] if isinstance(profile.get("structure"), dict) else {}
-    )
+    structure = structure_settings(config)
     direction = structure.get("import_direction")
     package = direction.get("package") if isinstance(direction, dict) else None
     tiers: list[Any] = (

@@ -12,9 +12,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import IO, Any
 
-from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.host.process import start_piped
 
 RULE = "PROFILE.complete"
@@ -341,7 +340,7 @@ def readiness(
                 findings.append(
                     Finding(
                         RULE,
-                        PROFILE_PATH,
+                        config_label("tests"),
                         message,
                         f"{stack.install}, then run init again",
                     )
@@ -353,7 +352,7 @@ def readiness(
             findings.append(
                 Finding(
                     RULE,
-                    PROFILE_PATH,
+                    config_label("tests"),
                     f"{stack.name} language server {found} failed the canary: {error}",
                     f"repair or reinstall it ({stack.install}), then run init again",
                 )

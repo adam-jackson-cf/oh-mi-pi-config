@@ -299,11 +299,11 @@ def clusters(
     paths: list[str],
     added: set[str],
     evidence: Evidence,
-    profile: dict[str, Any],
+    config: dict[str, Any],
 ) -> list[dict[str, Any]]:
     weights = contract()["weights"]
     return [
-        scored(cluster, evidence, weights) for cluster in _groups(paths, added, profile)
+        scored(cluster, evidence, weights) for cluster in _groups(paths, added, config)
     ]
 
 
@@ -312,12 +312,12 @@ def _folder_path(cluster: dict[str, Any]) -> str:
     return name if name == "." else name + "/"
 
 
-def exempt(cluster: dict[str, Any], profile: dict[str, Any]) -> bool:
+def exempt(cluster: dict[str, Any], config: dict[str, Any]) -> bool:
     probes = [
         Finding(RULE, path, "", "")
         for path in [_folder_path(cluster), *cluster["members"]]
     ]
-    return len(apply_exceptions(probes, profile)) < len(probes)
+    return len(apply_exceptions(probes, config)) < len(probes)
 
 
 def finding(cluster: dict[str, Any], cutoff: float) -> Finding:
@@ -332,24 +332,24 @@ def finding(cluster: dict[str, Any], cutoff: float) -> Finding:
         f"{', '.join(cluster['members'])}; score {cluster['score']:.2f} at or above "
         f"{cutoff} from {first} and {second} ({facts})",
         f"move them into a `{cluster['prefix']}/` folder named for the concept, or record "
-        "an owner-approved guardrails.exceptions entry {rule, path, reason} on the folder "
+        "an owner-approved exceptions entry {rule, path, reason} on the folder "
         "or a member",
     )
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=SUBCOMMANDS["prefix-folder"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
-    excluded = as_list(settings(profile, "check").get("exclude")) + as_list(
-        settings(profile, "python").get("excluded_paths")
+    excluded = as_list(settings(config, "check").get("exclude")) + as_list(
+        settings(config, "python").get("excluded_paths")
     )
     try:
         added = _added_or_moved(repo, args.base, args.head)
         paths, texts = sources(repo, args.head, excluded)
         found = clusters(
-            paths, added, evidence_of(texts, history(repo, args.head)), profile
+            paths, added, evidence_of(texts, history(repo, args.head)), config
         )
     except (DiffError, GitError, ValueError) as error:
         return [
@@ -364,5 +364,5 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     return [
         finding(cluster, cutoff)
         for cluster in found
-        if cluster["score"] >= cutoff and not exempt(cluster, profile)
+        if cluster["score"] >= cutoff and not exempt(cluster, config)
     ]

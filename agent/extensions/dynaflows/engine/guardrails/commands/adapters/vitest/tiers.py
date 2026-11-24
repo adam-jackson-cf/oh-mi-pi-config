@@ -22,8 +22,8 @@ def selector_arguments(selector: str) -> list[str]:
     return shlex.split(selector)
 
 
-def command(repo: Path, profile: dict[str, Any]) -> list[str]:
-    configured = settings(profile, "adapter_vitest").get("command")
+def command(repo: Path, config: dict[str, Any]) -> list[str]:
+    configured = settings(config, "adapter_vitest").get("command")
     if configured is not None:
         if (
             not isinstance(configured, list)
@@ -31,7 +31,7 @@ def command(repo: Path, profile: dict[str, Any]) -> list[str]:
             or not all(isinstance(part, str) for part in configured)
         ):
             raise ValueError(
-                "guardrails.adapter_vitest.command must be a nonempty argv list"
+                "checkers.adapter_vitest.command must be a nonempty argv list"
             )
         return configured
     executable = repo / "node_modules/vitest/vitest.mjs"
@@ -65,15 +65,15 @@ def collected_ids(repo: Path, entries: object) -> list[str]:
 
 
 def collect_tier(
-    repo: Path, profile: dict[str, Any], tier: str, out: Path
+    repo: Path, config: dict[str, Any], tier: str, out: Path
 ) -> list[Finding]:
-    spec = adapter_tiers(profile, NAME).get(tier)
+    spec = adapter_tiers(config, NAME).get(tier)
     try:
         if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
             raise ValueError(
                 f"the vitest adapter needs a native Vitest selector for tier {tier}"
             )
-        timeout = settings(profile, "adapter_vitest").get("collect_timeout_s", 120)
+        timeout = settings(config, "adapter_vitest").get("collect_timeout_s", 120)
         if (
             isinstance(timeout, bool)
             or not isinstance(timeout, (int, float))
@@ -86,7 +86,7 @@ def collect_tier(
         with tempfile.TemporaryDirectory(prefix="omp-vitest-collect-") as scratch:
             listing = Path(scratch) / "ids.json"
             argv = [
-                *command(repo, profile),
+                *command(repo, config),
                 "list",
                 *selector_arguments(spec["selector"]),
                 "--json",
@@ -128,9 +128,9 @@ def collect_tier(
 
 
 def list_tiers(
-    repo: Path, profile: dict[str, Any], tiers: list[str], out: Path
+    repo: Path, config: dict[str, Any], tiers: list[str], out: Path
 ) -> list[Finding]:
     findings = []
-    for tier in tiers or sorted(adapter_tiers(profile, NAME)):
-        findings.extend(collect_tier(repo, profile, tier, out))
+    for tier in tiers or sorted(adapter_tiers(config, NAME)):
+        findings.extend(collect_tier(repo, config, tier, out))
     return findings

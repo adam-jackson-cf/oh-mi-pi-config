@@ -12,9 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.commands.surface.feature_map import surface
-from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import as_list, settings
 from guardrails.host.process import run_text, start_logged
 
@@ -33,8 +32,8 @@ class LeverRun:
     leftovers: tuple[str, ...]
 
 
-def number(config: dict[str, Any], key: str, default: float) -> float:
-    value = config.get(key)
+def number(options: dict[str, Any], key: str, default: float) -> float:
+    value = options.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         return default
     return float(value)
@@ -116,7 +115,7 @@ def run_lever(
     command: list[str],
     env: dict[str, str],
     scratch: Path,
-    config: dict[str, Any],
+    options: dict[str, Any],
 ) -> LeverRun:
     log = scratch / f"lever-output-{time.monotonic_ns()}.log"
     with log.open("wb") as output:
@@ -126,7 +125,7 @@ def run_lever(
             return LeverRun(None, f"cannot start lever: {error}", ())
         try:
             returncode: int | None = process.wait(
-                timeout=number(config, "timeout_s", DEFAULT_TIMEOUT_S)
+                timeout=number(options, "timeout_s", DEFAULT_TIMEOUT_S)
             )
         except subprocess.TimeoutExpired:
             with contextlib.suppress(OSError):
@@ -134,7 +133,7 @@ def run_lever(
             process.wait()
             returncode = None
     left = leftovers(
-        process.pid, str(scratch), number(config, "settle_s", DEFAULT_SETTLE_S)
+        process.pid, str(scratch), number(options, "settle_s", DEFAULT_SETTLE_S)
     )
     text = log.read_bytes().decode(errors="replace")
     return LeverRun(returncode, text, left)
@@ -151,7 +150,7 @@ def run_findings(label: str, result: LeverRun, evidence: Path) -> list[Finding]:
         found.append(
             Finding(
                 RULE,
-                PROFILE_PATH,
+                config_label("tests"),
                 f"{label} run timed out: {tail(result.output)}",
                 "make doctor finish or fail within timeout_s",
             )
@@ -160,7 +159,7 @@ def run_findings(label: str, result: LeverRun, evidence: Path) -> list[Finding]:
         found.append(
             Finding(
                 RULE,
-                PROFILE_PATH,
+                config_label("tests"),
                 f"{label} run left processes behind: {', '.join(result.leftovers)}",
                 "kill the lever's whole process group on every exit path",
             )
@@ -169,7 +168,7 @@ def run_findings(label: str, result: LeverRun, evidence: Path) -> list[Finding]:
         found.append(
             Finding(
                 RULE,
-                PROFILE_PATH,
+                config_label("tests"),
                 f"{label} run did not leave the evidence directory",
                 "create the evidence directory and keep it after cleanup",
             )
@@ -177,12 +176,12 @@ def run_findings(label: str, result: LeverRun, evidence: Path) -> list[Finding]:
     return found
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     del argv
-    values = surface(profile)
+    values = surface(config)
     if values is None:
         return []
-    config = settings(profile, CHECKER)
+    options = settings(config, CHECKER)
     try:
         lever = shlex.split(str(values.get("lever_command") or ""))
     except ValueError:
@@ -194,29 +193,34 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         return [
             Finding(
                 RULE,
-                PROFILE_PATH,
+                config_label("tests"),
                 "verification_surface needs lever_command, doctor_marker, data_dir_arg and "
                 "evidence_dir_arg",
-                "record them in the test profile",
+                "record them in tests.verification_surface",
             )
         ]
     if not hasattr(os, "killpg"):
         return [
-            Finding(RULE, PROFILE_PATH, "process-group checks need POSIX", "run in CI")
+            Finding(
+                RULE,
+                config_label("tests"),
+                "process-group checks need POSIX",
+                "run in CI",
+            )
         ]
     lever_run = DoctorCommand(
         repo,
-        [*lever, *as_list(config.get("doctor_args"))],
+        [*lever, *as_list(options.get("doctor_args"))],
         data_flag,
         evidence_flag,
-        config,
+        options,
     )
     found: list[Finding] = []
     with tempfile.TemporaryDirectory(prefix="omp-lever-selftest-") as scratch:
         root = Path(scratch).resolve()
         found.extend(healthy_findings(lever_run, root))
         found.extend(
-            broken_findings(lever_run, root, config.get("failure_env"), doctor_marker)
+            broken_findings(lever_run, root, options.get("failure_env"), doctor_marker)
         )
     return found
 
@@ -249,7 +253,7 @@ def healthy_findings(lever_run: DoctorCommand, root: Path) -> list[Finding]:
         found.append(
             Finding(
                 RULE,
-                PROFILE_PATH,
+                config_label("tests"),
                 f"healthy doctor run exited {healthy.returncode}: {tail(healthy.output)}",
                 "make doctor pass in a fresh temporary data directory",
             )
@@ -276,7 +280,7 @@ def broken_findings(
         found.append(
             Finding(
                 RULE,
-                PROFILE_PATH,
+                config_label("tests"),
                 "doctor passed in a broken environment (unusable data directory)",
                 "make doctor prove the instance is usable, not only that it started",
             )
@@ -285,10 +289,10 @@ def broken_findings(
         found.append(
             Finding(
                 RULE,
-                PROFILE_PATH,
+                config_label("tests"),
                 f"doctor failure did not print the doctor marker '{doctor_marker}': "
                 f"{tail(broken.output)}",
-                "print the profile's doctor marker on every doctor failure",
+                "print the configured doctor marker on every doctor failure",
             )
         )
     found.extend(run_findings("broken-environment", broken, broken_evidence))

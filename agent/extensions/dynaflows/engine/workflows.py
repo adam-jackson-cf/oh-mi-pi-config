@@ -3,7 +3,6 @@
 import copy
 import hashlib
 import importlib
-import importlib.util
 import json
 import os
 import re
@@ -46,13 +45,13 @@ __all__ = [
     "load_manifest",
     "malicious_assessment",
     "malicious_package",
-    "no_record_reason",
+    "not_onboarded_reason",
     "outcome",
     "owner_report",
     "parse_dependency_audit",
     "prove",
     "rate_advisory",
-    "read_record",
+    "read_config",
     "require_direct_judge_route",
     "require_judge_model",
     "result_path",
@@ -66,10 +65,8 @@ MAX_PROOFS = 16
 CHECK_TIMEOUT = 900
 # Harness prechecks have their own budget, independent of repo proof execution.
 HARNESS_CHECK_TIMEOUT = 900
-GUARDRAIL_PREREQUISITE = (
-    "missing per-repo record; follow skill://structured-workflow/SKILL.md "
-    "owner-approval prerequisite (skill://structured-workflow/references/harness-setup.md)"
-)
+# Every refusal for a repo without a valid .agentrails/config.json routes to onboarding.
+GUARDRAIL_PREREQUISITE = "ask the owner to run /agentrails onboard"
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
 # Every current manifest and proof field; any other field is rejected by name.
@@ -91,7 +88,7 @@ PROOF_FIELDS = frozenset({
     "sha256",
 })
 FEATURE_MAP_SETUP = (
-    "the record profile declares no verification_surface.feature_map_path; proofs must be "
+    "the repo config declares no tests.verification_surface.feature_map_path; proofs must be "
     "outcome tests linked from the feature map, so set the map up first "
     "(skill://structured-workflow/references/project-setup.md). "
     "A PR with no behaviour change freezes no proofs"
@@ -167,40 +164,19 @@ def _harness_root() -> Path:
     return Path(_LOADED_FROM).resolve().parents[4]
 
 
-def _records_root() -> Path:
-    """Root that holds repos/<owner>/<name>/ records: the harness checkout itself."""
-    return _harness_root()
-
-
-_RESOLVER: list[ModuleType] = []
-
-
-def _resolver() -> Any:
-    if not _RESOLVER:
-        path = _harness_root() / "agent/extensions/dynaflows/lib/repo_record.py"
-        spec = importlib.util.spec_from_file_location("omp_repo_record", path)
-        if spec is None or spec.loader is None:
-            raise WorkflowError(f"cannot load the record resolver: {path}")
-        module = importlib.util.module_from_spec(spec)
-        try:
-            spec.loader.exec_module(module)
-        except (OSError, SyntaxError, ImportError) as exc:
-            raise WorkflowError(f"cannot load the record resolver: {exc}") from exc
-        _RESOLVER.append(module)
-    return _RESOLVER[0]
-
-
 _SURFACE: list[ModuleType] = []
 _STORE: list[ModuleType] = []
+_REPO_CONFIG: list[ModuleType] = []
 GUARDRAILS_REFERENCE = "agent/extensions/dynaflows/engine"
 
 
 def _guardrails_modules(names: tuple[str, ...], purpose: str) -> list[ModuleType]:
     """guardrails modules from the harness's python reference; an older guardrails copy is refused."""
     reference = (_harness_root() / GUARDRAILS_REFERENCE).resolve()
+    package = (reference / "guardrails").resolve()
     loaded = sys.modules.get("guardrails")
     if loaded is not None and not Path(loaded.__file__ or "").resolve().is_relative_to(
-        reference
+        package
     ):
         raise WorkflowError(
             f"guardrails already loaded from {loaded.__file__}, not the harness reference {reference}"
@@ -240,34 +216,36 @@ def _store() -> Any:
     return _STORE[0]
 
 
-def read_record(repo: StrPath) -> tuple[Path | None, dict[str, Any] | None]:
-    """(record directory, gate.json object) for the clone at `repo`, or (None, None) without a record.
+def _repo_config() -> Any:
+    """guardrails' repo config module (the one .agentrails/config.json validator), loaded once."""
+    if not _REPO_CONFIG:
+        _REPO_CONFIG.extend(
+            _guardrails_modules(
+                ("guardrails.context.config.repo_config",), "repo config validator"
+            )
+        )
+    return _REPO_CONFIG[0]
 
-    The record is the personal, gitignored `repos/<owner>/<name>/` directory under the harness,
-    named by the clone's origin remote; worktrees resolve to their main checkout's record. A record
-    that exists but is unreadable or that rails would reject raises, and so does an origin remote
-    that cannot be read: that is not "no record".
+
+def not_onboarded_reason(repo: StrPath, kind: str) -> str:
+    """The refusal for a repo whose config is missing, invalid, unresolved or outside."""
+    return (
+        f"agent rails: {repo} is not onboarded (.agentrails/config.json {kind}); "
+        f"{GUARDRAIL_PREREQUISITE}"
+    )
+
+
+def read_config(repo: StrPath) -> dict[str, Any]:
+    """The validated .agentrails/config.json of the clone at `repo` (its main checkout's file).
+
+    A missing, invalid or unresolvable config raises: there is no default policy.
     """
-    resolver = _resolver()
+    module = _repo_config()
     try:
-        record = resolver.find_record(repo, _records_root())
-        if record is None:
-            return None, None
-        gate = resolver.load_gate(record)
-    except resolver.RecordError as exc:
-        raise WorkflowError(f"record {exc}") from exc
-    return record, gate
-
-
-def no_record_reason(repo: StrPath) -> str:
-    """Why the clone at `repo` has no record, in rails' words: the slug (or "none") and the reason."""
-    resolver = _resolver()
-    try:
-        slug, _, reason = resolver.resolve_record(repo, _records_root())
-    except resolver.RecordError as exc:
-        raise WorkflowError(f"record {exc}") from exc
-    text: str = resolver.minimal_text(slug, reason or "no per-repo record")
-    return text
+        config: dict[str, Any] = module.load_config(repo)
+    except module.ConfigError as exc:
+        raise WorkflowError(not_onboarded_reason(repo, exc.kind)) from exc
+    return config
 
 
 def _is_argv(value: object) -> TypeGuard[list[str]]:
@@ -818,7 +796,7 @@ def _run_placed(
 def _red_at_base_failure(
     proof: dict[str, Any], record: dict[str, Any], marker: str | None
 ) -> str | None:
-    """The one proof rule at base: any failing run is red, unless the record's doctor marker shows the environment failed."""
+    """The one proof rule at base: any failing run is red, unless the config's doctor marker shows the environment failed."""
     error: str | None = record.get("error")
     if error:
         return error
@@ -864,40 +842,10 @@ class FreezeResult(tuple[Path, str]):
         return result
 
 
-def _profile_path(record: StrPath) -> Path:
-    profile_file: str = _resolver().PROFILE_FILE
-    return Path(record) / profile_file
-
-
-def _profile(record: StrPath | None) -> dict[str, Any]:
-    """The record profile's front-matter object; an absent record, profile or front matter is {}."""
-    if record is None:
-        return {}
-    path = _profile_path(record)
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except FileNotFoundError:
-        return {}
-    except (OSError, UnicodeError) as exc:
-        raise WorkflowError(f"{path} unreadable: {exc}") from exc
-    if not lines or lines[0].strip() != "---":
-        return {}
-    end = next(
-        (index for index, line in enumerate(lines[1:], 1) if line.strip() == "---"),
-        None,
-    )
-    if end is None:
-        raise WorkflowError(f"{path} front matter has no closing '---' line")
-    try:
-        values = json.loads("\n".join(lines[1:end]))
-    except ValueError as exc:
-        raise WorkflowError(f"{path} front matter is not valid JSON: {exc}") from exc
-    return values if isinstance(values, dict) else {}
-
-
-def _doctor_marker(profile: dict[str, Any]) -> str | None:
-    """verification_surface.doctor_marker from the profile front matter; an absent or placeholder value skips."""
-    surface = profile.get("verification_surface")
+def _doctor_marker(config: dict[str, Any]) -> str | None:
+    """tests.verification_surface.doctor_marker from the repo config; an absent or placeholder value skips."""
+    tests = config.get("tests")
+    surface = tests.get("verification_surface") if isinstance(tests, dict) else None
     marker = surface.get("doctor_marker") if isinstance(surface, dict) else None
     if not isinstance(marker, str) or re.fullmatch(
         r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", marker, re.IGNORECASE | re.DOTALL
@@ -906,10 +854,10 @@ def _doctor_marker(profile: dict[str, Any]) -> str | None:
     return marker
 
 
-def _feature_map_path(profile: dict[str, Any]) -> str | None:
+def _feature_map_path(config: dict[str, Any]) -> str | None:
     """verification_surface.feature_map_path (repo-relative, no trailing slash), or None when the
-    profile declares none, exempts the surface or leaves a placeholder."""
-    surface = _surface()[0].surface(profile)
+    config declares none, exempts the surface or leaves a placeholder."""
+    surface = _surface()[0].surface(config)
     value = surface.get("feature_map_path") if surface is not None else None
     if not isinstance(value, str) or re.fullmatch(
         r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", value, re.IGNORECASE | re.DOTALL
@@ -949,15 +897,15 @@ def _unproven_map_docs(
     repo: Path,
     parent: str,
     head: str,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     manifest: dict[str, Any],
 ) -> list[str]:
     """Feature-map documents changed in parent..head that link no proof file in the manifest."""
-    map_path = _feature_map_path(profile)
+    map_path = _feature_map_path(config)
     if map_path is None:
         return []
     feature_map = _surface()[0]
-    indexes = feature_map.index_files(profile)
+    indexes = feature_map.index_files(config)
     changed = _git(
         repo,
         "diff",
@@ -1018,7 +966,6 @@ class FreezeOptions(TypedDict, total=False):
     previous: tuple[StrPath, str] | None
     revise: dict[str, str] | None
     max_checks: int
-    project_setup: bool
 
 
 @dataclass(frozen=True)
@@ -1032,7 +979,6 @@ class FreezeRequest:
     previous: tuple[StrPath, str] | None
     revise: dict[str, str]
     max_checks: int
-    project_setup: bool
 
 
 @dataclass(frozen=True)
@@ -1056,11 +1002,11 @@ def freeze(
     """Freeze working-tree proofs after showing each one fails at its baseline (red at base).
 
     Keyword arguments: base=None, setup=None, previous=None, revise=None,
-    max_checks=MAX_PROOFS, project_setup=False.
+    max_checks=MAX_PROOFS.
 
-    Policy comes from the clone's per-repo record (read_record), never from the repo tree. A
-    clone without a record refuses, except with `project_setup=True`, where the record is still
-    being drafted. `proofs` may be empty: a PR with no behaviour change (refactor, docs) freezes
+    Policy comes from the clone's .agentrails/config.json (read_config), never from the repo
+    tree. A clone that is not onboarded refuses; onboarding merges are owner merges. `proofs`
+    may be empty: a PR with no behaviour change (refactor, docs) freezes
     none, and prove() then checks CI green unless the PR changes a feature-map doc, which must
     link a frozen proof. Every proof must be linked from a feature-map doc.
     Journey stability is a prove() check on the head being merged, not a freeze() check.
@@ -1073,14 +1019,11 @@ def freeze(
             "manifest must be durable; use <git-common-dir>/omp-manifests/<slug>.json"
         )
     lineage = _lineage(root, request)
-    record, gate = read_record(root)
-    if record is None and not request.project_setup:
-        raise WorkflowError(no_record_reason(root))
-    profile = _profile(record)
-    marker = _doctor_marker(profile)
-    policy = gate_policy(gate) if gate is not None else None
+    config = read_config(root)
+    marker = _doctor_marker(config)
+    policy = gate_policy(config)
     formatted, format_dirtied = (
-        _format(root, policy["format"]) if policy and policy["format"] else ([], set())
+        _format(root, policy["format"]) if policy["format"] else ([], set())
     )
     manifest: dict[str, Any] = {
         "schemaVersion": 1,
@@ -1091,7 +1034,7 @@ def freeze(
     if lineage.setup is not None:
         manifest["setup"] = lineage.setup
     manifest["proofs"].extend(_frozen_proof(root, proof, lineage) for proof in proofs)
-    map_path = _mapped_proofs(root, profile, manifest)
+    map_path = _mapped_proofs(root, config, manifest)
     _refuse_unfrozen(root, manifest, format_dirtied, map_path)
     changed = _record_revisions(manifest, lineage, request.revise)
     _validate(manifest, request.max_checks)
@@ -1104,9 +1047,6 @@ def _freeze_request(
     slug: str, proofs: list[dict[str, Any]], options: FreezeOptions
 ) -> FreezeRequest:
     """Validate freeze()'s arguments before any Git or filesystem access."""
-    project_setup = options.get("project_setup", False)
-    if not isinstance(project_setup, bool):
-        raise WorkflowError("project_setup must be a bool")
     max_checks = options.get("max_checks", MAX_PROOFS)
     _limit(max_checks)
     base = options.get("base")
@@ -1132,9 +1072,7 @@ def _freeze_request(
         for k, v in revise.items()
     ):
         raise WorkflowError("revise must map proof IDs to nonblank reasons")
-    return FreezeRequest(
-        slug, proofs, base, setup, previous, revise, max_checks, project_setup
-    )
+    return FreezeRequest(slug, proofs, base, setup, previous, revise, max_checks)
 
 
 def _lineage(root: Path, request: FreezeRequest) -> Lineage:
@@ -1207,12 +1145,12 @@ def _frozen_file(root: Path, ident: str, name: str) -> str:
 
 
 def _mapped_proofs(
-    root: Path, profile: dict[str, Any], manifest: dict[str, Any]
+    root: Path, config: dict[str, Any], manifest: dict[str, Any]
 ) -> str | None:
     """The feature map path when there are proofs, after checking a map document links each proof file."""
     if not manifest["proofs"]:
         return None
-    map_path = _feature_map_path(profile)
+    map_path = _feature_map_path(config)
     if map_path is None:
         raise WorkflowError(FEATURE_MAP_SETUP)
     unmapped = _unmapped_proof_files(root, map_path, manifest["proofs"])
@@ -1344,11 +1282,9 @@ def _range(repo: StrPath, parent: str, head: str, target_ref: str) -> tuple[str,
     return parent, target
 
 
-def gate_policy(gate: dict[str, Any] | None) -> dict[str, Any] | None:
-    """The fields consumed here from a gate the harness's repo_record.gate_reason accepts, else None."""
-    if gate is None or _resolver().gate_reason(gate) is not None:
-        return None
-    return {"format": gate["checks"].get("format"), "ci": gate.get("ci")}
+def gate_policy(config: dict[str, Any]) -> dict[str, Any]:
+    """The policy consumed here from a validated repo config: the format command and CI."""
+    return {"format": config["commands"].get("format"), "ci": config["ci"]}
 
 
 def deterministic_checks(
@@ -1510,7 +1446,7 @@ def prove(
     objective: str,
     **options: Unpack[ProveOptions],
 ) -> dict[str, Any]:
-    """At the PR event: refuse unless the record's required CI context is green on head, then check
+    """At the PR event: refuse unless the config's required CI context is green on head, then check
     rename residue, new-path path-check and structure over parent..head, feature-map coverage, and
     frozen proofs at head (unchanged bytes, every run passing).
 
@@ -1582,11 +1518,11 @@ def _prove_head(
     base = manifest["base"]
     if not _ancestor(repo, base, parent):
         raise WorkflowError("base must be an ancestor of parent")
-    record = _record_with_green_ci(repo, head)
-    findings, log_errors = _harness_check_findings(repo, record, parent, head)
+    config = _config_with_green_ci(repo, head)
+    findings, log_errors = _harness_check_findings(repo, parent, head)
     result["blocking"].extend(findings)
     result["decisionLogErrors"].extend(log_errors)
-    unproven = _unproven_map_docs(repo, parent, head, _profile(record), manifest)
+    unproven = _unproven_map_docs(repo, parent, head, config, manifest)
     if unproven:
         raise ProveBlockedError(
             f"feature-map documents changed in {parent}..{head} link no frozen proof: "
@@ -1606,27 +1542,26 @@ def _prove_head(
         _run_head_proofs(repo, head, manifest, result)
 
 
-def _record_with_green_ci(repo: Path, head: str) -> Path:
-    """The clone's record; the gate's required CI context, when it has one, must be green on head."""
-    record, gate = read_record(repo)
-    if record is None:
-        raise WorkflowError(f"{GUARDRAIL_PREREQUISITE}; {no_record_reason(repo)}")
-    policy = gate_policy(gate)
-    if policy is None:
-        raise WorkflowError(f"record gate rejected: {_resolver().gate_reason(gate)}")
-    if policy["ci"]:
-        context = policy["ci"]["requiredContext"]
+def _config_with_green_ci(repo: Path, head: str) -> dict[str, Any]:
+    """The clone's repo config; with ci.enabled its required CI context must be green on head.
+
+    ci.enabled false means the repo has no CI requirement at merge.
+    """
+    config = read_config(repo)
+    ci = gate_policy(config)["ci"]
+    if ci["enabled"]:
+        context = ci["requiredContext"]
         state = _required_context_state(repo, head, context)
         if state != "success":
             raise ProveBlockedError(
                 f'required CI context "{context}" is {state} for {head}; '
                 "prove() runs only after CI is green on this exact head"
             )
-    return record
+    return config
 
 
 def _harness_check_findings(
-    repo: Path, record: Path, parent: str, head: str
+    repo: Path, parent: str, head: str
 ) -> tuple[list[str], list[str]]:
     """Run the harness's rename, path, structure, overlap and prefix checkers over parent..head.
 
@@ -1654,8 +1589,6 @@ def _harness_check_findings(
                 checker,
                 "--repo",
                 str(repo),
-                "--record",
-                str(record),
                 "--log-decisions",
                 "prove",
                 "--base",
@@ -2567,7 +2500,7 @@ def parse_dependency_audit(output: object) -> dict[str, list[dict[str, Any]]]:
         raise WorkflowError("commit-gate output must be text")
     if output.startswith("…"):
         raise WorkflowError(
-            "commit-gate output is truncated; parse the full output of the record's checks.commit"
+            "commit-gate output is truncated; parse the full output of the config's commands.commit"
         )
     advisories, failures, seen = [], [], set()
     for line in output.splitlines():
@@ -2595,15 +2528,17 @@ def parse_dependency_audit(output: object) -> dict[str, list[dict[str, Any]]]:
 
 
 def dependency_audit_findings(repo: StrPath) -> dict[str, Any]:
-    """Run the record's checks.commit in `repo` and parse its SECURITY.dependency-audit lines."""
-    _, gate = read_record(repo)
-    if gate is None:
-        raise WorkflowError(no_record_reason(repo))
-    ok, output = run_check(gate["checks"]["commit"], repo)
+    """Run the config's commands.commit in `repo` and parse its SECURITY.dependency-audit lines.
+
+    The triage runs whatever gates.audit says: gates.audit only decides whether ci_gate runs
+    commands.audit, and audit lines in commands.commit output always block (every commit).
+    """
+    config = read_config(repo)
+    ok, output = run_check(config["commands"]["commit"], repo)
     found = parse_dependency_audit(output)
     if ok and (found["advisories"] or found["failures"]):
         raise WorkflowError(
-            f"checks.commit passed but printed {DEPENDENCY_AUDIT} findings; every finding must block"
+            f"commands.commit passed but printed {DEPENDENCY_AUDIT} findings; every finding must block"
         )
     return {"ok": ok, **found}
 
@@ -2993,9 +2928,7 @@ def _structure_config() -> Judgment:
 
 
 def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
-    """JSON a harness proposer subcommand prints; the record's exceptions drop proposals."""
-    record, _ = read_record(repo)
-    location = ["--record", str(record)] if record is not None else []
+    """JSON a harness proposer subcommand prints; the config's exceptions drop proposals."""
     ok, output = run_check(
         [
             sys.executable,
@@ -3008,7 +2941,6 @@ def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
             subcommand,
             "--repo",
             str(repo),
-            *location,
             "--base",
             parent,
             "--head",

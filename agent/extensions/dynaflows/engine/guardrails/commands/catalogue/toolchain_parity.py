@@ -16,9 +16,8 @@ from guardrails.commands.catalogue.versions import (
     canonical_name,
     parse_requirement,
 )
-from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
@@ -593,7 +592,7 @@ def static_findings(repo: Path, options: dict[str, Any]) -> list[Finding]:
     return findings
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     if argv:
         return [
             Finding(
@@ -603,14 +602,14 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 "run it without arguments; its sections are record settings",
             )
         ]
-    options = settings(profile, "toolchain_parity")
+    options = settings(config, "toolchain_parity")
     configured = ("python_pins", "uv", "prettier", "node_pins", "package_manager", "go")
     if not any(options.get(key) for key in configured):
         return [
             Finding(
                 LOCAL_CI,
-                PROFILE_PATH,
-                "guardrails.toolchain_parity configures no section",
+                config_label("checkers"),
+                "checkers.toolchain_parity configures no section",
                 f"configure one of {', '.join(configured)} or drop this check from the gate",
             )
         ]
@@ -628,7 +627,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         return [
             Finding(
                 LOCK_VERSION,
-                PROFILE_PATH,
+                config_label("checkers"),
                 f"toolchain inputs cannot be read: {' '.join(str(error).split())}",
                 "repair the configured toolchain files or settings",
             )

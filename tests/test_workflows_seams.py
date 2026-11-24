@@ -2,7 +2,6 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -15,6 +14,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from test_agentrails_fixture import approval, config, fixture, write_config
 from test_reference_decision_store import (
     no_unclosed_connections as no_unclosed_connections,
 )
@@ -87,18 +87,11 @@ class RepositoryCase(unittest.TestCase):
         git(self.repo, "config", "user.email", "proof@example.test")
         git(self.repo, "config", "user.name", "Proof Test")
         git(self.repo, "remote", "add", "origin", ORIGIN)
-        self.config = self.tmp / "config"
-        self.record = self.config / "repos/example-owner/example-repo"
-        root_patch = patch.object(workflow, "_records_root", return_value=self.config)
-        root_patch.start()
-        self.addCleanup(root_patch.stop)
-        self.write_gate(
-            json.dumps({
-                "schemaVersion": 2,
-                "checks": {"commit": ["false"], "ci": ["false"]},
-            })
-        )
-        self.profile("<doctor failure marker>")
+        self.sections: dict[str, Any] = {
+            "commands": {"commit": ["false"], "ci": ["false"]},
+            "ci": {"enabled": False},
+        }
+        self.profile(None)
         self.write(
             f"{MAP_PATH}/value.md", map_doc(*(f"../../{name}" for name in MAPPED))
         )
@@ -129,13 +122,9 @@ class RepositoryCase(unittest.TestCase):
         path.write_text(text)
         return path
 
-    def write_gate(self, text: str) -> None:
-        self.record.mkdir(parents=True, exist_ok=True)
-        (self.record / "gate.json").write_text(text)
-
-    def write_profile(self, text: str) -> None:
-        self.record.mkdir(parents=True, exist_ok=True)
-        (self.record / "profile.md").write_text(text)
+    def write_config(self) -> None:
+        """The repo's .agentrails/config.json: the fixture config with this case's sections."""
+        write_config(self.repo, config(**self.sections))
 
     def commit(self, message: str) -> str:
         git(self.repo, "add", ".")
@@ -216,13 +205,14 @@ class RepositoryCase(unittest.TestCase):
             "a failed prove never leaves a pass result for the head"
         )
 
-    def gate(self, **checks: list[str]) -> None:
-        gate = {
-            "schemaVersion": 2,
-            "checks": {"commit": ["false"], "ci": ["false"], **checks},
-            "ci": {"requiredContext": "gate", "runner": "ci-gate"},
+    def gate(self, **commands: list[str]) -> None:
+        self.sections["commands"] = {"commit": ["false"], "ci": ["false"], **commands}
+        self.sections["ci"] = {
+            "enabled": True,
+            "runner": "ci-gate",
+            "requiredContext": "gate",
         }
-        self.write_gate(json.dumps(gate))
+        self.write_config()
 
     def rebase_parent(self, message: str = "parent fixtures") -> None:
         self.parent = self.commit(message)
@@ -234,10 +224,14 @@ class RepositoryCase(unittest.TestCase):
             "feature_map_path": f"{MAP_PATH}/",
             **surface,
         }
-        front = json.dumps({
-            "verification_surface": {k: v for k, v in values.items() if v is not None},
+        self.sections.update({
+            "tests": {
+                "verification_surface": {
+                    k: v for k, v in values.items() if v is not None
+                }
+            },
             "structure": {"owners": {"patterns": {"**": "proof engine"}}},
-            "guardrails": {
+            "checkers": {
                 "structure": {
                     "root_directories": ["docs", "oracle", "verifier"],
                     "root_files": [
@@ -254,7 +248,7 @@ class RepositoryCase(unittest.TestCase):
                 }
             },
         })
-        self.write_profile(f"---\n{front}\n---\n\n# Repo test profile\n")
+        self.write_config()
 
 
 class ProofRunTests(RepositoryCase):
@@ -343,13 +337,7 @@ class ProofRunTests(RepositoryCase):
         path, digest = self.freeze([], base=self.parent)
         assert json.loads(path.read_text())["proofs"] == []
         self.head = git(self.repo, "rev-parse", "HEAD")
-        self.write_gate(
-            json.dumps({
-                "schemaVersion": 2,
-                "checks": {"commit": ["true"]},
-                "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-            })
-        )
+        self.gate(commit=["true"])
         with patch.object(
             workflow, "_setup", side_effect=AssertionError("zero proofs build no trees")
         ):
@@ -681,25 +669,19 @@ class ProofRunTests(RepositoryCase):
 
 
 class FreezeTests(RepositoryCase):
-    def test_invalid_head_gate_precedes_tree_creation_and_setup(self) -> None:
+    def test_invalid_head_config_precedes_tree_creation_and_setup(self) -> None:
+        path = self.repo / ".agentrails/config.json"
+        valid = json.loads(path.read_text())
         for text in (
             "null",
             "{",
-            json.dumps({"schemaVersion": 3}),
-            json.dumps({"schemaVersion": 2, "checks": {"commit": []}}),
-            json.dumps({"schemaVersion": 2}),
-            json.dumps({
-                "schemaVersion": 2,
-                "checks": {"commit": ["true"]},
-                "unknownField": 3,
-            }),
-            json.dumps({
-                "schemaVersion": 2,
-                "checks": {"commit": ["true"]},
-                "dynaflows": {"mode": "structured"},
-            }),
+            json.dumps({**valid, "schemaVersion": 3}),
+            json.dumps({**valid, "commands": {"commit": []}}),
+            json.dumps({**valid, "commands": {}}),
+            json.dumps({**valid, "unknownField": 3}),
+            json.dumps({**valid, "dynaflows": {"mode": "structured"}}),
         ):
-            self.write_gate(text)
+            path.write_text(text)
             self.change()
             with patch.object(
                 workflow, "_setup", side_effect=AssertionError("setup must not run")
@@ -961,116 +943,69 @@ class FreezeTests(RepositoryCase):
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
 
-class RecordGateTests(RepositoryCase):
-    def test_prove_without_a_record_is_the_guardrail_prerequisite(self) -> None:
-        shutil.rmtree(self.record)
+class ConfigGateTests(RepositoryCase):
+    def config_file(self) -> Path:
+        return self.repo / ".agentrails/config.json"
+
+    def test_prove_without_a_config_routes_to_onboarding(self) -> None:
+        self.config_file().unlink()
         self.change()
         with patch.object(
             workflow, "_setup", side_effect=AssertionError("trees must not be built")
         ):
             result = self.prove()
         self.assert_block(result, workflow.GUARDRAIL_PREREQUISITE)
-        self.assert_block(
-            result,
-            f"dynaflows minimal mode for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}",
-        )
+        self.assert_block(result, "is not onboarded (.agentrails/config.json missing)")
 
-    def test_prove_requires_commit_check(self) -> None:
+    def test_prove_requires_a_commit_command(self) -> None:
         self.change()
-        for gate, named in (
-            ({"schemaVersion": 2, "checks": {}}, "checks.commit must be argv"),
-            ({"schemaVersion": 2}, "checks must be an object with checks.commit"),
-        ):
-            with self.subTest(named=named):
-                self.write_gate(json.dumps(gate))
-                self.assert_block(self.prove(), named)
-        self.write_gate(
-            json.dumps({"schemaVersion": 2, "checks": {"commit": ["true"]}})
+        self.sections["commands"] = {"ci": ["false"]}
+        self.write_config()
+        self.assert_block(
+            self.prove(), "is not onboarded (.agentrails/config.json invalid)"
         )
+        self.sections["commands"] = {"commit": ["true"]}
+        self.write_config()
         assert self.prove()["status"] == "pass"
 
-    def test_prove_without_origin_finds_no_record(self) -> None:
+    def test_prove_without_origin_is_outside_the_rails(self) -> None:
         git(self.repo, "remote", "remove", "origin")
         self.change()
         self.assert_block(
-            self.prove(), "dynaflows minimal mode for none: no origin remote"
+            self.prove(), "is not onboarded (.agentrails/config.json outside)"
         )
 
-    def test_linked_worktree_resolves_to_the_main_checkout_record(self) -> None:
+    def test_linked_worktree_reads_the_main_checkout_config(self) -> None:
         linked = self.tmp / "linked"
         git(self.repo, "worktree", "add", "-qb", "linked", str(linked))
         try:
-            record, gate = workflow.read_record(linked)
-            assert record == self.record
-            assert gate["checks"]["commit"] == ["false"]
+            assert workflow.read_config(linked)["commands"]["commit"] == ["false"]
         finally:
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
-    def test_unreadable_or_rejected_record_raises(self) -> None:
-        complete = {
-            "schemaVersion": 2,
-            "checks": {"commit": ["true"]},
-        }
-        for text, fragment in (
-            ("{", "record "),
-            (
-                json.dumps({**complete, "dynaflows": {"mode": "structured"}}),
-                "unknown field dynaflows must be removed",
-            ),
-        ):
-            with self.subTest(text=text):
-                (self.record / "gate.json").write_text(text)
-                with pytest.raises(workflow.WorkflowError, match=re.escape(fragment)):
-                    workflow.read_record(self.repo)
-
-    def test_record_with_an_unknown_field_blocks_freeze_and_prove(self) -> None:
-        for field, value in (
-            ("unknownField", 3),
-            ("extraField", 5000),
-            ("otherField", "github"),
-        ):
-            with self.subTest(field=field):
+    def test_an_unreadable_or_invalid_config_refuses_freeze(self) -> None:
+        valid = self.config_file().read_text()
+        for text in ("{", json.dumps({**json.loads(valid), "unknownField": 3})):
+            with self.subTest(text=text[:20]):
                 self.manifest_path.unlink(missing_ok=True)
-                self.write_gate(
-                    json.dumps({
-                        "schemaVersion": 2,
-                        "checks": {"commit": ["false"]},
-                        field: value,
-                    })
-                )
+                self.config_file().write_text(text)
                 with pytest.raises(
                     workflow.WorkflowError,
-                    match=f"unknown field {field} must be removed",
+                    match=re.escape("(.agentrails/config.json invalid)"),
                 ):
-                    workflow.read_record(self.repo)
-                with pytest.raises(
-                    workflow.WorkflowError,
-                    match=f"unknown field {field} must be removed",
-                ):
+                    workflow.read_config(self.repo)
+                with pytest.raises(workflow.WorkflowError, match="not onboarded"):
                     self.freeze([self.proof()])
                 assert not self.manifest_path.exists()
 
-    def test_freeze_without_record_refuses_unless_project_setup(self) -> None:
-        (self.record / "gate.json").unlink()
-        no_record = f"dynaflows minimal mode for example-owner/example-repo: no per-repo record at {self.record / 'gate.json'}"
+    def test_freeze_without_a_config_refuses_and_has_no_setup_escape(self) -> None:
+        self.config_file().unlink()
         with pytest.raises(workflow.WorkflowError) as raised:
             self.freeze([self.proof()])
-        assert str(raised.value) == no_record
+        assert "is not onboarded (.agentrails/config.json missing)" in str(raised.value)
         assert not self.manifest_path.exists()
-        with pytest.raises(
-            workflow.WorkflowError, match=re.escape(workflow.FEATURE_MAP_SETUP)
-        ):
+        with pytest.raises(TypeError, match="project_setup"):
             self.freeze([self.proof()], project_setup=True)
-        assert not self.manifest_path.exists(), (
-            "without a record there is no feature map to link proofs from"
-        )
-        (self.repo / "proof.py").unlink()
-        self.freeze([], project_setup=True)
-        assert self.manifest_path.exists()
-        with pytest.raises(
-            workflow.WorkflowError, match="project_setup must be a bool"
-        ):
-            self.freeze([self.proof()], project_setup="yes")
 
     def test_run_check_strips_harness_variables_from_repo_commands(self) -> None:
         probe = [
@@ -1162,24 +1097,17 @@ class FeatureMapTests(RepositoryCase):
         path, _ = self.freeze([self.proof()])
         assert path.exists()
 
-    def test_freeze_skips_doctor_check_for_placeholder_or_unparsed_profile(
+    def test_freeze_skips_the_doctor_check_without_the_marker_in_the_output(
         self,
     ) -> None:
-        doctor = (
-            "from pathlib import Path\nprint('<doctor failure marker>')\n" + RED_AT_BASE
-        )
-        for marker in ("<doctor failure marker>", None):
-            with self.subTest(marker=marker):
-                self.profile(marker)
-                self.rebase_parent(f"profile {marker}")
-                path, _ = self.freeze([self.proof(code=doctor)], base=self.parent)
-                assert path.exists()
-                path.unlink()
-        self.write_profile("---\n{not json\n---\n")
-        self.rebase_parent("broken profile")
-        with pytest.raises(
-            workflow.WorkflowError, match="front matter is not valid JSON"
-        ):
+        doctor = "from pathlib import Path\nprint('DOCTOR:')\n" + RED_AT_BASE
+        self.profile("DOCTOR FAILED")
+        self.rebase_parent("profile marker")
+        path, _ = self.freeze([self.proof(code=doctor)], base=self.parent)
+        assert path.exists()
+        path.unlink()
+        self.profile("<doctor failure marker>")
+        with pytest.raises(workflow.WorkflowError, match="config.json invalid"):
             self.freeze([self.proof()], base=self.parent)
 
     def test_freeze_refuses_a_proof_no_feature_map_document_links(self) -> None:
@@ -1216,31 +1144,28 @@ class FeatureMapTests(RepositoryCase):
     def test_freeze_without_a_feature_map_refuses_proofs_but_not_zero_proofs(
         self,
     ) -> None:
-        for surface in (
-            {"feature_map_path": None},
-            {"feature_map_path": "<feature map path>"},
+        self.sections["tests"] = {"verification_surface": {"none": True}}
+        self.sections["approvals"] = [
+            *fixture()["approvals"],
+            approval("exemption", "verification_surface", "library"),
+        ]
+        self.write_config()
+        with pytest.raises(
+            workflow.WorkflowError, match=re.escape(workflow.FEATURE_MAP_SETUP)
         ):
-            with self.subTest(surface=surface):
-                self.profile(None, **surface)
-                with pytest.raises(
-                    workflow.WorkflowError, match=re.escape(workflow.FEATURE_MAP_SETUP)
-                ):
-                    self.freeze([self.proof()])
-                assert not self.manifest_path.exists()
-        self.write_profile(
-            "---\n"
-            + json.dumps({
-                "verification_surface": {"none": "library", "approval": "owner"}
-            })
-            + "\n---\n"
-        )
-        with pytest.raises(workflow.WorkflowError, match="project-setup"):
+            self.freeze([self.proof()])
+        assert not self.manifest_path.exists()
+        del self.sections["approvals"]
+        self.profile(None, feature_map_path="<feature map path>")
+        with pytest.raises(workflow.WorkflowError, match="config.json invalid"):
             self.freeze([self.proof()])
         self.profile(None, feature_map_path="docs/missing")
         with pytest.raises(
             workflow.WorkflowError, match="feature map docs/missing .* does not exist"
         ):
             self.freeze([self.proof()])
+        assert not self.manifest_path.exists()
+        self.profile(None)
         (self.repo / "proof.py").unlink()
         path, _ = self.freeze([])
         assert json.loads(path.read_text())["proofs"] == []
@@ -1272,14 +1197,13 @@ class FeatureMapTests(RepositoryCase):
         )
         self.write(f"{MAP_PATH}/README.md", "# Features\n\n- [Value](value.md)\n")
         self.profile(None)
-        front = json.loads((self.record / "profile.md").read_text().split("---")[1])
-        front["guardrails"]["feature_map"] = {"index_files": ["README.md"]}
-        self.write_profile(f"---\n{json.dumps(front)}\n---\n")
+        self.sections["checkers"]["feature_map"] = {"index_files": ["README.md"]}
+        self.write_config()
         self.change()
         result = self.prove()
         assert result["status"] == "pass", result
-        front["guardrails"].pop("feature_map")
-        (self.record / "profile.md").write_text("---\n" + json.dumps(front) + "\n---\n")
+        self.sections["checkers"].pop("feature_map")
+        self.write_config()
         self.assert_block(self.prove(), f"link no frozen proof: {MAP_PATH}/README.md")
 
     def test_zero_proof_pr_without_a_map_change_passes(self) -> None:
@@ -1515,11 +1439,6 @@ class JourneyAndResultTests(RepositoryCase):
             if run["location"] == "head"
         ]
         assert runs == [1, 2]
-
-    def test_prove_never_runs_the_profile_check(self) -> None:
-        self.gate(profile=[sys.executable, "-c", "import sys; sys.exit(1)"])
-        self.change()
-        assert self.prove()["status"] == "pass", "CI already ran the repo's gates"
 
     def test_prove_refuses_before_any_spend_when_required_context_is_not_success(
         self,
@@ -2063,6 +1982,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert run.call_args.kwargs["stdout_only"]
 
     def test_proposers_parse_real_stdout_without_status_line(self) -> None:
+        write_config(self.repo, config())
         source = self.repo / "src/models/order.py"
         source.parent.mkdir(parents=True, exist_ok=True)
         source.write_text('class Order:\n    """A customer order."""\n')

@@ -26,7 +26,7 @@ export type SessionDeps = {
 	/** Whether the branch has an open PR (gh pr view), for PRs this session did not create. */
 	prOpen(ctx: ExtensionContext, cwd: string, branch: string): Promise<boolean>;
 	repoRun(argv: string[], cwd: string, timeout: number): Promise<Run>;
-	checks: { profile: string[]; check: string[] };
+	checks: { config: string[]; check: string[] };
 	/** The judged rails' decide(): the judgment registry with the host judge transport. */
 	decide: Decide;
 	/** Whether one command part needs in-scope before it runs (rails.yml askFirstCommand). */
@@ -115,8 +115,8 @@ export function sessionRails(pi: SessionApi, deps: SessionDeps): SessionRails {
 		const record = await deps.recordAt(root).catch(() => undefined);
 		if (!record) return "no valid per-repo record; review the record against the change by hand.";
 		const lines: string[] = [];
-		for (const [label, prefix] of [["profile-check", deps.checks.profile], ["check", deps.checks.check]] as const) {
-			const argv = [...prefix, "--repo", root, "--record", record.dir];
+		for (const [label, prefix] of [["config-check", deps.checks.config], ["check", deps.checks.check]] as const) {
+			const argv = [...prefix, "--repo", root];
 			const result = await deps.repoRun(argv, root, REVIEW_CHECK_MS);
 			const outcome = result.killed ? `did not finish in ${REVIEW_CHECK_MS / 1000} s; run ${shellJoin(argv)}` : `exit ${result.code}`;
 			lines.push(`guardrails ${label}: ${outcome}${result.code === 0 ? "" : `\n${tail(`${result.stdout}\n${result.stderr}`.trim())}`}`);

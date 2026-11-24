@@ -1,30 +1,35 @@
+"""guardrails init: draft the setup-owned config sections into a file outside the repo.
+
+The draft holds commands, checkers, structure, houseStyle and tests. It never writes into
+the repository or its .agentrails/ config; the agentrails_config writer applies sections.
+"""
+
 from __future__ import annotations
 
 import argparse
+import contextlib
 import shlex
 from pathlib import Path
 from typing import Any
 
 from guardrails.commands.init import (
+    commands_draft,
     discovery,
-    harness,
     lsp,
     native_config,
     native_languages,
-    profile_fill,
-    record_gate,
+    sections_draft,
 )
-from guardrails.context.config.profile import (
-    PROFILE_FILE,
-    PROFILE_PATH,
-    ProfileError,
-    load_profile,
+from guardrails.context.config.profile import ProfileError
+from guardrails.context.config.repo_config import (
+    ConfigError,
+    load_config,
+    main_checkout,
 )
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 USAGE_RULE = "PROFILE.complete"
-PROPOSED_DIR = "proposed"
 
 
 class UsageError(Exception):
@@ -35,18 +40,16 @@ def parser() -> argparse.ArgumentParser:
     command = argparse.ArgumentParser(
         prog="guardrails init", description=SUBCOMMANDS["init"].summary
     )
+    command.add_argument(
+        "--out",
+        type=Path,
+        required=True,
+        help="the draft file to write; it must be outside the repository",
+    )
     command.add_argument("--commit-command", help="the repo's own commit gate command")
     command.add_argument("--ci-command", help="the repo's own CI gate command")
     command.add_argument(
-        "--required-context",
-        help="ci.requiredContext: status context or check run that must be green on the head",
-    )
-    command.add_argument(
-        "--runner",
-        help="ci.runner: role the machine's runner config resolves (e.g. ci-gate)",
-    )
-    command.add_argument(
-        "--settings", type=Path, help="JSON object of guardrails settings"
+        "--settings", type=Path, help="JSON object of checkers settings"
     )
     command.add_argument(
         "--offline", action="store_true", help="do not ask gh for the required checks"
@@ -66,85 +69,84 @@ def parse(argv: list[str]) -> argparse.Namespace:
         options = parser().parse_args(argv)
     except SystemExit as error:
         raise UsageError(f"invalid init arguments: {shlex.join(argv)}") from error
-    for flag in ("commit_command", "ci_command", "required_context", "runner"):
+    for flag in ("commit_command", "ci_command"):
         value = getattr(options, flag)
         if value is not None and not value.strip():
             raise UsageError(f"--{flag.replace('_', '-')} must not be empty")
     return options
 
 
-def write_if_changed(
-    path: Path, text: str | None, changes: list[str], label: str
-) -> None:
-    if text is None or (path.exists() and path.read_text(encoding="utf-8") == text):
+def repository_roots(repo: Path) -> list[Path]:
+    roots = [repo.resolve()]
+    with contextlib.suppress(ConfigError):
+        roots.append(main_checkout(repo).resolve())
+    return roots
+
+
+def draft_path(repo: Path, out: Path) -> Path:
+    path = out.expanduser().resolve()
+    for root in repository_roots(repo):
+        if path == root or path.is_relative_to(root):
+            raise UsageError(
+                f"--out {path} is inside the repository {root}; write the draft outside it"
+            )
+    return path
+
+
+def existing_sections(repo: Path) -> tuple[dict[str, Any], list[str]]:
+    try:
+        config = load_config(repo)
+    except ConfigError as error:
+        return {}, [f"init: drafting from the section template (config {error.kind})"]
+    sections = {
+        name: config[name] for name in sections_draft.SETUP_SECTIONS if name in config
+    }
+    return sections, ["init: drafting from the repo's .agentrails/config.json"]
+
+
+def write_if_changed(path: Path, text: str, changes: list[str]) -> None:
+    if path.exists() and path.read_text(encoding="utf-8") == text:
         return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
-    changes.append(f"wrote {label}")
+    changes.append(f"wrote {path}")
 
 
-def apply_profile(
-    repo: Path, record: Path, options: argparse.Namespace, changes: list[str]
-) -> list[str]:
-    settings = profile_fill.load_settings(options.settings)
-    notes = lsp.notes(lsp.detect(repo))
-    text, report = profile_fill.planned_profile(record, settings, notes)
-    write_if_changed(record / PROFILE_FILE, text, changes, PROFILE_PATH)
-    return report
-
-
-def apply_gate(
-    record: Path,
-    gate: dict[str, Any] | None,
-    found: discovery.Discovery,
-    options: argparse.Namespace,
-    changes: list[str],
-) -> list[str]:
-    answers = record_gate.GateAnswers(
-        commit=options.commit_command,
-        ci_command=options.ci_command,
-        required_context=options.required_context,
-        runner=options.runner,
-    )
-    planned, confirmations = record_gate.planned_gate(gate, found, answers)
-    if planned != gate:
-        write_if_changed(
-            record / record_gate.GATE_FILE,
-            record_gate.render(planned),
-            changes,
-            record_gate.GATE_PATH,
-        )
-    return confirmations
-
-
-def apply_native(repo: Path, record: Path, changes: list[str]) -> list[str]:
+def native_proposals(repo: Path, structure: object) -> list[str]:
+    """Native tool configs the repo lacks, printed for the agent to apply as a fix."""
     planned, report = native_languages.planned_configs(repo)
     if (repo / "pyproject.toml").is_file():
-        python, lines = native_config.planned_configs(repo, optional_profile(record))
+        python, lines = native_config.planned_configs(repo, {"structure": structure})
         planned.update(python)
         report = lines + report
     for name, text in planned.items():
-        label = f"record:{PROPOSED_DIR}/{name} (apply it to the repository as a fix)"
-        write_if_changed(record / PROPOSED_DIR / name, text, changes, label)
+        report += [
+            f"native: proposed {name} (apply it to the repository as a fix)",
+            f"--- begin {name}",
+            *text.splitlines(),
+            f"--- end {name}",
+        ]
     return report
 
 
-def optional_profile(record: Path) -> dict[str, Any]:
-    try:
-        return load_profile(record)
-    except ProfileError:
-        return {}
-
-
 def initialise(
-    repo: Path, record: Path, options: argparse.Namespace
+    repo: Path, out: Path, options: argparse.Namespace
 ) -> tuple[list[str], list[Finding]]:
-    gate = record_gate.load_gate(record)
     found = discovery.discover(repo, offline=options.offline)
+    base, origin = existing_sections(repo)
+    settings = sections_draft.load_settings(options.settings)
+    notes = lsp.notes(lsp.detect(repo))
+    sections, report = sections_draft.drafted_sections(base, settings, notes)
+    sections["commands"], confirmations = commands_draft.planned_commands(
+        sections["commands"], found, options.commit_command, options.ci_command
+    )
     changes: list[str] = []
-    report = found.report() + apply_profile(repo, record, options, changes)
-    report += apply_gate(record, gate, found, options, changes)
-    report += apply_native(repo, record, changes)
+    write_if_changed(out, sections_draft.render(sections), changes)
+    report = found.report() + origin + report + confirmations
+    report += [
+        f"fill: {problem}" for problem in sections_draft.section_problems(sections)
+    ]
+    report += native_proposals(repo, sections["structure"])
     lsp_findings, lsp_lines = lsp.readiness(
         repo,
         lsp.detect(repo),
@@ -152,7 +154,7 @@ def initialise(
         timeout=options.lsp_timeout,
     )
     summary = [f"init: {line}" for line in changes or ["no changes"]]
-    handoff = [f"init: record at {record}."]
+    handoff = [f"init: draft at {out}."]
     return summary + report + lsp_lines + handoff, lsp_findings
 
 
@@ -160,30 +162,24 @@ def usage_finding(message: str) -> Finding:
     return Finding(USAGE_RULE, "guardrails init", message, "fix the init arguments")
 
 
-def is_live(record: Path) -> bool:
-    live = harness.RECORDS.resolve()
-    return record.resolve() == live or record.resolve().is_relative_to(live)
-
-
-def run_init(repo: Path, record: Path, argv: list[str]) -> list[Finding]:
+def run_init(repo: Path, argv: list[str]) -> list[Finding]:
     if {"-h", "--help"} & set(argv):
         parser().print_help()
         return []
-    live = harness.RECORDS.resolve()
     try:
         options = parse(argv)
-        if is_live(record) and len(record.resolve().relative_to(live).parts) != 2:
-            raise UsageError(
-                f"--record {record} must be a repo's record, {live}/<owner>/<name>"
-            )
-        lines, findings = initialise(repo, record, options)
+        out = draft_path(repo, options.out)
+        lines, findings = initialise(repo, out, options)
     except UsageError as error:
         return [usage_finding(str(error))]
-    except record_gate.GateError as error:
-        return [record_gate.gate_finding(error)]
     except ProfileError as error:
         return [
-            Finding(USAGE_RULE, PROFILE_PATH, str(error), "repair the record's profile")
+            Finding(
+                USAGE_RULE,
+                config_label("checkers"),
+                str(error),
+                "pass a readable --settings file",
+            )
         ]
     print("\n".join(lines))
     return findings

@@ -55,8 +55,8 @@ XDG_FOLDERS = {
 }
 
 
-def run_timeout(profile: dict[str, Any]) -> float:
-    timeout = settings(profile, SETTINGS).get("run_timeout_s", 1800)
+def run_timeout(config: dict[str, Any]) -> float:
+    timeout = settings(config, SETTINGS).get("run_timeout_s", 1800)
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
@@ -125,8 +125,8 @@ def guarded_environment(
     return environment
 
 
-def tier_selection(profile: dict[str, Any], tier: str) -> tuple[list[str], list[str]]:
-    spec = adapter_tiers(profile, NAME).get(tier)
+def tier_selection(config: dict[str, Any], tier: str) -> tuple[list[str], list[str]]:
+    spec = adapter_tiers(config, NAME).get(tier)
     if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
         raise SourceError(f"the go adapter needs a go test selector for tier {tier}")
     return selector_arguments(spec["selector"]), package_patterns(
@@ -188,13 +188,13 @@ def run_properties(
 
 def run_tier(
     repo: Path,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     tier: str,
     out: Path,
     base: Mapping[str, str] | None = None,
 ) -> int:
-    arguments, patterns = tier_selection(profile, tier)
-    go = command(profile)
+    arguments, patterns = tier_selection(config, tier)
+    go = command(config)
     environment = repo_environment(base)
     go_values = go_environment(go, repo, environment)
     packages = list_packages(
@@ -202,7 +202,7 @@ def run_tier(
     )
     invocation = Invocation(repo, tier, environment, go_values)
     result, wall, violations = guarded_test(
-        invocation, [*arguments, *patterns], run_timeout(profile)
+        invocation, [*arguments, *patterns], run_timeout(config)
     )
     cases = convert(read_stream(result.stdout), packages, violations)
     write_junit(
@@ -216,6 +216,6 @@ def run_tier(
     return result.returncode or (1 if failing else 0)
 
 
-def kept_go_environment(profile: dict[str, Any]) -> dict[str, str]:
-    values = go_environment(command(profile), Path.cwd(), repo_environment())
+def kept_go_environment(config: dict[str, Any]) -> dict[str, str]:
+    values = go_environment(command(config), Path.cwd(), repo_environment())
     return {key: values[key] for key in (*KEPT_GO_ENV, "GOROOT") if values.get(key)}

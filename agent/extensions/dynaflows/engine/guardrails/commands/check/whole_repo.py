@@ -5,31 +5,28 @@ from typing import Any
 
 from guardrails.commands.check.integrity import commit_findings
 from guardrails.context.changes import DiffError, range_finding, staged_range
-from guardrails.context.config.profile import PROFILE_PATH, ProfileError
+from guardrails.context.config.profile import ProfileError
 from guardrails.context.config.repo_config import CHECK_STEPS
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
+    config_section,
     repo_paths,
     settings,
 )
 from guardrails.toolkit.dispatch import (
+    config_finding,
     module_names,
     outside_exclusions,
-    profile_finding,
     run_modules,
 )
 
 CHECKER = "check"
 RULE = "PROFILE.complete"
 OPT_IN_STEPS = ("python-test-hygiene",)
-DEFAULT_STEPS = (
-    "profile-check",
-    *(step for step in CHECK_STEPS if step not in OPT_IN_STEPS),
-)
-STEPS = ("profile-check", *CHECK_STEPS)
-UNOWNABLE = ("profile-check",)
+DEFAULT_STEPS = tuple(step for step in CHECK_STEPS if step not in OPT_IN_STEPS)
+STEPS = CHECK_STEPS
 STAGED_DIFFS = {
     "guardrails.commands.diffs.coverage_ratchet": "TEST.coverage-ratchet",
     "guardrails.commands.diffs.golden_record": "TEST.golden-change-record",
@@ -46,8 +43,8 @@ STEP_SETTINGS = {
 }
 
 
-def record_finding(message: str, fix: str) -> Finding:
-    return Finding(RULE, PROFILE_PATH, message, fix)
+def settings_finding(message: str, fix: str) -> Finding:
+    return Finding(RULE, config_label("checkers"), message, fix)
 
 
 def selected_steps(declared: object) -> tuple[list[str], list[Finding]]:
@@ -57,39 +54,37 @@ def selected_steps(declared: object) -> tuple[list[str], list[Finding]]:
     unknown = [step for step in steps if step not in STEPS]
     if not steps or unknown:
         message = (
-            f"guardrails.check.run names unknown steps {unknown}"
+            f"checkers.check.run names unknown steps {unknown}"
             if unknown
-            else "guardrails.check.run is empty"
+            else "checkers.check.run is empty"
         )
-        return [], [record_finding(message, f"choose steps from {list(STEPS)}")]
+        return [], [settings_finding(message, f"choose steps from {list(STEPS)}")]
     return list(dict.fromkeys(steps)), []
 
 
-def owned_steps(profile: dict[str, Any]) -> tuple[dict[str, list[str]], list[Finding]]:
-    declared = settings(profile, CHECKER).get("repo")
+def owned_steps(config: dict[str, Any]) -> tuple[dict[str, list[str]], list[Finding]]:
+    declared = settings(config, CHECKER).get("repo")
     if declared is None:
         return {}, []
-    ownable = [
-        step for step in (*STEPS, "naming", "structure") if step not in UNOWNABLE
-    ]
+    ownable = [*STEPS, "naming", "structure"]
     if not isinstance(declared, dict) or not declared:
         return {}, [
-            record_finding(
-                "guardrails.check.repo must map steps to repo checker files",
+            settings_finding(
+                "checkers.check.repo must map steps to repo checker files",
                 'write {"<step>": ["<repo-relative checker path>", ...]}',
             )
         ]
     findings = [
-        record_finding(
-            f"guardrails.check.repo names {step!r}, which the repo cannot own",
+        settings_finding(
+            f"checkers.check.repo names {step!r}, which the repo cannot own",
             f"choose steps from {ownable}",
         )
         for step in declared
         if step not in ownable
     ]
     findings += [
-        record_finding(
-            f"guardrails.check.repo.{step} must list the repo checker files",
+        settings_finding(
+            f"checkers.check.repo.{step} must list the repo checker files",
             "give a non-empty list of repo-relative checker paths",
         )
         for step, checkers in declared.items()
@@ -101,44 +96,44 @@ def owned_steps(profile: dict[str, Any]) -> tuple[dict[str, list[str]], list[Fin
 
 
 def dead_settings(
-    profile: dict[str, Any], configured: list[str], owned: dict[str, list[str]]
+    config: dict[str, Any], configured: list[str], owned: dict[str, list[str]]
 ) -> list[Finding]:
     findings = []
     for section, readers in STEP_SETTINGS.items():
-        if section not in (profile.get("guardrails") or {}):
+        if section not in config_section(config, "checkers"):
             continue
         wanted = [step for step in readers if step in configured or step in owned]
         if wanted and all(step in owned for step in wanted):
             findings.append(
-                record_finding(
-                    f"guardrails.{section} configures only repo-owned steps {wanted}",
-                    f"remove guardrails.{section}; the repo's checkers carry those rules",
+                settings_finding(
+                    f"checkers.{section} configures only repo-owned steps {wanted}",
+                    f"remove checkers.{section}; the repo's checkers carry those rules",
                 )
             )
     return findings
 
 
-def configured_steps(profile: dict[str, Any]) -> tuple[list[str], list[Finding]]:
-    declared = settings(profile, CHECKER).get("run")
+def configured_steps(config: dict[str, Any]) -> tuple[list[str], list[Finding]]:
+    declared = settings(config, CHECKER).get("run")
     steps, findings = selected_steps(declared)
-    owned, problems = owned_steps(profile)
+    owned, problems = owned_steps(config)
     findings += problems
     clash = sorted(set(as_list(declared)) & set(owned))
     if clash:
         findings.append(
-            record_finding(
-                f"guardrails.check.run lists repo-owned steps {clash}",
+            settings_finding(
+                f"checkers.check.run lists repo-owned steps {clash}",
                 "list a step in run or in repo, not both",
             )
         )
-    findings += dead_settings(profile, steps, owned)
+    findings += dead_settings(config, steps, owned)
     if findings:
         return [], findings
     return [step for step in steps if step not in owned], []
 
 
-def missing_checkers(repo: Path, profile: dict[str, Any]) -> list[Finding]:
-    owned, _ = owned_steps(profile)
+def missing_checkers(repo: Path, config: dict[str, Any]) -> list[Finding]:
+    owned, _ = owned_steps(config)
     if not owned:
         return []
     try:
@@ -150,9 +145,9 @@ def missing_checkers(repo: Path, profile: dict[str, Any]) -> list[Finding]:
             )
         ]
     return [
-        record_finding(
-            f"guardrails.check.repo.{step} names {checker}, which is not in the repository",
-            "name the checker file the repo runs through checks.commit",
+        settings_finding(
+            f"checkers.check.repo.{step} names {checker}, which is not in the repository",
+            "name the checker file the repo runs through commands.commit",
         )
         for step, checkers in owned.items()
         for checker in checkers
@@ -160,43 +155,43 @@ def missing_checkers(repo: Path, profile: dict[str, Any]) -> list[Finding]:
     ]
 
 
-def staged_diff_findings(repo: Path, profile: dict[str, Any]) -> list[Finding]:
+def staged_diff_findings(repo: Path, config: dict[str, Any]) -> list[Finding]:
     try:
         diff = staged_range(repo)
     except DiffError as error:
         return [range_finding(rule, error) for rule in STAGED_DIFFS.values()]
     return run_modules(
-        tuple(STAGED_DIFFS), repo, profile, ["--base", diff.base, "--head", diff.head]
+        tuple(STAGED_DIFFS), repo, config, ["--base", diff.base, "--head", diff.head]
     )
 
 
-def run_step(repo: Path, profile: dict[str, Any], step: str) -> list[Finding]:
+def run_step(repo: Path, config: dict[str, Any], step: str) -> list[Finding]:
     name, *argv = step.split()
     if name == "python-quality":
         argv.extend(["--event", "staged"])
     try:
-        modules = module_names(name, profile)
+        modules = module_names(name, config)
     except ProfileError as error:
-        return [profile_finding(error)]
-    return run_modules(modules, repo, profile, argv)
+        return [config_finding(error)]
+    return run_modules(modules, repo, config, argv)
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     if argv:
         return [
             Finding(
                 RULE,
                 "guardrails check",
                 f"check takes no paths or options, got {argv}",
-                "run it over the whole repository; scope exclusions are record settings",
+                "run it over the whole repository; scope exclusions are config settings",
             )
         ]
-    steps, findings = configured_steps(profile)
-    integrity_findings = commit_findings(repo, profile) + staged_diff_findings(
-        repo, profile
+    steps, findings = configured_steps(config)
+    integrity_findings = commit_findings(repo, config) + staged_diff_findings(
+        repo, config
     )
     if not findings:
-        findings = missing_checkers(repo, profile)
+        findings = missing_checkers(repo, config)
     for step in [] if findings else steps:
-        findings.extend(run_step(repo, profile, step))
-    return integrity_findings + outside_exclusions(findings, profile)
+        findings.extend(run_step(repo, config, step))
+    return integrity_findings + outside_exclusions(findings, config)

@@ -180,10 +180,10 @@ def pair_id(pair: dict[str, Any]) -> str:
     )
 
 
-def exempt(pair: dict[str, Any], profile: dict[str, Any]) -> bool:
+def exempt(pair: dict[str, Any], config: dict[str, Any]) -> bool:
     paths = {name.get("path") for name in (pair["a"], pair["b"])} - {None}
     probes = [Finding(EXCEPTION_RULE, str(path), "", "") for path in sorted(paths)]
-    return len(apply_exceptions(probes, profile)) < len(probes)
+    return len(apply_exceptions(probes, config)) < len(probes)
 
 
 def owned_sources(entries: dict[str, list[str]], excluded: list[str]) -> list[str]:
@@ -265,12 +265,12 @@ def changed_paths(repo: Path, base: str, head: str) -> set[str]:
 
 
 def name_pairs(
-    tree: dict[str, str], changed: set[str], profile: dict[str, Any]
+    tree: dict[str, str], changed: set[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     found = []
     for pair in Proposer(NameIndex(tree)).propose():
         paths = {pair["a"].get("path"), pair["b"].get("path")}
-        if not paths & changed or exempt(pair, profile):
+        if not paths & changed or exempt(pair, config):
             continue
         found.append({
             "id": pair_id(pair),
@@ -281,17 +281,17 @@ def name_pairs(
     return sorted(found, key=lambda item: item["id"])
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=SUBCOMMANDS["name-pairs"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
-    excluded = as_list(settings(profile, "check").get("exclude")) + as_list(
-        settings(profile, "python").get("excluded_paths")
+    excluded = as_list(settings(config, "check").get("exclude")) + as_list(
+        settings(config, "python").get("excluded_paths")
     )
     try:
         tree = head_tree(repo, args.head, excluded)
-        pairs = name_pairs(tree, changed_paths(repo, args.base, args.head), profile)
+        pairs = name_pairs(tree, changed_paths(repo, args.base, args.head), config)
     except (GitError, ValueError) as error:
         return [
             Finding(

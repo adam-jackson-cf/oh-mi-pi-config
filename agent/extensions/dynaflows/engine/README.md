@@ -13,18 +13,21 @@ commit command:
 
 ```text
 uv run --project <omp root>/agent/extensions/dynaflows/engine \
-  guardrails check --repo <worktree> --record <record dir>
+  guardrails check --repo <worktree>
 ```
 
 ```text
-guardrails <subcommand> --repo DIR --record DIR [args ...]
+guardrails <subcommand> --repo DIR [args ...]
 guardrails --help
 ```
 
 - `--repo` is the checkout to inspect (default: the working directory).
-- `--record` is the repository's personal record,
-  `<oh-mi-pi-config root>/repos/<owner>/<name>/`. Every subcommand needs it,
-  and a record inside the repository is refused.
+- Settings come from the repo config, `<main checkout>/.agentrails/config.json`;
+  a linked worktree reads its main checkout's file. Every subcommand except
+  `init`, `config-check` and `shadow-review` needs a valid config: a missing or
+  invalid one prints `config <kind>: <problems>` and exits `2`.
+- `gates.rules` switches single code-check rules off; their findings are dropped.
+- The `.agentrails/` and `.proofs/` folders are never scanned, like `.git`.
 - `check` runs the static whole-repo steps over every tracked file: no
   baselines and no diff scoping. Any finding blocks the commit.
 - guardrails writes nothing into the repository. Output files (`--out`)
@@ -156,16 +159,18 @@ or patterns such as `./cmd/...`.
 `adapter go conformance` passes every canonical case. It needs Go on `PATH`;
 without it every case fails.
 
-Each finding prints as `path: RULE: message; fix`. A finding about the record
-names it `record:profile.md` or `record:gate.json`. The exit code is `0` with
-no findings, `1` with findings and `2` for a usage error.
+Each finding prints as `path: RULE: message; fix`. A finding about the repo
+config names the section, e.g. `.agentrails/config.json#tests`. The exit code is
+`0` with no findings, `1` with findings and `2` for a usage error.
 
 ## Configure
 
-Per-repository values, field contracts, approvals and examples live in
-[the record documentation](../record/README.md). The harness profile template
-is [`profile.md`](../record/profile.md); generic test planning uses the separate
-test-guidance template.
+Per-repository values live in the repo config's setup sections: `commands`,
+`checkers` (one object per checker), `structure`, `houseStyle` and `tests`.
+Owner exceptions and approvals live in its `exceptions` and `approvals`
+sections. `guardrails config-check` validates the file
+([repo_config.py](guardrails/context/config/repo_config.py) is the validator); the
+section template is [config-template.json](guardrails/data/config-template.json).
 
 Each checker module's docstring lists its settings and defaults. Defaults grant
 nothing: an unset allowlist approves no path, and an unset rule scope covers
@@ -173,9 +178,12 @@ every maintained root. Unconfigured repositories therefore fail with findings
 instead of passing silently. Numeric defaults are the catalogue contract
 values.
 
-`guardrails init --repo DIR --record DIR` drafts the configuration described in
-[record setup](../record/README.md), discovering make targets, hook managers,
-CI jobs and required checks through `gh`, without writing into the repository.
+`guardrails init --repo DIR --out FILE` drafts the setup sections (`commands`,
+`checkers`, `structure`, `houseStyle`, `tests`) into a file outside the
+repository, starting from the repo's config or the section template. It
+discovers make targets, hook managers, CI jobs and required checks through `gh`,
+prints native tool configs the repository lacks and runs the language-server
+canaries. It never writes into the repository or its config.
 
 For TypeScript 7 and newer, init uses the repository's installed native compiler
 (`node_modules/typescript/bin/tsc --lsp --stdio`) for its references readiness

@@ -16,6 +16,7 @@ from guardrails.foundation.inventory import (
     name_matches,
     normalized_path,
     repo_paths,
+    tests_settings,
 )
 
 from .cases import (
@@ -86,15 +87,15 @@ class Vocabulary:
     skipping_registrars: frozenset[str] = frozenset()
 
 
-def is_test(path: str, profile: dict[str, Any], adapter: str) -> bool:
-    locations, patterns = test_patterns(profile, adapter)
+def is_test(path: str, config: dict[str, Any], adapter: str) -> bool:
+    locations, patterns = test_patterns(config, adapter)
     return matches_any(path, locations) or any(
         name_matches(path, item) for item in patterns
     )
 
 
-def owned_roots(profile: dict[str, Any], repo: Path | None = None) -> tuple[str, ...]:
-    entries = profile.get("public_entry_points", {})
+def owned_roots(config: dict[str, Any], repo: Path | None = None) -> tuple[str, ...]:
+    entries = tests_settings(config, "public_entry_points") or {}
     roots = set()
     for raw in entries if isinstance(entries, dict) else ():
         path = str(raw).replace("\\", "/")
@@ -409,13 +410,13 @@ def declared_nodes(node: SgNode) -> list[SgNode]:
 
 def production_definitions(
     trees: Mapping[str, SgNode],
-    profile: dict[str, Any],
+    config: dict[str, Any],
     roots: tuple[str, ...],
     adapter: str,
 ) -> Definitions:
     definitions: Definitions = {}
     for path, root in trees.items():
-        if is_test(path, profile, adapter) or not owned_path(path, roots):
+        if is_test(path, config, adapter) or not owned_path(path, roots):
             continue
         for candidate in declarations(root):
             name = candidate.field("name")
@@ -479,8 +480,8 @@ def record_uses(
                 uses[key].add(test)
 
 
-def public_symbols(profile: dict[str, Any]) -> set[tuple[str, str]]:
-    entries = profile.get("public_entry_points", {})
+def public_symbols(config: dict[str, Any]) -> set[tuple[str, str]]:
+    entries = tests_settings(config, "public_entry_points") or {}
     public = set()
     for path, names in entries.items() if isinstance(entries, dict) else ():
         for name in names if isinstance(names, list) else []:
@@ -491,18 +492,18 @@ def public_symbols(profile: dict[str, Any]) -> set[tuple[str, str]]:
 
 def hook_findings(
     sources: dict[str, str],
-    profile: dict[str, Any],
+    config: dict[str, Any],
     reported: set[str],
     roots: tuple[str, ...] | None = None,
     adapter: str = VITEST.adapter,
 ) -> list[Finding]:
-    roots = owned_roots(profile) if roots is None else roots
+    roots = owned_roots(config) if roots is None else roots
     trees = {path: parse(path, text) for path, text in sources.items()}
-    definitions = production_definitions(trees, profile, roots, adapter)
+    definitions = production_definitions(trees, config, roots, adapter)
     uses: dict[tuple[str, str], set[bool]] = {key: set() for key in definitions}
     for path, root in trees.items():
-        record_uses(path, root, is_test(path, profile, adapter), definitions, uses)
-    public = public_symbols(profile)
+        record_uses(path, root, is_test(path, config, adapter), definitions, uses)
+    public = public_symbols(config)
     return [
         Finding(
             "TEST.no-test-hooks",
@@ -519,18 +520,18 @@ def hook_findings(
 
 def lint(
     repo: Path,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     paths: list[str],
     vocabulary: Vocabulary = VITEST,
 ) -> list[Finding]:
     adapter = vocabulary.adapter
     all_paths = source_files(repo, [])
     selected = set(source_files(repo, paths)) if paths else set(all_paths)
-    roots = owned_roots(profile, repo)
+    roots = owned_roots(config, repo)
     sources = {}
     findings = []
     for path in all_paths:
-        if not is_test(path, profile, adapter) and not owned_path(path, roots):
+        if not is_test(path, config, adapter) and not owned_path(path, roots):
             continue
         try:
             source = (repo / path).read_text(encoding="utf-8")
@@ -539,7 +540,7 @@ def lint(
         except (OSError, UnicodeError) as error:
             rule = (
                 "TEST.no-evasion"
-                if is_test(path, profile, adapter)
+                if is_test(path, config, adapter)
                 else "TEST.no-test-hooks"
             )
             findings.append(
@@ -553,7 +554,7 @@ def lint(
         except CollectionError as error:
             rule = (
                 "TEST.no-evasion"
-                if is_test(path, profile, adapter)
+                if is_test(path, config, adapter)
                 else "TEST.no-test-hooks"
             )
             findings.append(
@@ -569,7 +570,7 @@ def lint(
     for path in sorted(selected):
         if path not in sources:
             continue
-        if is_test(path, profile, adapter):
+        if is_test(path, config, adapter):
             scope = "tests"
         elif owned_path(path, roots):
             scope = "production"
@@ -585,9 +586,9 @@ def lint(
                 vocabulary,
             )
         )
-    findings.extend(hook_findings(sources, profile, production, roots, adapter))
+    findings.extend(hook_findings(sources, config, production, roots, adapter))
     return [
         finding
         for finding in findings
-        if not waived(finding.rule_id, finding.path, profile)
+        if not waived(finding.rule_id, finding.path, config)
     ]

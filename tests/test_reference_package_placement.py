@@ -27,7 +27,7 @@ class PackagePlacementTests(unittest.TestCase):
     def test_each_layout_reports_exactly_its_misplaced_files(self) -> None:
         for case in CASES:
             with self.subTest(case=case["name"]):
-                profile = case.get("profile", {})
+                profile = case.get("config", {})
                 found = apply_exceptions(
                     package_placement.package_file_findings(
                         case.get("paths", case["inventory"]), case["inventory"], profile
@@ -60,7 +60,7 @@ class PackagePlacementTests(unittest.TestCase):
             "src/shop/engine/jobs/__main__.py: STRUCT.entry-point-placement: "
             "entry module __main__.py sits 2 folders deep in package src/shop/, below "
             "its top tier; move it to src/shop/ or a folder directly under it, or record "
-            "an owner-approved guardrails.exceptions entry for an internal tool"
+            "an owner-approved exceptions entry for an internal tool"
         )
         for rule in (package_placement.RUNTIME_DATA, package_placement.ENTRY_POINT):
             assert remediations()[rule].render().startswith("root cause: ")

@@ -41,7 +41,7 @@ class GuardedRunTests(GuardedRunCase):
         noisy = self.real_home / ".config/app/history.log"
         code = f"open({str(added)!r}, 'w').write('x'); open({str(noisy)!r}, 'w').write('x')"
         profile = {
-            "guardrails": {
+            "checkers": {
                 "guarded_run": {
                     "watch": [".config/app"],
                     "ignore": [".config/app/*.log"],
@@ -66,8 +66,11 @@ class GuardedRunTests(GuardedRunCase):
         marker = self.repo / "ran"
         profile = {
             **self.profile,
-            "tiers": {
-                "t1": {"command": shlex.join(python(f"open({str(marker)!r}, 'w')"))}
+            "tests": {
+                **self.profile.get("tests", {}),
+                "tiers": {
+                    "t1": {"command": shlex.join(python(f"open({str(marker)!r}, 'w')"))}
+                },
             },
         }
         assert self.guard(["--tier", "t1"], profile) == []
@@ -75,7 +78,7 @@ class GuardedRunTests(GuardedRunCase):
 
     def test_network_none_runs_behind_the_configured_prefix(self) -> None:
         profile = {
-            "guardrails": {
+            "checkers": {
                 "guarded_run": {
                     "watch": [".config/app"],
                     "network_none_command": "env OMP_GUARD_PREFIX_HOME={home}",

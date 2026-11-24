@@ -257,7 +257,7 @@ describe("review on restart", () => {
 			await h.read("skill://git-tool", mergeRecover);
 			const task = messageText(await prompt(h, "work"));
 			assert.ok(task.includes("First task: the dynaflows extension changed") && task.includes("Record checks") &&
-				task.includes("guardrails profile-check: exit 0") && task.includes("guardrails check: exit 0"), task);
+				task.includes("guardrails config-check: exit 0") && task.includes("guardrails check: exit 0"), task);
 			assert.ok(task.includes("unavailable (not a Git revision pair)"), task);
 			assert.ok(reasonOf(await commit(h)).includes("acknowledge: true"));
 			assert.equal(await h.call("bash", { command: "git status" }), undefined, "reads stay open");

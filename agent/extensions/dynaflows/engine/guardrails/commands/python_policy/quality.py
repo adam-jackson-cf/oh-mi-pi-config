@@ -45,9 +45,9 @@ ANY_NAMES = {"typing.Any", "Any"}
 TYPE_ALIAS = getattr(ast, "TypeAlias", ())
 
 
-def class_limits(config: PythonSettings) -> dict[str, Any]:
+def class_limits(options: PythonSettings) -> dict[str, Any]:
     return {
-        key: config.number("class_limits", key, value)
+        key: options.number("class_limits", key, value)
         for key, value in CLASS_LIMIT_DEFAULTS.items()
     }
 
@@ -140,13 +140,13 @@ def base_names(class_node: ast.ClassDef) -> set[str]:
 
 
 def analyzer_findings(
-    node: ast.ClassDef, relpath: str, config: PythonSettings
+    node: ast.ClassDef, relpath: str, options: PythonSettings
 ) -> list[Finding]:
     found: list[Finding] = []
     bases = base_names(node)
-    approved = set(as_list(config.raw.get("analyzer_bases")))
+    approved = set(as_list(options.raw.get("analyzer_bases")))
     if (
-        in_roots(relpath, config.paths("analyzer_roots"))
+        in_roots(relpath, options.paths("analyzer_roots"))
         and node.name.endswith("Analyzer")
         and not approved & bases
     ):
@@ -156,11 +156,11 @@ def analyzer_findings(
                 relpath,
                 node.lineno,
                 f"analyzer class '{node.name}' inherits no approved analyzer base",
-                "inherit a base listed in guardrails.python.analyzer_bases",
+                "inherit a base listed in checkers.python.analyzer_bases",
             )
         )
     defined = {method.name for method in methods(node)}
-    for base, entrypoint in config.mapping("analyzer_entrypoints").items():
+    for base, entrypoint in options.mapping("analyzer_entrypoints").items():
         if base in bases and entrypoint not in defined:
             found.append(
                 finding(
@@ -175,15 +175,15 @@ def analyzer_findings(
 
 
 def seam_findings(
-    tree: ast.Module, relpath: str, config: PythonSettings
+    tree: ast.Module, relpath: str, options: PythonSettings
 ) -> list[Finding]:
-    process_scope = in_roots(relpath, config.scope("process_roots"))
+    process_scope = in_roots(relpath, options.scope("process_roots"))
     dynamic_scope = in_roots(
-        relpath, config.scope("dynamic_import_roots")
-    ) and relpath not in set(config.paths("dynamic_import_adapters"))
+        relpath, options.scope("dynamic_import_roots")
+    ) and relpath not in set(options.paths("dynamic_import_adapters"))
     if not process_scope and not dynamic_scope:
         return []
-    allowed = set(as_list(config.mapping("subprocess_wrappers").get(relpath)))
+    allowed = set(as_list(options.mapping("subprocess_wrappers").get(relpath)))
     found: list[Finding] = []
 
     def visit(node: ast.AST, names: dict[str, str], owner: str) -> None:
@@ -201,7 +201,7 @@ def seam_findings(
                         relpath,
                         node.lineno,
                         f"{name} runs outside an approved process wrapper",
-                        "move the call into a wrapper listed in guardrails.python.subprocess_wrappers",
+                        "move the call into a wrapper listed in checkers.python.subprocess_wrappers",
                     )
                 )
             if dynamic_scope and name in DYNAMIC_IMPORT_CALLS:
@@ -212,7 +212,7 @@ def seam_findings(
                         node.lineno,
                         f"{name} is a dynamic import outside an approved adapter",
                         "use a static import or list the adapter in "
-                        "guardrails.python.dynamic_import_adapters",
+                        "checkers.python.dynamic_import_adapters",
                     )
                 )
         for child in ast.iter_child_nodes(node):
@@ -319,18 +319,18 @@ def collaborator_findings(
                 line,
                 f"collaborator '{binding}' annotation contains Any",
                 "use a concrete type or a capability protocol, or pin a JSON-record binding in "
-                "guardrails.python.contract_data_annotations",
+                "checkers.python.contract_data_annotations",
             )
         )
     return found
 
 
 def contract_findings(
-    tree: ast.Module, relpath: str, config: PythonSettings
+    tree: ast.Module, relpath: str, options: PythonSettings
 ) -> list[Finding]:
-    if relpath not in set(config.paths("contract_files")):
+    if relpath not in set(options.paths("contract_files")):
         return []
-    pinned = config.mapping("contract_data_annotations").get(relpath)
+    pinned = options.mapping("contract_data_annotations").get(relpath)
     context = (
         import_names(tree),
         module_aliases(tree),
@@ -362,7 +362,7 @@ def contract_findings(
     return found
 
 
-def code_findings(repo: Path, relpath: str, config: PythonSettings) -> list[Finding]:
+def code_findings(repo: Path, relpath: str, options: PythonSettings) -> list[Finding]:
     source = read_source(repo, relpath)
     if source.tree is None:
         return [
@@ -370,19 +370,19 @@ def code_findings(repo: Path, relpath: str, config: PythonSettings) -> list[Find
                 "PYQ299", relpath, None, source.error, "restore readable UTF-8 Python"
             )
         ]
-    limits = class_limits(config)
+    limits = class_limits(options)
     found: list[Finding] = []
     for node in ast.walk(source.tree):
         if isinstance(node, ast.ClassDef):
             found.extend(class_shape_findings(node, relpath, limits))
-            found.extend(analyzer_findings(node, relpath, config))
-    found.extend(seam_findings(source.tree, relpath, config))
-    found.extend(contract_findings(source.tree, relpath, config))
+            found.extend(analyzer_findings(node, relpath, options))
+    found.extend(seam_findings(source.tree, relpath, options))
+    found.extend(contract_findings(source.tree, relpath, options))
     return found
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    config = load_settings(profile)
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
+    options = load_settings(config)
     try:
         selected = event_scope.select(repo, argv)
         content_paths = (
@@ -392,24 +392,26 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         files = [
             path
             for path in selected.inventory
-            if path.endswith(".py") and not is_excluded(path, config)
+            if path.endswith(".py") and not is_excluded(path, options)
         ]
-        roots = config.paths("maintained_roots")
+        roots = options.paths("maintained_roots")
         found: list[Finding] = []
         with event_scope.checkout(repo, selected) as snapshot:
             for relpath in files:
                 if not (snapshot / relpath).is_file():
                     continue
                 if matches_any(relpath, selected.paths):
-                    found.extend(structure_findings(relpath, config, existing_segments))
+                    found.extend(
+                        structure_findings(relpath, options, existing_segments)
+                    )
             found.extend(
                 skill_directory_findings(
-                    snapshot, config, selected.paths, existing_segments
+                    snapshot, options, selected.paths, existing_segments
                 )
             )
-        for relpath in python_files(repo, config, content_paths):
+        for relpath in python_files(repo, options, content_paths):
             if in_roots(relpath, roots):
-                found.extend(code_findings(repo, relpath, config))
+                found.extend(code_findings(repo, relpath, options))
     except InventoryError as error:
         return [inventory_finding("PYQ100", error)]
-    return house_style.apply_exceptions(found, profile)
+    return house_style.apply_exceptions(found, config)

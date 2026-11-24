@@ -3,8 +3,10 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from guardrails.context.config.profile import ProfileError, load_profile
+from guardrails.context.config.profile import ProfileError
+from guardrails.context.config.repo_config import ConfigError, load_config
 from guardrails.foundation import decision_store
 from guardrails.foundation.findings import (
     Finding,
@@ -16,10 +18,10 @@ from guardrails.toolkit.dispatch import (
     SUBCOMMANDS,
     adapter_module,
     checker_module,
+    config_finding,
     honours_exclusions,
     module_names,
     outside_exclusions,
-    profile_finding,
     run_modules,
 )
 
@@ -35,7 +37,7 @@ def module_rules(module: str) -> list[tuple[str, str]]:
 def usage() -> str:
     width = max(len(name) for name in SUBCOMMANDS)
     lines = [
-        "usage: guardrails <subcommand> [--repo DIR] [--record DIR] [args...]",
+        "usage: guardrails <subcommand> [--repo DIR] [args...]",
         "",
         "subcommands:",
     ]
@@ -53,7 +55,7 @@ def wants_help(argv: list[str]) -> bool:
 def subcommand_help(name: str) -> str:
     command = SUBCOMMANDS[name]
     lines = [
-        f"usage: guardrails {name} [--repo DIR] [--record DIR] [args...]",
+        f"usage: guardrails {name} [--repo DIR] [args...]",
         "",
         command.summary,
     ]
@@ -71,45 +73,37 @@ class UsageError(Exception):
 
 @dataclass(frozen=True)
 class Target:
+    """The checkout a subcommand runs on and its repo config (None for init)."""
+
     repo: Path
-    record: Path | None
+    config: dict[str, Any] | None
 
 
-LOCATION_OPTIONS = ("--repo", "--record")
+REPO_OPTION = "--repo"
 
 
-def split_locations(argv: list[str]) -> tuple[dict[str, Path], list[str]]:
-    found: dict[str, Path] = {}
-    rest = list(argv)
-    while rest:
-        option, _, value = rest[0].partition("=")
-        if option not in LOCATION_OPTIONS or option in found:
-            break
-        if not value:
-            if len(rest) < 2:
-                raise UsageError(f"{option} needs a directory")
-            value, rest = rest[1], rest[2:]
-        else:
-            rest = rest[1:]
-        found[option] = Path(value).expanduser().resolve()
-    return found, rest
+def resolve_repo(argv: list[str]) -> tuple[Path, list[str]]:
+    """A leading `--repo DIR` (or --repo=DIR); the working directory without one."""
+    if not argv:
+        return Path.cwd().resolve(), argv
+    option, _, value = argv[0].partition("=")
+    if option != REPO_OPTION:
+        return Path.cwd().resolve(), argv
+    rest = argv[1:]
+    if not value:
+        if not rest:
+            raise UsageError(f"{REPO_OPTION} needs a directory")
+        value, rest = rest[0], rest[1:]
+    return Path(value).expanduser().resolve(), rest
 
 
-def resolve_target(argv: list[str], needs_record: bool) -> tuple[Target, list[str]]:
-    found, rest = split_locations(argv)
-    repo = found.get("--repo", Path.cwd().resolve())
-    record = found.get("--record")
-    if record is None:
-        if needs_record:
-            raise UsageError(
-                "pass --record DIR: the repo's record under <oh-mi-pi-config>/repos/<owner>/<name>"
-            )
-        return Target(repo, None), rest
-    if record == repo or record.is_relative_to(repo):
-        raise UsageError(
-            f"--record {record} is inside the repository; records live in the harness"
-        )
-    return Target(repo, record), rest
+def resolve_target(argv: list[str], needs_config: bool) -> tuple[Target, list[str]]:
+    """The repo and, when the subcommand reads settings, its .agentrails/config.json.
+
+    A missing, invalid or unresolvable config raises ConfigError; there is no default.
+    """
+    repo, rest = resolve_repo(argv)
+    return Target(repo, load_config(repo) if needs_config else None), rest
 
 
 DECISION_LOG_OPTION = "--log-decisions"
@@ -180,10 +174,10 @@ def log_decisions(
     name: str, target: Target, argv: list[str], findings: list[Finding], trigger: str
 ) -> None:
     """Log the run's rule results; a store failure is printed and never changes the exit code."""
-    record = target.record
+    config = target.config
     context = decision_store.DecisionContext(
         trigger,
-        repo=None if record is None else f"{record.parent.name}/{record.name}",
+        repo=None if config is None else str(config["repo"]["slug"]),
         commit=option_value(argv, "--head"),
     )
     rules = [
@@ -197,25 +191,22 @@ def log_decisions(
 
 def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
     if name == "init":
-        assert target.record is not None
         init_command = checker_module(SUBCOMMANDS[name].modules[0])
-        drafted: list[Finding] = init_command.run_init(target.repo, target.record, argv)
+        drafted: list[Finding] = init_command.run_init(target.repo, argv)
         return drafted
-    if SUBCOMMANDS[name].record_optional and target.record is None:
-        return run_modules(module_names(name, {}), target.repo, {}, argv)
-    assert target.record is not None
+    config = target.config
+    assert config is not None
     try:
-        profile = load_profile(target.record)
         if name == "adapter":
-            module, argv = adapter_module(profile, argv)
+            module, argv = adapter_module(config, argv)
             modules: tuple[str, ...] = (module,)
         else:
-            modules = module_names(name, profile)
+            modules = module_names(name, config)
     except ProfileError as error:
-        return [profile_finding(error)]
-    findings = run_modules(modules, target.repo, profile, argv)
+        return [config_finding(error)]
+    findings = run_modules(modules, target.repo, config, argv)
     if honours_exclusions(name, argv):
-        return outside_exclusions(findings, profile)
+        return outside_exclusions(findings, config)
     return findings
 
 
@@ -234,11 +225,7 @@ def early_exit(args: list[str]) -> int | None:
     if name in TARGETLESS:
         handled: int = checker_module(SUBCOMMANDS[name].modules[0]).main(rest)
         return handled
-    if (
-        wants_help(rest)
-        and name != "adapter"
-        and (SUBCOMMANDS[name].needs_profile or SUBCOMMANDS[name].record_optional)
-    ):
+    if wants_help(rest) and name != "adapter" and SUBCOMMANDS[name].needs_config:
         print(subcommand_help(name))
         return 0
     return None
@@ -251,12 +238,13 @@ def main(argv: list[str] | None = None) -> int:
         return early
     name, rest = args[0], args[1:]
     try:
-        target, rest = resolve_target(
-            rest, needs_record=not SUBCOMMANDS[name].record_optional
-        )
+        target, rest = resolve_target(rest, needs_config=SUBCOMMANDS[name].needs_config)
         trigger, rest = split_decision_log(rest)
     except UsageError as error:
         print(f"{name}: {error}", file=sys.stderr)
+        return 2
+    except ConfigError as error:
+        print(error, file=sys.stderr)
         return 2
     try:
         findings = run_subcommand(name, target, rest)

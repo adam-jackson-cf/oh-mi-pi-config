@@ -1,11 +1,9 @@
-"""Record profile loading, PROFILE.complete, findings and CLI dispatch of the guardrails reference."""
+"""Repo config completeness (PROFILE.complete), findings and CLI dispatch of the guardrails reference."""
 
 from __future__ import annotations
 
 import contextlib
-import copy
 import io
-import json
 import sys
 import tempfile
 import unittest
@@ -17,28 +15,26 @@ sys.path.insert(
 )
 
 import pytest
+from test_agentrails_fixture import approval, exception, fixture, write_config
 
 from guardrails.commands import cli
-from guardrails.context.config import profile as profile_module
+from guardrails.commands.init import sections_draft
+from guardrails.context.config import profile as profile_module, repo_config
+from guardrails.context.scope import Scope
 from guardrails.foundation.findings import (
     Finding,
     exit_code,
     format_findings,
     remediations,
 )
-from guardrails.toolkit import dispatch
+from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-TEMPLATE = ROOT / "agent/extensions/dynaflows/record/profile.md"
-
-FIXTURES = ROOT / "tests/fixtures/reference/core"
-
 CONTRACT_SUBCOMMANDS = {
     "check",
-    "profile-check",
     "init",
     "path-check",
     "structure",
@@ -70,14 +66,12 @@ CONTRACT_SUBCOMMANDS = {
 }
 
 
-def complete_profile() -> dict[str, Any]:
-    return profile_module.parse_front_matter(
-        (FIXTURES / "complete-profile.md").read_text()
-    )
+def problems(config: dict[str, Any]) -> list[str]:
+    return repo_config.validate(config, origin=None)
 
 
-def keys_of(findings: list[Finding]) -> set[str]:
-    return {finding.message.split(" ", 1)[0] for finding in findings}
+def keys_of(found: list[str]) -> set[str]:
+    return {problem.split(": ", 1)[0] for problem in found}
 
 
 def set_nested(target: Any, path: tuple[object, ...], value: object) -> None:
@@ -86,49 +80,28 @@ def set_nested(target: Any, path: tuple[object, ...], value: object) -> None:
     target[path[-1]] = value
 
 
-class ProfileLoadingTests(unittest.TestCase):
-    def setUp(self) -> None:
-        scratch = tempfile.TemporaryDirectory(prefix="omp-reference-core-")
-        self.addCleanup(scratch.cleanup)
-        self.record = Path(scratch.name)
+def exempt(config: dict[str, Any], target: str) -> None:
+    """Mark tests.<target> {none: true} and record the owner's exemption approval."""
+    parent, _, leaf = target.rpartition(".")
+    holder = config["tests"][parent] if parent else config["tests"]
+    holder[leaf] = {"none": True}
+    config["approvals"].append(approval("exemption", target, "owner-approved reason"))
 
-    def write_profile(self, text: str) -> None:
-        (self.record / "profile.md").write_text(text)
 
-    def test_front_matter_json_is_returned_as_a_dict(self) -> None:
-        self.write_profile((FIXTURES / "complete-profile.md").read_text())
-        assert (
-            profile_module.load_profile(self.record)["adapters"][0]["name"] == "pytest"
-        )
+class ConfigCompleteTests(unittest.TestCase):
+    def test_complete_config_has_no_problems(self) -> None:
+        assert problems(fixture()) == []
 
-    def test_unreadable_profiles_raise_profile_errors(self) -> None:
-        cases = {
-            "absent": None,
-            "no front matter": "# Repo test profile\n",
-            "unclosed": "---\n{}\n",
-            "not json": "---\ntiers: {}\n---\n",
-            "not an object": "---\n[]\n---\n",
+    def test_section_template_reports_every_setup_section(self) -> None:
+        found = sections_draft.section_problems(sections_draft.template())
+        assert {key.split(".")[0] for key in keys_of(found)} == {
+            "commands",
+            "structure",
+            "houseStyle",
+            "tests",
         }
-        for name, text in cases.items():
-            with self.subTest(name=name):
-                if text is not None:
-                    self.write_profile(text)
-                with pytest.raises(profile_module.ProfileError):
-                    profile_module.load_profile(self.record)
-
-
-class ProfileCompleteTests(unittest.TestCase):
-    def test_complete_profile_has_no_findings(self) -> None:
-        assert profile_module.validate_profile(complete_profile()) == []
-
-    def test_template_front_matter_parses_and_reports_every_section(self) -> None:
-        template = profile_module.parse_front_matter(TEMPLATE.read_text())
-        required = set(profile_module.SCHEMA)
-        assert set(template) - {"guardrails"} == required
-        findings = profile_module.validate_profile(template)
-        reported = {key.split(".")[0].split("[")[0] for key in keys_of(findings)}
-        assert reported == required | {"guardrails"}
-        assert all(item.rule_id == "PROFILE.complete" for item in findings)
+        reported = {key.split(".")[1].split("[")[0] for key in keys_of(found)}
+        assert set(repo_config.TEST_KEYS) <= reported
 
     def test_placeholders_and_sentinels_count_as_missing(self) -> None:
         for value in (
@@ -142,49 +115,45 @@ class ProfileCompleteTests(unittest.TestCase):
             "None: later",
         ):
             with self.subTest(value=value):
-                profile = complete_profile()
-                profile["run_events"]["commit"] = value
-                assert keys_of(profile_module.validate_profile(profile)) == {
-                    "run_events.commit"
-                }
+                config = fixture()
+                config["tests"]["run_events"]["commit"] = value
+                assert keys_of(problems(config)) == {"tests.run_events.commit"}
 
     def test_absent_keys_and_empty_lists_count_as_missing(self) -> None:
-        profile = complete_profile()
-        del profile["guards"]["network"]
-        profile["fast_tier_budget"]["machines"] = []
-        profile["layout"]["test_file_patterns"] = []
-        assert keys_of(profile_module.validate_profile(profile)) == {
-            "guards.network",
-            "fast_tier_budget.machines",
-            "layout.test_file_patterns",
+        config = fixture()
+        del config["tests"]["guards"]["network"]
+        config["tests"]["fast_tier_budget"]["machines"] = []
+        config["tests"]["layout"]["test_file_patterns"] = []
+        assert keys_of(problems(config)) == {
+            "tests.guards.network",
+            "tests.fast_tier_budget.machines",
+            "tests.layout.test_file_patterns",
+            "approvals[0].target",
         }
 
     def test_nested_nulls_in_free_form_values_count_as_missing(self) -> None:
         cases = {
-            "public_entry_points": {"ledger": None},
-            "identity_artefacts": {"docs/ids.json": None},
+            "tests.public_entry_points": {"ledger": None},
+            "tests.identity_artefacts": {"docs/ids.json": None},
             "structure.owners": {"directories": {"src/ledger/": None}},
         }
         for key, value in cases.items():
             with self.subTest(key=key):
-                profile = complete_profile()
-                target = profile
-                *parents, leaf = key.split(".")
-                for step in parents:
-                    target = target[step]
-                target[leaf] = value
-                assert keys_of(profile_module.validate_profile(profile)) == {key}
+                config = fixture()
+                section, leaf = key.split(".")
+                config[section][leaf] = value
+                assert keys_of(problems(config)) == {key}
 
     def test_command_notes_need_both_owner_notes_and_allow_the_lsp_note(self) -> None:
         cases = {
-            "text instead of the notes object": ("repo root", {"command_notes"}),
+            "text instead of the notes object": ("repo root", {"tests.command_notes"}),
             "missing interpretation": (
                 {"working_directory": "repo root"},
-                {"command_notes.interpretation"},
+                {"tests.command_notes.interpretation"},
             ),
             "placeholder working directory": (
                 {"working_directory": "<directory>", "interpretation": "exit 0 passes"},
-                {"command_notes.working_directory"},
+                {"tests.command_notes.working_directory"},
             ),
             "null lsp note": (
                 {
@@ -192,128 +161,166 @@ class ProfileCompleteTests(unittest.TestCase):
                     "interpretation": "exit 0",
                     "lsp": None,
                 },
-                {"command_notes.lsp"},
+                {"tests.command_notes.lsp"},
             ),
         }
         for name, (value, expected) in cases.items():
             with self.subTest(name=name):
-                profile = complete_profile()
-                profile["command_notes"] = value
-                assert keys_of(profile_module.validate_profile(profile)) == expected
-        profile = complete_profile()
-        profile["command_notes"]["lsp"] = [
+                config = fixture()
+                config["tests"]["command_notes"] = value
+                assert keys_of(problems(config)) == expected
+        config = fixture()
+        config["tests"]["command_notes"]["lsp"] = [
             {"server": "pyright", "install": "npm i -g pyright"}
         ]
-        assert profile_module.validate_profile(profile) == []
+        assert problems(config) == []
 
-    def test_approved_none_is_allowed_only_in_three_places(self) -> None:
-        exemption = {"none": "owner-approved reason", "approval": "ADR-0001"}
-        profile = complete_profile()
-        profile["verification_surface"] = dict(exemption)
-        profile["identity_artefacts"] = dict(exemption)
-        profile["run_events"]["nightly_scheduler"] = dict(exemption)
-        assert profile_module.validate_profile(profile) == []
+    def test_approved_none_is_allowed_only_in_the_exemptable_places(self) -> None:
+        config = fixture()
+        for target in (
+            "verification_surface",
+            "identity_artefacts",
+            "run_events.nightly_scheduler",
+        ):
+            exempt(config, target)
+        assert problems(config) == []
         for key in ("coverage", "guards", "environments", "layout"):
             with self.subTest(key=key):
-                elsewhere = complete_profile()
-                elsewhere[key] = dict(exemption)
-                assert key in {
-                    k.split(".")[0]
-                    for k in keys_of(profile_module.validate_profile(elsewhere))
+                elsewhere = fixture()
+                elsewhere["tests"][key] = {"none": True}
+                assert f"tests.{key}" in {
+                    ".".join(k.split(".")[:2]) for k in keys_of(problems(elsewhere))
                 }
 
     def test_an_approved_t3_exemption_replaces_the_t3_tier_and_its_adapters(
         self,
     ) -> None:
-        exemption = {"none": "no exploratory suites yet", "approval": "ADR-0009"}
-        profile = complete_profile()
-        profile["tiers"]["t3"] = dict(exemption)
-        profile["adapters"][0]["tiers"].pop("t3")
-        assert profile_module.validate_profile(profile) == []
-        assert profile_module.exempt_tiers(profile) == {"t3"}
+        config = fixture()
+        exempt(config, "tiers.t3")
+        config["tests"]["adapters"][0]["tiers"].pop("t3")
+        assert problems(config) == []
+        assert profile_module.exempt_tiers(config) == {"t3"}
 
     def test_a_t3_exemption_needs_an_approval_and_no_adapter_in_t3(self) -> None:
-        profile = complete_profile()
-        t3_selection = profile["adapters"][0]["tiers"].pop("t3")
-        profile["tiers"]["t3"] = {"none": "no exploratory suites yet"}
-        assert keys_of(profile_module.validate_profile(profile)) == {"tiers.t3"}
-        profile["tiers"]["t3"]["approval"] = "ADR-0009"
-        assert profile_module.validate_profile(profile) == []
-        profile["adapters"][0]["tiers"]["t3"] = t3_selection
-        assert keys_of(profile_module.validate_profile(profile)) == {
-            "adapters[0].tiers.t3"
-        }
+        config = fixture()
+        t3_selection = config["tests"]["adapters"][0]["tiers"].pop("t3")
+        config["tests"]["tiers"]["t3"] = {"none": True}
+        assert keys_of(problems(config)) == {"tests.tiers.t3"}
+        assert profile_module.exempt_tiers(config) == set()
+        config["approvals"].append(approval("exemption", "tiers.t3", "no suites yet"))
+        assert problems(config) == []
+        config["tests"]["adapters"][0]["tiers"]["t3"] = t3_selection
+        assert keys_of(problems(config)) == {"tests.adapters[0].tiers.t3"}
 
     def test_only_t3_may_be_exempted_among_the_tiers(self) -> None:
-        exemption = {"none": "no unit tests", "approval": "ADR-0009"}
         for tier in ("t1", "t2"):
             with self.subTest(tier=tier):
-                profile = complete_profile()
-                profile["tiers"][tier] = dict(exemption)
-                assert f"tiers.{tier}.command" in keys_of(
-                    profile_module.validate_profile(profile)
-                )
-                assert profile_module.exempt_tiers(profile) == set()
+                config = fixture()
+                config["tests"]["tiers"][tier] = {"none": True}
+                assert f"tests.tiers.{tier}.command" in keys_of(problems(config))
+                assert profile_module.exempt_tiers(config) == set()
 
     def test_unapproved_or_malformed_exemptions_count_as_missing(self) -> None:
         cases = {
-            "no approval": {"none": "no app"},
-            "placeholder approval": {
-                "none": "no app",
-                "approval": "<approval reference>",
-            },
-            "empty reason": {"none": "", "approval": "ADR-0001"},
-            "extra key": {"none": "no app", "approval": "ADR-0001", "until": "later"},
+            "reason text instead of true": (
+                {"none": "no app"},
+                "tests.verification_surface.none",
+            ),
+            "approval text inside": (
+                {"none": True, "approval": "ADR-0001"},
+                "tests.verification_surface.approval",
+            ),
+            "no exemption approval": ({"none": True}, "tests.verification_surface"),
         }
-        for name, value in cases.items():
+        for name, (value, key) in cases.items():
             with self.subTest(name=name):
-                profile = complete_profile()
-                profile["verification_surface"] = value
-                assert keys_of(profile_module.validate_profile(profile)) == {
-                    "verification_surface"
-                }
-        profile = complete_profile()
-        profile["run_events"]["nightly_scheduler"] = "none: no scheduler host"
-        assert keys_of(profile_module.validate_profile(profile)) == {
-            "run_events.nightly_scheduler"
-        }
+                config = fixture()
+                config["tests"]["verification_surface"] = value
+                assert key in keys_of(problems(config))
+        config = fixture()
+        config["tests"]["run_events"]["nightly_scheduler"] = "none: no scheduler host"
+        assert keys_of(problems(config)) == {"tests.run_events.nightly_scheduler"}
 
     def test_budget_limits_and_floors_must_be_real_numbers(self) -> None:
         cases = {
-            ("fast_tier_budget", "machines", 0, "wall_limit_s"): ["20", 0, -1, True],
-            ("coverage", "line_floor"): [101, -1, "85"],
+            ("tests", "fast_tier_budget", "machines", 0, "wall_limit_s"): [
+                "20",
+                0,
+                -1,
+                True,
+            ],
+            ("tests", "coverage", "line_floor"): [101, -1, "85"],
         }
         for path, values in cases.items():
             for value in values:
                 with self.subTest(path=path, value=value):
-                    profile = complete_profile()
-                    set_nested(profile, path, value)
-                    assert len(profile_module.validate_profile(profile)) == 1
+                    config = fixture()
+                    set_nested(config, path, value)
+                    assert len(problems(config)) == 1
 
     def test_unknown_keys_and_house_style_version_drift_are_reported(self) -> None:
-        profile = complete_profile()
-        profile["teirs"] = {}
-        profile["guards"]["proces"] = "x"
-        profile["house_style"]["version"] = 99
-        assert keys_of(profile_module.validate_profile(profile)) == {
+        config = fixture()
+        config["teirs"] = {}
+        config["tests"]["guards"]["proces"] = "x"
+        config["houseStyle"]["version"] = 99
+        assert keys_of(problems(config)) == {
             "teirs",
-            "guards.proces",
-            "house_style.version",
+            "tests.guards.proces",
+            "houseStyle.version",
         }
 
-    def test_guardrails_sections_must_name_a_checker_and_hold_an_object(self) -> None:
-        profile = complete_profile()
-        profile["guardrails"]["namig"] = {"pattern": "x"}
-        profile["guardrails"]["python"] = ["src"]
-        assert keys_of(profile_module.validate_profile(profile)) == {
-            "guardrails.namig",
-            "guardrails.python",
-        }
+    def test_checker_sections_must_name_a_checker_and_hold_an_object(self) -> None:
+        config = fixture()
+        config["checkers"]["namig"] = {"pattern": "x"}
+        config["checkers"]["python"] = ["src"]
+        assert keys_of(problems(config)) == {"checkers.namig", "checkers.python"}
 
     def test_checker_settings_may_hold_regular_expressions(self) -> None:
-        profile = complete_profile()
-        profile["guardrails"]["naming"]["pattern"] = r"(?P<name>[a-z]+)"
-        assert profile_module.validate_profile(profile) == []
+        config = fixture()
+        config["checkers"]["naming"] = {"pattern": r"(?P<name>[a-z]+)"}
+        assert problems(config) == []
+
+    def test_exceptions_require_real_strings_and_reject_unknown_fields(self) -> None:
+        entry = exception(
+            "NAME.conventions",
+            "internal/**/*_test.go",
+            "Go tests retain the package naming convention",
+            check="child-repeats-parent",
+        )
+        for field in ("rule", "check", "path", "reason"):
+            for value in ("", None, 42):
+                with self.subTest(field=field, value=value):
+                    config = fixture()
+                    config["exceptions"] = [{**entry, field: value}]
+                    assert f"exceptions[0].{field}" in keys_of(problems(config))
+        for field in ("rule", "path", "reason", "approvedBy", "approvedAt"):
+            with self.subTest(missing=field):
+                config = fixture()
+                config["exceptions"] = [
+                    {key: value for key, value in entry.items() if key != field}
+                ]
+                assert keys_of(problems(config)) == {f"exceptions[0].{field}"}
+        config = fixture()
+        config["exceptions"] = [{**entry, "unexpected": "old decision reference"}]
+        assert keys_of(problems(config)) == {"exceptions[0].unexpected"}
+
+    def test_exceptions_accept_globs_optional_checks_and_plain_reasons(self) -> None:
+        for entries in (
+            [],
+            [exception("NAME.conventions", "src/**", "Generated API names")],
+            [
+                exception(
+                    "NAME.conventions",
+                    "internal/**/*_test.go",
+                    "Go package naming convention",
+                    check="child-repeats-parent",
+                )
+            ],
+        ):
+            with self.subTest(entries=entries):
+                config = fixture()
+                config["exceptions"] = entries
+                assert problems(config) == []
 
 
 class FindingsTests(unittest.TestCase):
@@ -339,14 +346,21 @@ class FindingsTests(unittest.TestCase):
             format_findings([Finding("A.rule", "a.py", "one", "fix a")])
 
 
+class RailsStateTests(unittest.TestCase):
+    def test_scopes_drop_rails_state_like_git(self) -> None:
+        paths = [".agentrails/config.json", ".proofs/run.md", "src/a.py", ".proofsx/b"]
+        scope = Scope(paths, set(paths), paths)
+        assert scope.paths == scope.inventory == ["src/a.py", ".proofsx/b"]
+        assert scope.existing_paths == {"src/a.py", ".proofsx/b"}
+
+
 class CliCase(unittest.TestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-cli-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name).resolve() / "repo"
-        self.record = Path(scratch.name).resolve() / "record"
         self.repo.mkdir()
-        self.record.mkdir()
+        run_text(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
 
     def run_cli(self, *args: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
@@ -354,176 +368,11 @@ class CliCase(unittest.TestCase):
             code = cli.main(list(args))
         return code, out.getvalue(), err.getvalue()
 
-    def write_profile(self, profile: dict[str, Any]) -> None:
-        path = self.record / "profile.md"
-        path.write_text(
-            f"---\n{json.dumps(profile, indent=2)}\n---\n\n# Repo test profile\n"
-        )
+    def write_config(self, config: dict[str, Any]) -> None:
+        write_config(self.repo, config)
 
     def located(self, *args: str) -> tuple[str, ...]:
-        return (
-            *args[:1],
-            "--repo",
-            str(self.repo),
-            "--record",
-            str(self.record),
-            *args[1:],
-        )
-
-
-class CliTests(CliCase):
-    def test_every_contract_subcommand_is_listed(self) -> None:
-        assert set(dispatch.SUBCOMMANDS) == CONTRACT_SUBCOMMANDS
-        code, out, _ = self.run_cli("--help")
-        assert code == 0
-        for name in CONTRACT_SUBCOMMANDS:
-            assert name in out
-
-    def test_subcommand_help_lists_each_checker_module_s_catalogue_rules(self) -> None:
-        code, out, _ = self.run_cli("diff-check", "--help")
-        assert code == 0
-        assert (
-            "guardrails.commands.check.integrity:\n"
-            "  CODE.no-comments: Block added comments of every supported syntax, "
-            "including Python docstrings; preserve tool directives.\n"
-        ) in out
-        assert (
-            "  TEST.duplicate-path: Reject new tests duplicating an existing call path "
-            "and assertion."
-        ) in out
-
-    def test_profile_check_exit_codes_follow_findings(self) -> None:
-        self.write_profile(complete_profile())
-        assert self.run_cli(*self.located("profile-check"))[:2] == (
-            0,
-            "profile-check: ok\n",
-        )
-        broken = complete_profile()
-        broken["adapters"][0]["name"] = "TBD"
-        self.write_profile(broken)
-        code, out, _ = self.run_cli(
-            "profile-check", f"--record={self.record}", f"--repo={self.repo}"
-        )
-        assert code == 1
-        assert "record:profile.md: PROFILE.complete: adapters[0].name is missing" in out
-
-    def test_exception_records_reject_obsolete_location_with_migration_error(
-        self,
-    ) -> None:
-        profile = complete_profile()
-        profile["house_" + "style"]["exceptions"] = []
-        self.write_profile(profile)
-        code, out, _ = self.run_cli(*self.located("profile-check"))
-        assert code == 1
-        assert "is obsolete; move entries to guardrails.exceptions" in out
-        assert "reason" in out
-
-    def test_exception_records_require_real_strings_and_reject_unknown_fields(
-        self,
-    ) -> None:
-        entry = {
-            "rule": "NAME.conventions",
-            "check": "child-repeats-parent",
-            "path": "internal/**/*_test.go",
-            "reason": "Go tests retain the package naming convention",
-        }
-        for field in ("rule", "check", "path", "reason"):
-            for value in ("", "TBD", "<value>", None, 42):
-                with self.subTest(field=field, value=value):
-                    profile = complete_profile()
-                    profile["guardrails"]["exceptions"] = [{**entry, field: value}]
-                    self.write_profile(profile)
-                    code, out, _ = self.run_cli(*self.located("profile-check"))
-                    assert code == 1
-                    assert f"guardrails.exceptions[0].{field}" in out
-        for field in ("rule", "path", "reason"):
-            with self.subTest(missing=field):
-                profile = complete_profile()
-                profile["guardrails"]["exceptions"] = [
-                    {key: value for key, value in entry.items() if key != field}
-                ]
-                self.write_profile(profile)
-                code, out, _ = self.run_cli(*self.located("profile-check"))
-                assert code == 1
-                assert f"guardrails.exceptions[0].{field}" in out
-        profile = complete_profile()
-        for field in ("unexpected", "a" + "dr"):
-            with self.subTest(unknown=field):
-                profile["guardrails"]["exceptions"] = [
-                    {**entry, field: "old decision reference"}
-                ]
-                self.write_profile(profile)
-                code, out, _ = self.run_cli(*self.located("profile-check"))
-                assert code == 1
-                assert f"guardrails.exceptions[0].{field} is not a profile key" in out
-
-    def test_exception_records_accept_globs_optional_checks_and_plain_reasons(
-        self,
-    ) -> None:
-        for entries in (
-            [],
-            [
-                {
-                    "rule": "NAME.conventions",
-                    "path": "src/**",
-                    "reason": "Generated API names",
-                }
-            ],
-            [
-                {
-                    "rule": "NAME.conventions",
-                    "check": "child-repeats-parent",
-                    "path": "internal/**/*_test.go",
-                    "reason": "Go package naming convention",
-                }
-            ],
-        ):
-            with self.subTest(entries=entries):
-                profile = complete_profile()
-                profile["guardrails"]["exceptions"] = entries
-                self.write_profile(profile)
-                assert self.run_cli(*self.located("profile-check"))[:2] == (
-                    0,
-                    "profile-check: ok\n",
-                )
-
-    def test_missing_profile_is_a_profile_finding(self) -> None:
-        code, out, _ = self.run_cli(*self.located("naming"))
-        assert code == 1
-        assert "PROFILE.complete: record:profile.md does not exist" in out
-
-    def test_every_checker_needs_a_record_outside_the_repository(self) -> None:
-        self.write_profile(complete_profile())
-        code, _, err = self.run_cli("naming", "--repo", str(self.repo))
-        assert code == 2
-        assert "pass --record DIR" in err
-        inside = self.repo / "record"
-        inside.mkdir()
-        code, _, err = self.run_cli(
-            "naming", "--repo", str(self.repo), "--record", str(inside)
-        )
-        assert code == 2
-        assert "inside the repository" in err
-        assert self.run_cli("naming", "--repo", str(self.repo), "--record")[0] == 2
-
-    def test_unknown_subcommand_and_missing_adapter_are_usage_errors(self) -> None:
-        assert self.run_cli("lint-everything")[0] == 2
-        profile = copy.deepcopy(complete_profile())
-        profile["adapters"][0]["name"] = "framework_without_adapter"
-        self.write_profile(profile)
-        code, _, err = self.run_cli(
-            *self.located("adapter"), "framework_without_adapter", "lint"
-        )
-        assert code == 2
-        assert "cannot import guardrails.commands.adapters" in err
-
-    def test_adapter_takes_a_declared_adapter_name_first(self) -> None:
-        self.write_profile(complete_profile())
-        for argv in ([], ["vitest", "lint"], ["lint"]):
-            with self.subTest(argv=argv):
-                code, out, _ = self.run_cli(*self.located("adapter"), *argv)
-                assert code == 1
-                assert "adapter takes one of the profile's adapters ['pytest']" in out
+        return (*args[:1], "--repo", str(self.repo), *args[1:])
 
 
 if __name__ == "__main__":

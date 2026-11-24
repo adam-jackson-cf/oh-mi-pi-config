@@ -10,8 +10,7 @@ from guardrails.commands.python_policy.call_names import (
     qualified_name,
 )
 from guardrails.context.config import house_style
-from guardrails.context.config.profile import PROFILE_PATH
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import InventoryError
 from guardrails.toolkit.python_rules.scope import (
     PythonSettings,
@@ -181,36 +180,36 @@ def is_environ(node: ast.AST, names: dict[str, str]) -> bool:
     return qualified_name(node, names) == "os.environ"
 
 
-def ownership_findings(repo: Path, config: PythonSettings) -> list[Finding]:
-    roots = config.paths("analyzer_like_roots")
+def ownership_findings(repo: Path, options: PythonSettings) -> list[Finding]:
+    roots = options.paths("analyzer_like_roots")
     if not roots or any(
-        (repo / marker).exists() for marker in config.paths("ownership_markers")
+        (repo / marker).exists() for marker in options.paths("ownership_markers")
     ):
         return []
     return [
         finding(
             "PYS253",
-            PROFILE_PATH,
+            config_label("checkers"),
             None,
             f"analyzer-like roots {', '.join(roots)} have no existing ownership marker",
-            "add the owner file and list it in guardrails.python.ownership_markers",
+            "add the owner file and list it in checkers.python.ownership_markers",
         )
     ]
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     selected = parse_paths("python-scalability", argv)
-    config = load_settings(profile)
+    options = load_settings(config)
     try:
-        files = python_files(repo, config, selected)
+        files = python_files(repo, options, selected)
     except InventoryError as error:
         return [inventory_finding("PYS000", error)]
-    max_depth = config.number("", "max_loop_depth", DEFAULT_MAX_LOOP_DEPTH)
-    loop_roots = config.scope("loop_roots")
-    analyzer_roots = config.paths("analyzer_like_roots")
-    found = ownership_findings(repo, config)
+    max_depth = options.number("", "max_loop_depth", DEFAULT_MAX_LOOP_DEPTH)
+    loop_roots = options.scope("loop_roots")
+    analyzer_roots = options.paths("analyzer_like_roots")
+    found = ownership_findings(repo, options)
     for relpath in files:
-        if not in_roots(relpath, config.paths("maintained_roots")):
+        if not in_roots(relpath, options.paths("maintained_roots")):
             continue
         source = read_source(repo, relpath)
         if source.tree is None:
@@ -231,4 +230,4 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         )
         visitor.visit(source.tree)
         found.extend(visitor.findings)
-    return house_style.apply_exceptions(found, profile)
+    return house_style.apply_exceptions(found, config)

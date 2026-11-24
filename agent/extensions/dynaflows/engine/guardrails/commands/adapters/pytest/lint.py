@@ -13,7 +13,12 @@ from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
 from guardrails.context.config import adapter_declarations
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding, Remediation, remediation
-from guardrails.foundation.inventory import as_list, matches_any, name_matches
+from guardrails.foundation.inventory import (
+    as_list,
+    matches_any,
+    name_matches,
+    tests_settings,
+)
 
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
@@ -49,11 +54,11 @@ def load_rules() -> list[Rule]:
         if not entry.name.endswith(".yml"):
             continue
         data = json.loads(entry.read_text(encoding="utf-8"))
-        config: Config = {"rule": data["rule"]}
+        options: Config = {"rule": data["rule"]}
         if "constraints" in data:
-            config["constraints"] = data["constraints"]
+            options["constraints"] = data["constraints"]
         if "utils" in data:
-            config["utils"] = data["utils"]
+            options["utils"] = data["utils"]
         rules.append(
             Rule(
                 entry.name,
@@ -62,14 +67,14 @@ def load_rules() -> list[Rule]:
                 data.get("target"),
                 data["message"],
                 remediation(data["remediation"]),
-                config,
+                options,
             )
         )
     return rules
 
 
-def owned_packages(profile: dict[str, Any]) -> frozenset[str]:
-    entries = profile.get("public_entry_points")
+def owned_packages(config: dict[str, Any]) -> frozenset[str]:
+    entries = tests_settings(config, "public_entry_points")
     names = set()
     for key in entries if isinstance(entries, dict) else {}:
         parts = [part for part in str(key).replace("/", ".").split(".") if part]
@@ -80,9 +85,9 @@ def owned_packages(profile: dict[str, Any]) -> frozenset[str]:
     return frozenset(names)
 
 
-def test_patterns(profile: dict[str, Any], name: str) -> tuple[list[str], list[str]]:
-    locations = adapter_declarations.locations(profile, name)
-    layout = profile.get("layout")
+def test_patterns(config: dict[str, Any], name: str) -> tuple[list[str], list[str]]:
+    locations = adapter_declarations.locations(config, name)
+    layout = tests_settings(config, "layout")
     patterns = (
         as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
     )
@@ -201,8 +206,8 @@ def owned_target(
     return None
 
 
-def waived(rule_id: str, path: str, profile: dict[str, Any]) -> bool:
-    return not apply_exceptions([Finding(rule_id, path, "", "")], profile)
+def waived(rule_id: str, path: str, config: dict[str, Any]) -> bool:
+    return not apply_exceptions([Finding(rule_id, path, "", "")], config)
 
 
 def file_findings(
@@ -237,9 +242,9 @@ def file_findings(
     return findings
 
 
-def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]:
-    owned = owned_packages(profile)
-    locations, patterns = test_patterns(profile, NAME)
+def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
+    owned = owned_packages(config)
+    locations, patterns = test_patterns(config, NAME)
     rules = load_rules()
     findings: list[Finding] = []
     production: set[str] = set()
@@ -255,11 +260,11 @@ def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]
         if source is None:
             continue
         findings.extend(file_findings(path, source, scoped, owned))
-    findings.extend(test_only_symbol_findings(repo, profile, production))
+    findings.extend(test_only_symbol_findings(repo, config, production))
     return [
         finding
         for finding in findings
-        if not waived(finding.rule_id, finding.path, profile)
+        if not waived(finding.rule_id, finding.path, config)
     ]
 
 
@@ -275,12 +280,12 @@ def read_source(repo: Path, path: str) -> str | None:
 
 
 def test_only_symbol_findings(
-    repo: Path, profile: dict[str, Any], reported: set[str]
+    repo: Path, config: dict[str, Any], reported: set[str]
 ) -> list[Finding]:
     if not reported:
         return []
-    owned = owned_packages(profile)
-    locations, patterns = test_patterns(profile, NAME)
+    owned = owned_packages(config)
+    locations, patterns = test_patterns(config, NAME)
     production: dict[str, str] = {}
     tests: dict[str, str] = {}
     for path in python_files(repo, []):
@@ -293,4 +298,4 @@ def test_only_symbol_findings(
         source = read_source(repo, path)
         if source is not None:
             target[path] = source
-    return test_only_findings(production, tests, profile, reported)
+    return test_only_findings(production, tests, config, reported)

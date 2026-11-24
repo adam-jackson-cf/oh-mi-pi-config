@@ -98,8 +98,8 @@ def check(mutants: list[Mutant], added: dict[str, set[int]]) -> list[Finding]:
     return found
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    del profile
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
+    del config
     try:
         report = options(argv)
         mutants = load_report(report if report.is_absolute() else repo / report)

@@ -46,7 +46,7 @@ def structure_findings(
                 relpath,
                 None,
                 "Python file is outside the maintained roots",
-                "move it into an owned root or add its root to guardrails.python.maintained_roots",
+                "move it into an owned root or add its root to checkers.python.maintained_roots",
             )
         ]
     if relpath in config.paths("test_root_files"):
@@ -78,7 +78,7 @@ def script_findings(relpath: str, config: PythonSettings) -> list[Finding]:
             relpath,
             None,
             f"command '{name}' is not an approved kebab-case command",
-            "rename it to kebab-case and add its basename to guardrails.python.script_names",
+            "rename it to kebab-case and add its basename to checkers.python.script_names",
         )
     ]
 
@@ -97,7 +97,7 @@ def test_group_findings(relpath: str, config: PythonSettings) -> list[Finding]:
             relpath,
             None,
             "test path belongs to no canonical test group",
-            "move it into a group or map its pattern in guardrails.python.test_groups",
+            "move it into a group or map its pattern in checkers.python.test_groups",
         )
     ]
 
@@ -219,7 +219,7 @@ def generic_name_findings(
             None,
             f"catch-all directory '{part}' is a house-style banned word",
             "rename it for its owner or approve the exact path in "
-            "guardrails.python.generic_name_allowlist",
+            "checkers.python.generic_name_allowlist",
         )
         for part, prefix in below_root_dirs(relpath, depth)
         if prefix not in existing_segments
@@ -236,7 +236,7 @@ def generic_name_findings(
                 None,
                 f"catch-all module '{stem}' is a house-style banned word",
                 "rename it for its responsibility or approve the exact path in "
-                "guardrails.python.generic_name_allowlist",
+                "checkers.python.generic_name_allowlist",
             )
         )
     return found

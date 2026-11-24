@@ -60,12 +60,12 @@ def word_findings(
 
 
 def version_findings(
-    path: str, config: dict[str, Any], existing_segments: Set[str] = frozenset()
+    path: str, options: dict[str, Any], existing_segments: Set[str] = frozenset()
 ) -> list[Finding]:
-    if matches_any(path, as_list(config.get("version_exempt"))):
+    if matches_any(path, as_list(options.get("version_exempt"))):
         return []
     rules = house_style.load_house_style()["versioning"]
-    standalone = config.get("standalone_versions", rules["standalone_allowed"])
+    standalone = options.get("standalone_versions", rules["standalone_allowed"])
     parts = PurePosixPath(path).parts
     for index, part in enumerate(parts):
         if "/".join(parts[: index + 1]) in existing_segments:
@@ -105,11 +105,11 @@ def parent_findings(path: str, existing_paths: set[str] | None = None) -> list[F
 
 
 def plural_findings(
-    path: str, config: dict[str, Any], existing_segments: Set[str] = frozenset()
+    path: str, options: dict[str, Any], existing_segments: Set[str] = frozenset()
 ) -> list[Finding]:
-    if not config.get("check_plurals"):
+    if not options.get("check_plurals"):
         return []
-    allowed = set(as_list(config.get("plural_allowlist")))
+    allowed = set(as_list(options.get("plural_allowlist")))
     return [
         convention(
             path,
@@ -165,8 +165,8 @@ def casing_findings(
     return found
 
 
-def test_file_findings(path: str, profile: dict[str, Any]) -> list[Finding]:
-    patterns = test_patterns(profile)
+def test_file_findings(path: str, config: dict[str, Any]) -> list[Finding]:
+    patterns = test_patterns(config)
     test_like = conventions.test_like_patterns(path)
     if not any(name_matches(path, pattern) for pattern in patterns):
         if any(name_matches(path, pattern) for pattern in test_like):
@@ -190,7 +190,7 @@ def test_file_findings(path: str, profile: dict[str, Any]) -> list[Finding]:
     ]
 
 
-def symbol_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Finding]:
+def symbol_findings(repo: Path, path: str, options: dict[str, Any]) -> list[Finding]:
     if conventions.for_path(path)["name"] != "python":
         return []
     source = repo / path
@@ -208,7 +208,7 @@ def symbol_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Findi
             )
         ]
     rules = conventions.load_pack("python")
-    allowed = set(as_list(config.get("symbol_exceptions", {}).get(path)))
+    allowed = set(as_list(options.get("symbol_exceptions", {}).get(path)))
     found = []
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -234,27 +234,29 @@ def symbol_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Findi
 def path_findings(
     repo: Path,
     path: str,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     *,
     existing_paths: set[str] | None = None,
 ) -> list[Finding]:
-    config = settings(profile, "naming")
-    if conventions.ignored_path(path) or matches_any(path, as_list(config.get("skip"))):
+    options = settings(config, "naming")
+    if conventions.ignored_path(path) or matches_any(
+        path, as_list(options.get("skip"))
+    ):
         return []
     existing_segments = path_prefixes(existing_paths or ())
     new_file = path not in existing_segments
     return [
         *word_findings(path, existing_segments),
-        *version_findings(path, config, existing_segments),
+        *version_findings(path, options, existing_segments),
         *parent_findings(path, existing_paths),
-        *plural_findings(path, config, existing_segments),
+        *plural_findings(path, options, existing_segments),
         *casing_findings(repo, path, existing_segments),
-        *(test_file_findings(path, profile) if new_file else []),
-        *(symbol_findings(repo, path, config) if new_file else []),
+        *(test_file_findings(path, config) if new_file else []),
+        *(symbol_findings(repo, path, options) if new_file else []),
     ]
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         selected = scope.select(repo, argv)
         if not selected.paths:
@@ -276,11 +278,11 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                         path_findings(
                             root,
                             path,
-                            profile,
+                            config,
                             existing_paths=selected.existing_paths,
                         )
                     )
-        return house_style.apply_exceptions(found, profile)
+        return house_style.apply_exceptions(found, config)
     except InventoryError as error:
         return [
             convention(".", str(error), "provide a readable Git work tree or snapshot")

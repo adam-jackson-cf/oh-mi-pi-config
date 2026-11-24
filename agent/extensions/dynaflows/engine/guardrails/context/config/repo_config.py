@@ -90,14 +90,7 @@ TEST_KEYS = (
     "layout",
     "command_notes",
 )
-MACHINE = {key: kind for key, kind in profile.MACHINE.items() if key != "approval"}
-TESTS_SCHEMA: dict[str, Any] = {
-    **{key: profile.SCHEMA[key] for key in TEST_KEYS},
-    "fast_tier_budget": {
-        **profile.SCHEMA["fast_tier_budget"],
-        "machines": ("records", MACHINE),
-    },
-}
+TESTS_SCHEMA: dict[str, Any] = {key: profile.SCHEMA[key] for key in TEST_KEYS}
 STRUCTURE_SCHEMA: dict[str, Any] = {
     **profile.SCHEMA["structure"],
     "ownership_areas": profile.SCHEMA["ownership_areas"],
@@ -281,12 +274,22 @@ def _judgment_questions(directory: Path) -> dict[str, OfferedQuestion]:
 
 
 @cache
-def offered_questions() -> dict[str, OfferedQuestion]:
-    offered: dict[str, OfferedQuestion] = {}
+def judgment_questions() -> dict[str, OfferedQuestion]:
+    """Every shipped judgment question as <judgment>/<question>."""
+    found: dict[str, OfferedQuestion] = {}
     for directory in sorted(JUDGMENTS_DIR.iterdir()):
         if (directory / "thresholds.json").is_file():
-            offered.update(_judgment_questions(directory))
-    return {key: value for key, value in offered.items() if key not in NOT_CONFIGURABLE}
+            found.update(_judgment_questions(directory))
+    return found
+
+
+@cache
+def offered_questions() -> dict[str, OfferedQuestion]:
+    return {
+        key: value
+        for key, value in judgment_questions().items()
+        if key not in NOT_CONFIGURABLE
+    }
 
 
 def _text(value: object) -> str | None:
@@ -346,6 +349,14 @@ def _rule_id(value: object) -> str | None:
     if isinstance(value, str) and value in rule_ids():
         return None
     return f"{json.dumps(value)} is not a rule id in the guardrail catalogue"
+
+
+def _exception_rule(value: object) -> str | None:
+    """Exceptions name a catalogue rule or a judgment question (whose proposals they drop)."""
+    if isinstance(value, str) and value in judgment_questions():
+        return None
+    problem = _rule_id(value)
+    return None if problem is None else f"{problem} or a judgment question"
 
 
 def _questionnaire(value: object) -> str | None:
@@ -658,7 +669,7 @@ CI = _union(
 )
 EXCEPTION = _strict(
     {
-        "rule": _leaf(_rule_id),
+        "rule": _leaf(_exception_rule),
         "path": TEXT,
         "reason": TEXT,
         "approvedBy": TEXT,

@@ -6,9 +6,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote
 
-from guardrails.context.config.profile import PROFILE_PATH
-from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, settings
+from guardrails.context.config.profile import approved_exemption
+from guardrails.foundation.findings import Finding, config_label
+from guardrails.foundation.inventory import as_list, settings, tests_settings
 
 RULE = "SURFACE.feature-map"
 CHECKER = "feature_map"
@@ -32,9 +32,11 @@ class Document:
     links: list[str] = field(default_factory=list)
 
 
-def surface(profile: dict[str, Any]) -> dict[str, Any] | None:
-    value = profile.get("verification_surface")
-    if not isinstance(value, dict) or "none" in value:
+def surface(config: dict[str, Any]) -> dict[str, Any] | None:
+    value = tests_settings(config, "verification_surface")
+    if not isinstance(value, dict) or approved_exemption(
+        config, "verification_surface"
+    ):
         return None
     return value
 
@@ -107,8 +109,8 @@ def linked_files(repo: Path, doc: str, text: str) -> set[str]:
     return linked
 
 
-def index_files(profile: dict[str, Any]) -> set[str]:
-    return set(as_list(settings(profile, CHECKER).get("index_files")))
+def index_files(config: dict[str, Any]) -> set[str]:
+    return set(as_list(settings(config, CHECKER).get("index_files")))
 
 
 def link_findings(repo: Path, doc: str, document: Document) -> list[Finding]:
@@ -206,9 +208,9 @@ def map_documents(repo: Path, map_path: str) -> list[str]:
     return sorted(path.relative_to(repo).as_posix() for path in root.rglob("*.md"))
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     del argv
-    values = surface(profile)
+    values = surface(config)
     if values is None:
         return []
     map_path = str(values.get("feature_map_path") or "").strip().rstrip("/")
@@ -217,12 +219,12 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         return [
             Finding(
                 RULE,
-                map_path or PROFILE_PATH,
+                map_path or config_label("tests"),
                 "the feature map named by verification_surface.feature_map_path does not exist",
                 "write one document per feature at the feature map path",
             )
         ]
-    indexes = index_files(profile)
+    indexes = index_files(config)
     found: list[Finding] = []
     owners: dict[str, str] = {}
     for doc in map_documents(repo, map_path):

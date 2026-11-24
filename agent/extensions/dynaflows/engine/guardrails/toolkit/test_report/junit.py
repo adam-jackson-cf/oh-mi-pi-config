@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.context.config import adapter_declarations
+from guardrails.foundation.inventory import settings
 
 OUTCOMES = ("passed", "failed", "skipped", "xfail", "error")
 FAILING = frozenset({"failed", "error"})
@@ -272,31 +273,29 @@ def report_options(repo: Path, argv: list[str]) -> ReportOptions:
     )
 
 
-def evidence_settings(profile: dict[str, Any]) -> dict[str, Any]:
-    section = profile.get("guardrails")
-    value = section.get("test_evidence") if isinstance(section, dict) else None
-    return value if isinstance(value, dict) else {}
+def evidence_settings(config: dict[str, Any]) -> dict[str, Any]:
+    return settings(config, "test_evidence")
 
 
 def load_run_report(
-    repo: Path, profile: dict[str, Any], options: ReportOptions
+    repo: Path, config: dict[str, Any], options: ReportOptions
 ) -> Report:
     if options.junit is None:
         raise ReportError("no run report given; pass --junit <path>")
-    settings = evidence_settings(profile)
+    settings = evidence_settings(config)
     dialect = dialect_for(
-        options.dialect or report_adapter(profile), settings.get("dialect")
+        options.dialect or report_adapter(config), settings.get("dialect")
     )
     return parse_report(
         options.junit, dialect, display_path(repo, options.junit, "run report")
     )
 
 
-def report_adapter(profile: dict[str, Any]) -> str | None:
-    declared = adapter_declarations.names(profile)
+def report_adapter(config: dict[str, Any]) -> str | None:
+    declared = adapter_declarations.names(config)
     if len(declared) > 1:
         raise UsageError(
-            f"the profile declares adapters {declared}; pass --dialect <adapter> naming "
+            f"tests.adapters declares {declared}; pass --dialect <adapter> naming "
             "the one that wrote this report"
         )
     return declared[0] if declared else None

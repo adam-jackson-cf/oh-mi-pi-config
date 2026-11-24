@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
 
-from guardrails.foundation.inventory import matches_any
+from guardrails.foundation.inventory import matches_any, tests_settings
 
 PACKAGE = "guardrails.commands.adapters"
 TIER_KEYS = ("t1", "t2", "t3")
@@ -26,8 +26,8 @@ def as_texts(value: object) -> list[str]:
     return []
 
 
-def declared(profile: dict[str, Any]) -> list[Declared]:
-    entries = profile.get("adapters")
+def declared(config: dict[str, Any]) -> list[Declared]:
+    entries = tests_settings(config, "adapters")
     found = []
     for entry in entries if isinstance(entries, list) else []:
         if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
@@ -46,12 +46,12 @@ def declared(profile: dict[str, Any]) -> list[Declared]:
     return found
 
 
-def names(profile: dict[str, Any]) -> list[str]:
-    return [entry.name for entry in declared(profile)]
+def names(config: dict[str, Any]) -> list[str]:
+    return [entry.name for entry in declared(config)]
 
 
-def adapter_tiers(profile: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
-    for entry in declared(profile):
+def adapter_tiers(config: dict[str, Any], name: str) -> dict[str, dict[str, Any]]:
+    for entry in declared(config):
         if entry.name == name:
             return entry.tiers
     return {}
@@ -62,10 +62,10 @@ def extend_unique(bucket: list[str], items: list[str]) -> None:
 
 
 def tier_locations(
-    profile: dict[str, Any], name: str | None = None
+    config: dict[str, Any], name: str | None = None
 ) -> dict[str, list[str]]:
     found: dict[str, list[str]] = {}
-    for entry in declared(profile):
+    for entry in declared(config):
         if name is not None and entry.name != name:
             continue
         for tier, spec in entry.tiers.items():
@@ -73,23 +73,23 @@ def tier_locations(
     return {tier: found[tier] for tier in TIER_KEYS if tier in found}
 
 
-def locations(profile: dict[str, Any], name: str | None = None) -> list[str]:
+def locations(config: dict[str, Any], name: str | None = None) -> list[str]:
     return list(
         dict.fromkeys(
-            item for values in tier_locations(profile, name).values() for item in values
+            item for values in tier_locations(config, name).values() for item in values
         )
     )
 
 
 def claimed(
-    profile: dict[str, Any],
+    config: dict[str, Any],
     name: str,
     tier: str,
     paths: list[str] | tuple[str, ...],
     suffixes: tuple[str, ...],
 ) -> list[str]:
-    own = tier_locations(profile, name).get(tier, [])
-    every = tier_locations(profile).get(tier, [])
+    own = tier_locations(config, name).get(tier, [])
+    every = tier_locations(config).get(tier, [])
     return [
         path
         for path in paths

@@ -2,18 +2,19 @@ from __future__ import annotations
 
 import contextlib
 import io
-import json
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
 )
 
 import pytest
+from test_agentrails_fixture import approval, config, fixture, write_config
 from test_reference_diffs import FixtureRepo
 
 from guardrails.commands import cli
@@ -23,16 +24,28 @@ from guardrails.toolkit.test_report.collection import read_ids
 
 pytestmark = pytest.mark.seam
 
-PROFILE = {
-    "adapters": [
-        {
-            "name": "go",
-            "tiers": {"t1": {"selector": "-run ^TestBasket", "location": "shop"}},
-        }
+PROFILE: dict[str, Any] = {
+    "tests": {
+        "adapters": [
+            {
+                "name": "go",
+                "tiers": {
+                    "t1": {"selector": "-run ^TestBasket", "location": "shop"},
+                    "t2": {"selector": "-run ^TestReport", "location": "shop"},
+                },
+            }
+        ],
+        "public_entry_points": {"shop": ["Total"]},
+        "tiers": {
+            "t1": {"command": "guardrails adapter go run --tier t1"},
+            "t3": {"none": True},
+        },
+        "layout": {"test_file_patterns": ["*_test.go"]},
+    },
+    "approvals": [
+        *fixture()["approvals"],
+        approval("exemption", "tiers.t3", "no exploratory Go tier"),
     ],
-    "public_entry_points": {"shop": ["Total"]},
-    "tiers": {"t1": {"command": "guardrails adapter go run --tier t1"}},
-    "layout": {"test_file_patterns": ["*_test.go"]},
 }
 
 MODULE = {
@@ -71,10 +84,8 @@ def shop_module(root: Path) -> tuple[Path, Path]:
         (repo / name).write_text(text)
     initialised = run_command(["git", "init", "-q", str(repo)], root, os.environ, 60)
     assert initialised.returncode == 0, initialised.stderr
-    record = root / "record"
-    record.mkdir()
-    (record / "profile.md").write_text(f"---\n{json.dumps(PROFILE)}\n---\n")
-    return repo, record
+    write_config(repo, config(**PROFILE))
+    return repo, root
 
 
 class GoAdapterTests(unittest.TestCase):
@@ -89,7 +100,7 @@ class GoAdapterTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             repo, record = shop_module(Path(scratch))
             report = Path(scratch, "evidence", "t1.xml")
-            located = ["--repo", str(repo), "--record", str(record)]
+            located = ["--repo", str(repo)]
             code, out = run_cli(
                 "adapter", *located, "go", "run", "--tier", "t1", "--out", str(report)
             )
@@ -112,18 +123,23 @@ class GoAdapterTests(unittest.TestCase):
 
 AFFECTED_PROFILE = {
     **PROFILE,
-    "adapters": [
-        {
-            "name": "go",
-            "tiers": {
-                "t1": {"selector": "-run ^TestBasket", "location": "shop"},
-                "t2": {"selector": "-run ^TestReport", "location": "shop"},
-            },
-        }
-    ],
-    "coverage": {"scope": ["shop"]},
-    "ownership_areas": {"map": {"shop/total_test.go": "shop"}},
-    "structure": {"owners": {"files": {}, "directories": {"shop/": "shop"}}},
+    "tests": {
+        **PROFILE.get("tests", {}),
+        "adapters": [
+            {
+                "name": "go",
+                "tiers": {
+                    "t1": {"selector": "-run ^TestBasket", "location": "shop"},
+                    "t2": {"selector": "-run ^TestReport", "location": "shop"},
+                },
+            }
+        ],
+        "coverage": {"scope": ["shop"]},
+    },
+    "structure": {
+        "owners": {"files": {}, "directories": {"shop/": "shop"}},
+        "ownership_areas": {"map": {"shop/total_test.go": "shop"}},
+    },
 }
 
 
@@ -131,12 +147,7 @@ class GoAffectedTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = FixtureRepo(self)
         self.base = self.repo.commit(MODULE, AFFECTED_PROFILE)
-        self.located = [
-            "--repo",
-            str(self.repo.path),
-            "--record",
-            str(self.repo.record),
-        ]
+        self.located = ["--repo", str(self.repo.path)]
 
     def test_a_changed_package_prints_its_t2_selector_and_package(self) -> None:
         self.repo.commit({"shop/total.go": MODULE["shop/total.go"] + "\n"})

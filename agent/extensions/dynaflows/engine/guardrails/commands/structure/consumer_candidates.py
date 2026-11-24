@@ -527,12 +527,12 @@ def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str
     return tree
 
 
-def exempt(path: str, profile: dict[str, Any]) -> bool:
-    return not apply_exceptions([Finding(EXCEPTION_RULE, path, "", "")], profile)
+def exempt(path: str, config: dict[str, Any]) -> bool:
+    return not apply_exceptions([Finding(EXCEPTION_RULE, path, "", "")], config)
 
 
 def consumer_candidates(
-    tree: dict[str, str], changed: set[str], profile: dict[str, Any]
+    tree: dict[str, str], changed: set[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     return [
         {
@@ -542,24 +542,24 @@ def consumer_candidates(
             "state": consumer_state(tree, path, facts),
         }
         for path, facts in propose(tree)
-        if path in changed and not exempt(path, profile)
+        if path in changed and not exempt(path, config)
     ]
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(
         description=SUBCOMMANDS["consumer-candidates"].summary
     )
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
-    excluded_paths = as_list(settings(profile, "check").get("exclude")) + as_list(
-        settings(profile, "python").get("excluded_paths")
+    excluded_paths = as_list(settings(config, "check").get("exclude")) + as_list(
+        settings(config, "python").get("excluded_paths")
     )
     try:
         tree = head_tree(repo, args.head, excluded_paths)
         found = consumer_candidates(
-            tree, changed_paths(repo, args.base, args.head), profile
+            tree, changed_paths(repo, args.base, args.head), config
         )
     except (GitError, ValueError) as error:
         return [

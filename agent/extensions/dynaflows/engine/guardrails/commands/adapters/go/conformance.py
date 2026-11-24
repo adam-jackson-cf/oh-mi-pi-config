@@ -21,22 +21,27 @@ PRODUCTION_FILE = "shop/settings.go"
 RUN_SELECTOR = "-run ."
 GO_IDS = {"tests/test_case.py::test_fast_total": f"{TEST_FILE}::TestFastTotal"}
 RUN_TIERS = {"user-data-write": "t2", "user-data-temporary-home": "t2"}
-BASE_PROFILE: dict[str, Any] = {
-    "adapters": [
-        {
-            "name": "go",
-            "tiers": {"t1": {"selector": "-run ^TestFastTotal$", "location": "tests"}},
-        }
-    ],
-    "public_entry_points": {"shop": ["PublicAPI"]},
-    "tiers": {"t1": {"command": "guardrails adapter go run --tier t1"}},
-    "layout": {
-        "test_file_patterns": ["*_test.go"],
-        "support_dir": "tests",
-        "fixtures_dir": "tests",
+BASE_CONFIG: dict[str, Any] = {
+    "tests": {
+        "adapters": [
+            {
+                "name": "go",
+                "tiers": {
+                    "t1": {"selector": "-run ^TestFastTotal$", "location": "tests"}
+                },
+            }
+        ],
+        "public_entry_points": {"shop": ["PublicAPI"]},
+        "tiers": {"t1": {"command": "guardrails adapter go run --tier t1"}},
+        "layout": {
+            "test_file_patterns": ["*_test.go"],
+            "support_dir": "tests",
+            "fixtures_dir": "tests",
+        },
     },
-    "house_style": {"version": 1},
-    "guardrails": {"exceptions": []},
+    "houseStyle": {"version": 1},
+    "checkers": {},
+    "exceptions": [],
 }
 
 
@@ -76,26 +81,28 @@ def build_project(root: Path, case: dict[str, Any]) -> tuple[Path, str, dict[str
     production = case["id"].startswith("production-")
     placed = PRODUCTION_FILE if production else TEST_FILE
     (project / placed).write_text(fixture_source(case["id"]), encoding="utf-8")
-    profile = copy.deepcopy(BASE_PROFILE)
+    config = copy.deepcopy(BASE_CONFIG)
     if case["id"] == "approved-static-skip":
-        profile["guardrails"]["exceptions"] = [
+        config["exceptions"] = [
             {
                 "rule": "TEST.no-evasion",
                 "path": placed,
                 "reason": "Upstream vendor outage",
+                "approvedBy": "conformance-owner",
+                "approvedAt": "2026-01-01T00:00:00Z",
             }
         ]
     if production:
-        profile["public_entry_points"][placed] = ["Region"]
-    return project, placed, profile
+        config["tests"]["public_entry_points"][placed] = ["Region"]
+    return project, placed, config
 
 
 def check_source(
-    project: Path, profile: dict[str, Any], placed: str, case: dict[str, Any]
+    project: Path, config: dict[str, Any], placed: str, case: dict[str, Any]
 ) -> tuple[bool, str]:
     from guardrails.commands.adapters.go.lint import lint
 
-    rules = sorted({finding.rule_id for finding in lint(project, profile, [placed])})
+    rules = sorted({finding.rule_id for finding in lint(project, config, [placed])})
     return (case["rule"] in rules) == (
         case["expect"] == "finding"
     ), f"rules reported: {rules}"
@@ -134,7 +141,7 @@ def run_environment(root: Path, kept: dict[str, str]) -> dict[str, str]:
 def check_run(
     root: Path,
     project: Path,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     case: dict[str, Any],
     kept: dict[str, str],
 ) -> tuple[bool, str]:
@@ -143,11 +150,11 @@ def check_run(
     from guardrails.toolkit.test_report.junit import ReportError
 
     tier = RUN_TIERS.get(case["id"], "t1")
-    profile["adapters"][0]["tiers"] = {
+    config["tests"]["adapters"][0]["tiers"] = {
         tier: {"selector": RUN_SELECTOR, "location": "tests"}
     }
     report = root / "evidence" / "report.xml"
-    code = run_tier(project, profile, tier, report, run_environment(root, kept))
+    code = run_tier(project, config, tier, report, run_environment(root, kept))
     try:
         parsed = load_report(report)
     except ReportError as error:
@@ -172,13 +179,13 @@ def check_run(
 
 
 def check_collection(
-    root: Path, project: Path, profile: dict[str, Any], case: dict[str, Any]
+    root: Path, project: Path, config: dict[str, Any], case: dict[str, Any]
 ) -> tuple[bool, str]:
     from guardrails.commands.adapters.go.tiers import list_tiers
     from guardrails.toolkit.test_report.collection import read_ids
 
     out = root / "collections"
-    findings = list_tiers(project, profile, ["t1"], out)
+    findings = list_tiers(project, config, ["t1"], out)
     rules = [finding.rule_id for finding in findings]
     ids = read_ids(out / "t1.txt")
     if case["expect"] == "finding":
@@ -188,7 +195,7 @@ def check_collection(
 
 
 def run_conformance(
-    case_ids: list[str] | None = None, *, profile: dict[str, Any] | None = None
+    case_ids: list[str] | None = None, *, config: dict[str, Any] | None = None
 ) -> list[CaseResult]:
     from guardrails.commands.adapters.go.run import kept_go_environment
 
@@ -197,9 +204,9 @@ def run_conformance(
     if unknown:
         raise ValueError(f"unknown conformance case(s): {', '.join(unknown)}")
     selected = [case for case in cases if not case_ids or case["id"] in case_ids]
-    configured = (profile or {}).get("guardrails", {}).get("adapter_go", {})
+    configured = (config or {}).get("checkers", {}).get("adapter_go", {})
     try:
-        kept = kept_go_environment({"guardrails": {"adapter_go": configured}})
+        kept = kept_go_environment({"checkers": {"adapter_go": configured}})
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         return [
             CaseResult(case["id"], case["rule"], False, str(error)) for case in selected
@@ -214,7 +221,7 @@ def run_conformance(
             with tempfile.TemporaryDirectory(prefix="omp-go-conformance-") as scratch:
                 root = Path(scratch).resolve()
                 project, placed, bound = build_project(root, case)
-                bound["guardrails"]["adapter_go"] = toolchain
+                bound["checkers"]["adapter_go"] = toolchain
                 kind = case["evidence"]
                 if kind == "source":
                     passed, detail = check_source(project, bound, placed, case)
@@ -233,7 +240,7 @@ def run_conformance(
 
 
 def run_cases(
-    case_ids: list[str], *, profile: dict[str, Any] | None = None
+    case_ids: list[str], *, config: dict[str, Any] | None = None
 ) -> list[Finding]:
     return [
         Finding(
@@ -242,6 +249,6 @@ def run_cases(
             f"the Go adapter misclassifies this case ({result.detail})",
             "fix the Go adapter until every canonical case passes",
         )
-        for result in run_conformance(case_ids, profile=profile)
+        for result in run_conformance(case_ids, config=config)
         if not result.passed
     ]

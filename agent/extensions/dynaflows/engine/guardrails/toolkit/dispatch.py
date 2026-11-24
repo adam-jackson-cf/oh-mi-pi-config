@@ -7,19 +7,23 @@ from types import ModuleType
 from typing import Any
 
 from guardrails.context.config import adapter_declarations
-from guardrails.context.config.profile import PROFILE_FILE, PROFILE_PATH, ProfileError
-from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches_any, settings
+from guardrails.context.config.profile import ProfileError
+from guardrails.foundation.findings import CONFIG_LABEL, Finding, config_label
+from guardrails.foundation.inventory import (
+    as_list,
+    config_section,
+    matches_any,
+    settings,
+)
 
 
 @dataclass(frozen=True)
 class Subcommand:
     modules: tuple[str, ...]
     summary: str
-    needs_profile: bool = True
+    needs_config: bool = True
     prints_data: bool = False
     honours_exclusions: bool = False
-    record_optional: bool = False
 
 
 SUBCOMMANDS: dict[str, Subcommand] = {
@@ -28,14 +32,11 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "the harness commit checks: whole-repo steps, then CODE.* and the TEST diff rules "
         "over the staged changes (any finding blocks)",
     ),
-    "profile-check": Subcommand(
-        ("guardrails.context.config.profile",),
-        "PROFILE.complete: validate the record's profile.md",
-    ),
     "init": Subcommand(
         ("guardrails.commands.init.command",),
-        "draft the repo's local record (gate.json, profile.md) for owner confirmation",
-        needs_profile=False,
+        "draft the setup-owned config sections (commands, checkers, structure, "
+        "houseStyle, tests) into --out FILE outside the repo",
+        needs_config=False,
     ),
     "path-check": Subcommand(
         ("guardrails.commands.structure.paths",),
@@ -65,23 +66,17 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     "name-pairs": Subcommand(
         ("guardrails.commands.structure.name_pairs",),
         "structure-naming name-pair candidates JSON for --base SHA --head SHA",
-        needs_profile=False,
         prints_data=True,
-        record_optional=True,
     ),
     "kind-candidates": Subcommand(
         ("guardrails.commands.structure.kind_candidates",),
         "structure-naming kind-folder file candidates JSON for --base SHA --head SHA",
-        needs_profile=False,
         prints_data=True,
-        record_optional=True,
     ),
     "consumer-candidates": Subcommand(
         ("guardrails.commands.structure.consumer_candidates",),
         "structure-naming consumer-file candidates JSON for --base SHA --head SHA",
-        needs_profile=False,
         prints_data=True,
-        record_optional=True,
     ),
     "naming": Subcommand(
         ("guardrails.commands.structure.naming",),
@@ -136,7 +131,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     ),
     "affected": Subcommand(
         ("guardrails.commands.adapters.affected",),
-        "affected T2 test files for a diff range, from the profile's Ownership areas",
+        "affected T2 test files for a diff range, from the config's ownership areas",
         prints_data=True,
     ),
     "mutation-check": Subcommand(
@@ -160,38 +155,37 @@ SUBCOMMANDS: dict[str, Subcommand] = {
     ),
     "adapter": Subcommand(
         (),
-        "run one of the profile's test-framework adapters: adapter <name> <action>",
+        "run one of the config's test-framework adapters: adapter <name> <action>",
         prints_data=True,
     ),
     "config-check": Subcommand(
         ("guardrails.commands.config.command",),
         "validate the repo's .agentrails/config.json, a config file or one section; "
         "one JSON line (config-check --help)",
-        needs_profile=False,
+        needs_config=False,
         prints_data=True,
     ),
     "shadow-review": Subcommand(
         ("guardrails.commands.shadow_review.command",),
         "export, import and report review labels for logged judgment decisions; "
         "write Jev Inspector sessions (shadow-review --help)",
-        needs_profile=False,
+        needs_config=False,
         prints_data=True,
     ),
 }
 
 
-RECORD_PREFIX = "record:"
 EXCLUDED_ADAPTER_ACTIONS = frozenset({"lint"})
 
 
 def outside_exclusions(
-    findings: list[Finding], profile: dict[str, Any]
+    findings: list[Finding], config: dict[str, Any]
 ) -> list[Finding]:
-    patterns = as_list(settings(profile, "check").get("exclude"))
+    patterns = as_list(settings(config, "check").get("exclude"))
     return [
         finding
         for finding in findings
-        if finding.path.startswith(RECORD_PREFIX)
+        if finding.path.startswith(CONFIG_LABEL)
         or not matches_any(finding.path, patterns)
     ]
 
@@ -202,16 +196,16 @@ def honours_exclusions(name: str, argv: list[str]) -> bool:
     return SUBCOMMANDS[name].honours_exclusions
 
 
-def module_names(name: str, profile: dict[str, Any]) -> tuple[str, ...]:
+def module_names(name: str, config: dict[str, Any]) -> tuple[str, ...]:
     if name != "adapter":
         return SUBCOMMANDS[name].modules
     return tuple(
-        adapter_declarations.module_name(item) for item in declared_adapters(profile)
+        adapter_declarations.module_name(item) for item in declared_adapters(config)
     )
 
 
-def declared_adapters(profile: dict[str, Any]) -> list[str]:
-    found = adapter_declarations.names(profile)
+def declared_adapters(config: dict[str, Any]) -> list[str]:
+    found = adapter_declarations.names(config)
     if not found:
         raise ProfileError(
             "adapters must list the repository's test frameworks, e.g. "
@@ -220,12 +214,12 @@ def declared_adapters(profile: dict[str, Any]) -> list[str]:
     return found
 
 
-def adapter_module(profile: dict[str, Any], argv: list[str]) -> tuple[str, list[str]]:
-    declared = declared_adapters(profile)
+def adapter_module(config: dict[str, Any], argv: list[str]) -> tuple[str, list[str]]:
+    declared = declared_adapters(config)
     if not argv or argv[0] not in declared:
         given = repr(argv[0]) if argv else "no adapter"
         raise ProfileError(
-            f"adapter takes one of the profile's adapters {declared} first, got {given}"
+            f"adapter takes one of the config's tests.adapters {declared} first, got {given}"
         )
     return adapter_declarations.module_name(argv[0]), argv[1:]
 
@@ -234,21 +228,28 @@ def checker_module(module_name: str) -> ModuleType:
     return importlib.import_module(module_name)
 
 
+def switched_off(config: dict[str, Any]) -> frozenset[str]:
+    """Code-check rules the repo's gates.rules turns off; a rule not listed is on."""
+    rules = config_section(config_section(config, "gates"), "rules")
+    return frozenset(rule for rule, enabled in rules.items() if enabled is False)
+
+
 def run_modules(
-    modules: tuple[str, ...], repo: Path, profile: dict[str, Any], argv: list[str]
+    modules: tuple[str, ...], repo: Path, config: dict[str, Any], argv: list[str]
 ) -> list[Finding]:
     findings: list[Finding] = []
     for module_name in modules:
         module = checker_module(module_name)
-        findings.extend(module.run(repo, profile, argv))
-    return findings
+        findings.extend(module.run(repo, config, argv))
+    off = switched_off(config)
+    return [finding for finding in findings if finding.rule_id not in off]
 
 
-def profile_finding(error: ProfileError) -> Finding:
+def config_finding(error: ProfileError) -> Finding:
     return Finding(
         "PROFILE.complete",
-        PROFILE_PATH,
+        config_label("tests"),
         str(error),
-        f"write the record's {PROFILE_FILE} front matter from the test-profile template "
-        "(guardrails init drafts it)",
+        "record tests.adapters in .agentrails/config.json (guardrails init drafts the "
+        "tests section)",
     )

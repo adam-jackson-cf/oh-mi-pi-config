@@ -13,6 +13,7 @@ sys.path.insert(
 )
 
 import pytest
+from test_agentrails_fixture import approval, fixture
 
 from guardrails.commands.adapters import bun_test
 from guardrails.commands.adapters.bun_test import tiers
@@ -23,14 +24,21 @@ from guardrails.toolkit.test_report.junit import ReportError, parse_report
 pytestmark = pytest.mark.fast
 
 PROFILE: dict[str, Any] = {
-    "adapters": [
-        {
-            "name": "bun_test",
-            "tiers": {
-                "t1": {"selector": "--test-name-pattern fast", "location": "tests"},
-                "t2": {"selector": "--test-name-pattern slow", "location": "tests"},
-            },
-        }
+    "tests": {
+        "adapters": [
+            {
+                "name": "bun_test",
+                "tiers": {
+                    "t1": {"selector": "--test-name-pattern fast", "location": "tests"},
+                    "t2": {"selector": "--test-name-pattern slow", "location": "tests"},
+                },
+            }
+        ],
+        "tiers": {"t3": {"none": True}},
+    },
+    "approvals": [
+        *fixture()["approvals"],
+        approval("exemption", "tiers.t3", "no exploratory Bun tier"),
     ],
 }
 
@@ -76,7 +84,7 @@ class BunAdapterWiringTests(unittest.TestCase):
             repo = Path(scratch)
             assert tiers.collect_tier(repo, {}, "t1", repo.parent / "evidence")
             with pytest.raises(ValueError, match="nonempty argv list"):
-                tiers.command({"guardrails": {"adapter_bun_test": {"command": "bun"}}})
+                tiers.command({"checkers": {"adapter_bun_test": {"command": "bun"}}})
 
     def test_a_report_without_its_journal_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:

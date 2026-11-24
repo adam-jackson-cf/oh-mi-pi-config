@@ -13,6 +13,7 @@ sys.path.insert(
 )
 
 import pytest
+from test_agentrails_fixture import approval
 from test_reference_surface import LEVER, LeverSelftestCase, surface_profile
 
 from guardrails.commands.surface import feature_map, journeys
@@ -117,7 +118,7 @@ class FeatureMapTests(SurfaceRepoTestCase):
     def test_index_files_are_link_checked_but_not_feature_documents(self) -> None:
         self.write("docs/features/README.md", "# Features\n\n- [Cart](cart.md)\n")
         profile = surface_profile()
-        profile["guardrails"] = {"feature_map": {"index_files": ["README.md"]}}
+        profile["checkers"] = {"feature_map": {"index_files": ["README.md"]}}
         assert self.check(profile) == []
         self.write("docs/features/README.md", "# Features\n\n- [Gone](gone.md)\n")
         assert len(self.check(profile)) == 1
@@ -125,7 +126,12 @@ class FeatureMapTests(SurfaceRepoTestCase):
     def test_missing_map_is_reported_and_exemption_disables_the_rule(self) -> None:
         findings = self.check(surface_profile(feature_map_path="docs/nowhere"))
         assert [finding.rule_id for finding in findings] == ["SURFACE.feature-map"]
-        exempt = {"verification_surface": {"none": "library", "approval": "ADR-4"}}
+        exempt = {
+            "tests": {"verification_surface": {"none": True}},
+            "approvals": [
+                approval("exemption", "verification_surface", "library (ADR-4)")
+            ],
+        }
         assert self.check(exempt) == []
 
 
@@ -145,7 +151,7 @@ class JourneyTests(SurfaceRepoTestCase):
     def test_configured_lever_reference_replaces_the_defaults(self) -> None:
         self.write(JOURNEY, "def test_checkout(drive):\n    run_lever('checkout')\n")
         profile = surface_profile()
-        profile["guardrails"] = {"journeys": {"lever_references": ["run_lever("]}}
+        profile["checkers"] = {"journeys": {"lever_references": ["run_lever("]}}
         assert self.check(profile) == []
 
     def test_unmapped_journey_is_reported(self) -> None:
@@ -166,7 +172,12 @@ class JourneyTests(SurfaceRepoTestCase):
 
     def test_exempt_surface_has_no_journey_rules(self) -> None:
         self.write(JOURNEY, "def test_checkout():\n    pass\n")
-        exempt = {"verification_surface": {"none": "library", "approval": "ADR-4"}}
+        exempt = {
+            "tests": {"verification_surface": {"none": True}},
+            "approvals": [
+                approval("exemption", "verification_surface", "library (ADR-4)")
+            ],
+        }
         assert self.check(exempt) == []
 
 

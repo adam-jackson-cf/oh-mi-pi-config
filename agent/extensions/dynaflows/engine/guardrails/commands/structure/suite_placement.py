@@ -9,7 +9,9 @@ from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
+    config_section,
     matches_any,
+    structure_settings,
 )
 
 UNPLACED_FUNCTIONS = (
@@ -24,14 +26,14 @@ HELD_TEST = (
 )
 
 
-def section(profile: dict[str, Any], key: str) -> dict[str, Any]:
-    value = profile.get(key)
+def section(values: dict[str, Any], key: str) -> dict[str, Any]:
+    value = values.get(key)
     return value if isinstance(value, dict) else {}
 
 
 UNTIERED_TEST = (
     "test file is outside every tier location",
-    "move it under its tier's location from the profile",
+    "move it under its tier's location from tests.adapters",
 )
 
 
@@ -43,8 +45,8 @@ UNOWNED_T2 = (
 TEST_PLACEMENT = "TEST.placement"
 
 
-def tier_locations(profile: dict[str, Any]) -> dict[str, list[str]]:
-    return adapter_declarations.tier_locations(profile)
+def tier_locations(config: dict[str, Any]) -> dict[str, list[str]]:
+    return adapter_declarations.tier_locations(config)
 
 
 def framework_names(tree: ast.Module) -> tuple[bool, set[str], set[str]]:
@@ -113,9 +115,12 @@ def defines_tests(repo: Path, path: str) -> bool:
 
 
 def placement_problem(
-    repo: Path, path: str, profile: dict[str, Any]
+    repo: Path, path: str, config: dict[str, Any]
 ) -> tuple[str, str] | None:
-    layout_section = {**conventions.placement(path), **section(profile, "layout")}
+    layout_section = {
+        **conventions.placement(path),
+        **section(config_section(config, "tests"), "layout"),
+    }
     holders = [
         d
         for d in (layout_section.get("fixtures_dir"), layout_section.get("support_dir"))
@@ -123,17 +128,17 @@ def placement_problem(
     ]
     in_holder = matches_any(path, holders)
     if (
-        not tier_locations(profile)
+        not tier_locations(config)
         and layout_section.get("beside_code")
         and not in_holder
     ):
         return None
-    if not is_test_file(path, profile):
+    if not is_test_file(path, config):
         unplaced = (
             not in_holder
             and defines_tests(repo, path)
             and not matches_any(
-                path, [loc for locs in tier_locations(profile).values() for loc in locs]
+                path, [loc for locs in tier_locations(config).values() for loc in locs]
             )
         )
         return UNPLACED_FUNCTIONS if unplaced else None
@@ -141,21 +146,21 @@ def placement_problem(
         return HELD_TEST
     tiers = [
         key
-        for key, locations in tier_locations(profile).items()
+        for key, locations in tier_locations(config).items()
         if matches_any(path, locations)
     ]
     if not tiers:
         return UNTIERED_TEST
-    areas = section(section(profile, "ownership_areas"), "map")
+    areas = section(section(structure_settings(config), "ownership_areas"), "map")
     return (
         UNOWNED_T2 if tiers == ["t2"] and not matches_any(path, list(areas)) else None
     )
 
 
 def test_placement_findings(
-    repo: Path, path: str, profile: dict[str, Any]
+    repo: Path, path: str, config: dict[str, Any]
 ) -> list[Finding]:
-    problem = placement_problem(repo, path, profile)
+    problem = placement_problem(repo, path, config)
     if problem is None:
         return []
     message, fix = problem

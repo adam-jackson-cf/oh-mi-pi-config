@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.context.config.profile import ProfileError, load_profile
+from guardrails.context.config.repo_config import ConfigError, load_config
 from guardrails.foundation.findings import Finding, exit_code, format_findings
 from guardrails.foundation.inventory import as_list, matches_any, settings
 from guardrails.host.process import run_bytes
@@ -219,7 +219,7 @@ def git(repo: Path, *args: str) -> bytes:
 
 
 def commit_snapshot(
-    repo: Path, profile: dict[str, Any], base: str, head: str
+    repo: Path, config: dict[str, Any], base: str, head: str
 ) -> tuple[list[Rename], dict[str, bytes]]:
     base_id = (
         git(repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}")
@@ -252,7 +252,7 @@ def commit_snapshot(
     renames = [
         Rename(rows[index + 1], rows[index + 2]) for index in range(0, len(rows) - 1, 3)
     ]
-    exclusions = as_list(settings(profile, "check").get("exclude"))
+    exclusions = as_list(settings(config, "check").get("exclude"))
     paths = (
         git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).decode().split("\0")
     )
@@ -272,13 +272,13 @@ def commit_snapshot(
     return renames, files
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=SUBCOMMANDS["rename-residue"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
     try:
-        renames, files = commit_snapshot(repo, profile, args.base, args.head)
+        renames, files = commit_snapshot(repo, config, args.base, args.head)
     except (GitError, UnicodeError) as error:
         return [
             Finding(
@@ -294,18 +294,15 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=SUBCOMMANDS["rename-residue"].summary)
     parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("--record", type=Path, required=True)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
-    repo, record = args.repo.resolve(), args.record.resolve()
-    if record.is_relative_to(repo):
-        parser.error("--record must be outside the repository")
+    repo = args.repo.resolve()
     try:
-        profile = load_profile(record)
-    except ProfileError as error:
+        config = load_config(repo)
+    except ConfigError as error:
         parser.error(str(error))
-    found = run(repo, profile, ["--base", args.base, "--head", args.head])
+    found = run(repo, config, ["--base", args.base, "--head", args.head])
     rendered = format_findings(found)
     if rendered:
         print(rendered)

@@ -76,12 +76,12 @@ def t2_arguments(selector: object, paths: list[str]) -> list[str]:
 
 
 def affected_arguments(
-    repo: Path, profile: dict[str, Any], base: str, head: str
+    repo: Path, config: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
     from guardrails.commands.adapters.affected import TierCommand, print_affected
 
     command = TierCommand(NAME, SUFFIXES, t2_arguments)
-    return print_affected(repo, profile, command, base, head)
+    return print_affected(repo, config, command, base, head)
 
 
 def report_finding(report: Path, error: Exception) -> Finding:
@@ -121,42 +121,42 @@ def guard_evidence(report: Path, tier: str) -> list[Finding]:
 
 
 def lint_action(
-    repo: Path, profile: dict[str, Any], options: argparse.Namespace
+    repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     from guardrails.commands.adapters.pytest.lint import lint
 
-    return lint(repo, profile, options.paths)
+    return lint(repo, config, options.paths)
 
 
 def tiers_action(
-    repo: Path, profile: dict[str, Any], options: argparse.Namespace
+    repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     from guardrails.commands.adapters.pytest.tiers import list_tiers
 
-    return list_tiers(repo, profile, options.tier, options.out)
+    return list_tiers(repo, config, options.tier, options.out)
 
 
 def junit_action(
-    repo: Path, profile: dict[str, Any], options: argparse.Namespace
+    repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     print(shlex.join(tier_arguments(options.tier, options.out)))
     return []
 
 
 def evidence_action(
-    repo: Path, profile: dict[str, Any], options: argparse.Namespace
+    repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     return guard_evidence(options.report, options.tier)
 
 
 def affected_action(
-    repo: Path, profile: dict[str, Any], options: argparse.Namespace
+    repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
-    return affected_arguments(repo, profile, options.base, options.head)
+    return affected_arguments(repo, config, options.base, options.head)
 
 
 def mutation_tool_action(
-    repo: Path, profile: dict[str, Any], options: argparse.Namespace
+    repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     print(
         f"{MUTATION_TOOL} (tier {MUTATION_TIER}, scoped to changed code; never run in CI)"
@@ -165,7 +165,7 @@ def mutation_tool_action(
 
 
 def mutation_report_action(
-    repo: Path, profile: dict[str, Any], options: argparse.Namespace
+    repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     from guardrails.commands.adapters.pytest.mutation import write_report
 
@@ -173,7 +173,7 @@ def mutation_report_action(
 
 
 def conformance_action(
-    repo: Path, profile: dict[str, Any], options: argparse.Namespace
+    repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     from guardrails.commands.adapters.pytest.conformance import run_cases
 
@@ -192,10 +192,10 @@ ACTIONS: dict[str, Action] = {
 }
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     options = parser().parse_args(argv or ["lint"])
     if options.action in WRITING_ACTIONS:
         problem = output_finding(repo, options.out)
         if problem:
             return [problem]
-    return ACTIONS.get(options.action, conformance_action)(repo, profile, options)
+    return ACTIONS.get(options.action, conformance_action)(repo, config, options)

@@ -26,8 +26,8 @@ RULE = "TEST.failure-propagation"
 LISTED = re.compile(r"^(Test|Fuzz|Example)(?![a-z])\w*$")
 
 
-def collect_timeout(profile: dict[str, Any]) -> float:
-    timeout = settings(profile, SETTINGS).get("collect_timeout_s", 120)
+def collect_timeout(config: dict[str, Any]) -> float:
+    timeout = settings(config, SETTINGS).get("collect_timeout_s", 120)
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
@@ -67,13 +67,13 @@ def listed_names(stdout: str) -> dict[str, list[str]]:
     return names
 
 
-def tier_ids(repo: Path, profile: dict[str, Any], tier: str) -> list[str]:
-    spec = adapter_tiers(profile, NAME).get(tier)
+def tier_ids(repo: Path, config: dict[str, Any], tier: str) -> list[str]:
+    spec = adapter_tiers(config, NAME).get(tier)
     if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
         raise SourceError(f"the go adapter needs a go test selector for tier {tier}")
     arguments = selector_arguments(spec["selector"])
     patterns = package_patterns(as_list(spec.get("location")))
-    go = command(profile)
+    go = command(config)
     build = build_arguments(arguments)
     environment = repo_environment()
     run = top_level(flag_value(arguments, "-run"))
@@ -82,7 +82,7 @@ def tier_ids(repo: Path, profile: dict[str, Any], tier: str) -> list[str]:
         [*go, "test", "-json", "-list", run, *build, *patterns],
         repo,
         environment,
-        collect_timeout(profile),
+        collect_timeout(config),
     )
     if result.returncode:
         tail = " ".join((result.stdout + result.stderr).split())[-600:]
@@ -105,15 +105,15 @@ def tier_ids(repo: Path, profile: dict[str, Any], tier: str) -> list[str]:
 
 
 def collect_tier(
-    repo: Path, profile: dict[str, Any], tier: str, out: Path
+    repo: Path, config: dict[str, Any], tier: str, out: Path
 ) -> list[Finding]:
     try:
-        ids = tier_ids(repo, profile, tier)
+        ids = tier_ids(repo, config, tier)
         if not ids:
             raise SourceError(
                 "selector collected no tests; empty collection never passes"
             )
-        selector = adapter_tiers(profile, NAME)[tier]["selector"]
+        selector = adapter_tiers(config, NAME)[tier]["selector"]
         out.mkdir(parents=True, exist_ok=True)
         (out / f"{tier}.txt").write_text(
             "\n".join([f"# tier {tier} selector {selector!r}", *ids]) + "\n",
@@ -132,9 +132,9 @@ def collect_tier(
 
 
 def list_tiers(
-    repo: Path, profile: dict[str, Any], tiers: list[str], out: Path
+    repo: Path, config: dict[str, Any], tiers: list[str], out: Path
 ) -> list[Finding]:
     findings = []
-    for tier in tiers or sorted(adapter_tiers(profile, NAME)):
-        findings.extend(collect_tier(repo, profile, tier, out))
+    for tier in tiers or sorted(adapter_tiers(config, NAME)):
+        findings.extend(collect_tier(repo, config, tier, out))
     return findings

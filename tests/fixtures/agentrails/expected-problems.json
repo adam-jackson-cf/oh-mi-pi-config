@@ -105,7 +105,7 @@
     "autonomy.deploy: is not a config key; remove it or fix its spelling"
   ],
   "unknown-rule-id.json": [
-    "exceptions[0].rule: \"NAME.invented\" is not a rule id in the guardrail catalogue"
+    "exceptions[0].rule: \"NAME.invented\" is not a rule id in the guardrail catalogue or a judgment question"
   ],
   "unknown-top-level-key.json": [
     "colour: is not a config section; remove it or fix its spelling"

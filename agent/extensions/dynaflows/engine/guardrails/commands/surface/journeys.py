@@ -10,9 +10,8 @@ from guardrails.commands.surface.feature_map import (
     read,
     surface,
 )
-from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.context.config.suite_files import is_test_file
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     GLOB_CHARACTERS,
     InventoryError,
@@ -26,8 +25,8 @@ RULE = "SURFACE.journeys"
 CHECKER = "journeys"
 
 
-def lever_references(lever: str, profile: dict[str, Any]) -> list[str]:
-    configured = as_list(settings(profile, CHECKER).get("lever_references"))
+def lever_references(lever: str, config: dict[str, Any]) -> list[str]:
+    configured = as_list(settings(config, CHECKER).get("lever_references"))
     if configured:
         return configured
     try:
@@ -65,9 +64,9 @@ def mapped_paths(repo: Path, map_path: str) -> tuple[set[str], str]:
     return linked, "\n".join(texts)
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     del argv
-    values = surface(profile)
+    values = surface(config)
     if values is None:
         return []
     pattern = str(values.get("journey_file_pattern") or "").strip()
@@ -76,9 +75,9 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         return [
             Finding(
                 RULE,
-                PROFILE_PATH,
+                config_label("tests"),
                 "verification_surface needs journey_file_pattern and lever_command",
-                "record both in the test profile",
+                "record both in tests.verification_surface",
             )
         ]
     try:
@@ -86,7 +85,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
     except InventoryError as error:
         return [Finding(RULE, ".", str(error), "run inside a git repository")]
     journeys = [path for path in paths if name_matches(path, pattern)]
-    references = lever_references(lever, profile)
+    references = lever_references(lever, config)
     linked, map_text = mapped_paths(
         repo, str(values.get("feature_map_path") or "").rstrip("/")
     )
@@ -122,6 +121,6 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             for path in paths
             if path.startswith(f"{prefix}/")
             and path not in journeys
-            and is_test_file(path, profile)
+            and is_test_file(path, config)
         )
     return found

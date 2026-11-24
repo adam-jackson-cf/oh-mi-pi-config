@@ -9,7 +9,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import InventoryError, normalized_path, repo_paths
+from guardrails.foundation.inventory import (
+    InventoryError,
+    is_rails_state,
+    normalized_path,
+    repo_paths,
+)
 from guardrails.host.process import run_bytes
 
 
@@ -19,6 +24,15 @@ class Scope:
     existing_paths: set[str] | None
     inventory: list[str]
     tree: str | None = None
+
+    def __post_init__(self) -> None:
+        """Rails state (.agentrails/, .proofs/) is never scanned, like .git."""
+        self.paths = [path for path in self.paths if not is_rails_state(path)]
+        self.inventory = [path for path in self.inventory if not is_rails_state(path)]
+        if self.existing_paths is not None:
+            self.existing_paths = {
+                path for path in self.existing_paths if not is_rails_state(path)
+            }
 
 
 def git(repo: Path, *args: str, data: bytes = b"") -> bytes:

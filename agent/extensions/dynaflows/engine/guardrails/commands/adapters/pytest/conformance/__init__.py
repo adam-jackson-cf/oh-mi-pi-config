@@ -21,30 +21,33 @@ if TYPE_CHECKING:
 PACKAGE = "guardrails.commands.adapters.pytest.conformance"
 CASE_TIMEOUT_S = 300
 PYTEST_INI = "[pytest]\nmarkers =\n    fast: tier 1\n    slow: tier 2\n"
-BASE_PROFILE: dict[str, Any] = {
-    "public_entry_points": {"shop": "shop.core:Basket"},
-    "adapters": [
-        {
-            "name": NAME,
-            "tiers": {
-                "t1": {"selector": "fast", "location": "tests"},
-                "t2": {"selector": "slow", "location": "tests"},
-                "t3": {"selector": "-m explore", "location": "tests"},
-            },
-        }
-    ],
-    "tiers": {
-        "t1": {"command": "pytest -m fast"},
-        "t2": {"command": "pytest -m slow"},
-        "t3": {"command": "pytest -m explore"},
+BASE_CONFIG: dict[str, Any] = {
+    "tests": {
+        "public_entry_points": {"shop": "shop.core:Basket"},
+        "adapters": [
+            {
+                "name": NAME,
+                "tiers": {
+                    "t1": {"selector": "fast", "location": "tests"},
+                    "t2": {"selector": "slow", "location": "tests"},
+                    "t3": {"selector": "-m explore", "location": "tests"},
+                },
+            }
+        ],
+        "tiers": {
+            "t1": {"command": "pytest -m fast"},
+            "t2": {"command": "pytest -m slow"},
+            "t3": {"command": "pytest -m explore"},
+        },
+        "layout": {
+            "support_dir": "tests",
+            "fixtures_dir": "tests",
+            "test_file_patterns": ["test_*.py"],
+        },
     },
-    "layout": {
-        "support_dir": "tests",
-        "fixtures_dir": "tests",
-        "test_file_patterns": ["test_*.py"],
-    },
-    "house_style": {"version": 1},
-    "guardrails": {"exceptions": []},
+    "houseStyle": {"version": 1},
+    "checkers": {},
+    "exceptions": [],
 }
 FAILED_OUTCOMES = frozenset({"failed", "error"})
 PREREQUISITE = "GUARDRAILS.adapter-prerequisite"
@@ -98,16 +101,16 @@ def build_project(root: Path, case: dict[str, Any], binding: dict[str, Any]) -> 
     return placed
 
 
-def case_profile(binding: dict[str, Any]) -> dict[str, Any]:
-    return {**json.loads(json.dumps(BASE_PROFILE)), **binding.get("profile", {})}
+def case_config(binding: dict[str, Any]) -> dict[str, Any]:
+    return {**json.loads(json.dumps(BASE_CONFIG)), **binding.get("config", {})}
 
 
 def check_source(
-    project: Path, profile: dict[str, Any], placed: str, case: dict[str, Any]
+    project: Path, config: dict[str, Any], placed: str, case: dict[str, Any]
 ) -> tuple[bool, str]:
     from guardrails.commands.adapters.pytest.lint import lint
 
-    rules = sorted({finding.rule_id for finding in lint(project, profile, [placed])})
+    rules = sorted({finding.rule_id for finding in lint(project, config, [placed])})
     reported = case["rule"] in rules
     return reported == (
         case["expect"] == "finding"
@@ -214,12 +217,12 @@ def check_run(
 
 
 def check_collection(
-    project: Path, profile: dict[str, Any], case: dict[str, Any]
+    project: Path, config: dict[str, Any], case: dict[str, Any]
 ) -> tuple[bool, str]:
     from guardrails.commands.adapters.pytest.tiers import list_tiers
 
     out = project.parent / "collections"
-    findings = list_tiers(project, profile, ["t1"], out)
+    findings = list_tiers(project, config, ["t1"], out)
     rules = sorted({finding.rule_id for finding in findings})
     from guardrails.toolkit.test_report.collection import read_ids
 
@@ -235,15 +238,15 @@ def run_case(case: dict[str, Any], binding: dict[str, Any]) -> CaseResult:
         root = Path(scratch).resolve()
         placed = build_project(root, case, binding)
         project = root / "project"
-        profile = case_profile(binding)
+        config = case_config(binding)
         if case["evidence"] == "source":
-            passed, detail = check_source(project, profile, placed, case)
+            passed, detail = check_source(project, config, placed, case)
         elif case["evidence"] == "static-cases":
             passed, detail = check_static_cases(project, placed, case)
         elif case["evidence"] == "run-report":
             passed, detail = check_run(root, binding, case)
         elif case["evidence"] == "collection":
-            passed, detail = check_collection(project, profile, case)
+            passed, detail = check_collection(project, config, case)
         else:
             passed, detail = False, f"unknown evidence kind {case['evidence']!r}"
     return CaseResult(case["id"], case["rule"], passed, detail)

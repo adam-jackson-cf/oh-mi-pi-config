@@ -8,7 +8,12 @@ from typing import Any
 
 from guardrails.context.config import house_style
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import GLOB_CHARACTERS, InventoryError, as_list
+from guardrails.foundation.inventory import (
+    GLOB_CHARACTERS,
+    InventoryError,
+    as_list,
+    tests_settings,
+)
 from guardrails.toolkit.python_rules.scope import (
     PythonSettings,
     finding,
@@ -139,25 +144,25 @@ def source_nloc(text: str) -> int:
     )
 
 
-def root_packages(profile: dict[str, Any], config: PythonSettings) -> set[str]:
-    section = config.mapping("fanout")
+def root_packages(config: dict[str, Any], options: PythonSettings) -> set[str]:
+    section = options.mapping("fanout")
     if "root_packages" in section:
         return set(as_list(section["root_packages"]))
-    entry_points = profile.get("public_entry_points")
+    entry_points = tests_settings(config, "public_entry_points")
     return set(entry_points) if isinstance(entry_points, dict) else set()
 
 
-def limits(config: PythonSettings) -> dict[str, Any]:
+def limits(options: PythonSettings) -> dict[str, Any]:
     return {
-        key: config.number("fanout", key, value)
+        key: options.number("fanout", key, value)
         for key, value in LIMIT_DEFAULTS.items()
     }
 
 
 def setting_findings(
-    repo: Path, profile: dict[str, Any], config: PythonSettings
+    repo: Path, config: dict[str, Any], options: PythonSettings
 ) -> list[Finding]:
-    roots = config.paths("source_roots")
+    roots = options.paths("source_roots")
     if not roots:
         return [setting_finding(GENERAL, "source_roots", "is not configured")]
     found = [
@@ -167,7 +172,7 @@ def setting_findings(
         for root in roots
         if not GLOB_CHARACTERS & set(root) and not (repo / root).is_dir()
     ]
-    packages = root_packages(profile, config)
+    packages = root_packages(config, options)
     if not packages or any(not package.isidentifier() for package in packages):
         found.append(
             setting_finding(
@@ -211,15 +216,15 @@ def module_findings(
     return found
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     selected = parse_paths("python-fanout", argv)
-    config = load_settings(profile)
-    problems = setting_findings(repo, profile, config)
+    options = load_settings(config)
+    problems = setting_findings(repo, config, options)
     if problems:
         return problems
-    roots = config.paths("source_roots")
+    roots = options.paths("source_roots")
     try:
-        everything = python_files(repo, config, [])
+        everything = python_files(repo, options, [])
     except InventoryError as error:
         return [inventory_finding(GENERAL, error)]
     modules = [
@@ -228,10 +233,10 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         if matched_root(path, roots) is not None
     ]
     collector = ImportCollector(
-        root_packages(profile, config), {m.name for m in modules if m.name}
+        root_packages(config, options), {m.name for m in modules if m.name}
     )
-    chosen = set(python_files(repo, config, selected)) if selected else None
-    limit = limits(config)
+    chosen = set(python_files(repo, options, selected)) if selected else None
+    limit = limits(options)
     found: list[Finding] = []
     for module in modules:
         if chosen is not None and module.relpath not in chosen:
@@ -250,4 +255,4 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             continue
         imports = collector.imports(source.tree, module)
         found.extend(module_findings(module, imports, source_nloc(source.text), limit))
-    return house_style.apply_exceptions(found, profile)
+    return house_style.apply_exceptions(found, config)

@@ -7,8 +7,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.context.config.profile import PROFILE_PATH
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     GLOB_CHARACTERS,
     InventoryError,
@@ -62,8 +61,8 @@ class PythonSettings:
         )
 
 
-def load_settings(profile: dict[str, Any]) -> PythonSettings:
-    return PythonSettings(settings(profile, CHECKER))
+def load_settings(config: dict[str, Any]) -> PythonSettings:
+    return PythonSettings(settings(config, CHECKER))
 
 
 def segments(path: str) -> tuple[str, ...]:
@@ -95,11 +94,11 @@ def in_roots(relpath: str, roots: list[str]) -> bool:
     return matched_root(relpath, roots) is not None
 
 
-def is_excluded(relpath: str, config: PythonSettings) -> bool:
+def is_excluded(relpath: str, options: PythonSettings) -> bool:
     parts = segments(relpath)
     if "__pycache__" in parts or (parts and parts[0] in BUNDLED_EXCLUSIONS):
         return True
-    return matches_any(relpath, config.paths("excluded_paths"))
+    return matches_any(relpath, options.paths("excluded_paths"))
 
 
 def parse_paths(command: str, argv: list[str]) -> list[str]:
@@ -111,7 +110,7 @@ def parse_paths(command: str, argv: list[str]) -> list[str]:
     return paths
 
 
-def python_files(repo: Path, config: PythonSettings, selected: list[str]) -> list[str]:
+def python_files(repo: Path, options: PythonSettings, selected: list[str]) -> list[str]:
     scope = [
         path for raw in selected if (path := normalized_path(repo, raw)) is not None
     ]
@@ -120,7 +119,7 @@ def python_files(repo: Path, config: PythonSettings, selected: list[str]) -> lis
         for path in repo_paths(repo)
         if path.endswith(".py")
         and (repo / path).is_file()
-        and not is_excluded(path, config)
+        and not is_excluded(path, options)
         and (not selected or matches_any(path, scope))
     ]
 
@@ -159,7 +158,7 @@ def inventory_finding(rule: str, error: InventoryError) -> Finding:
 def setting_finding(rule: str, key: str, why: str) -> Finding:
     return Finding(
         rule,
-        PROFILE_PATH,
-        f"guardrails.{CHECKER}.{key} {why}",
-        f"set guardrails.{CHECKER}.{key} in the profile front matter",
+        config_label("checkers"),
+        f"checkers.{CHECKER}.{key} {why}",
+        f"set checkers.{CHECKER}.{key} in .agentrails/config.json",
     )

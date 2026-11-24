@@ -11,8 +11,7 @@ from guardrails.context.changes import (
     parse_range,
     range_finding,
 )
-from guardrails.context.config.profile import PROFILE_PATH
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import as_list, matches_any, settings
 
 RULE = "TEST.golden-change-record"
@@ -28,19 +27,19 @@ def changed_goldens(changes: list[Change], globs: list[str]) -> list[Change]:
     ]
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    config = settings(profile, CHECKER)
-    globs = as_list(config.get("globs"))
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
+    options = settings(config, CHECKER)
+    globs = as_list(options.get("globs"))
     if not globs:
         return []
-    records = as_list(config.get("change_record"))
+    records = as_list(options.get("change_record"))
     if not records:
         return [
             Finding(
                 RULE,
-                PROFILE_PATH,
-                "guardrails.golden_record.globs is set but change_record is missing",
-                "name the change-record file in guardrails.golden_record.change_record",
+                config_label("checkers"),
+                "checkers.golden_record.globs is set but change_record is missing",
+                "name the change-record file in checkers.golden_record.change_record",
             )
         ]
     try:

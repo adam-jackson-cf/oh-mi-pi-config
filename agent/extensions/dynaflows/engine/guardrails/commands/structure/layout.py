@@ -9,8 +9,7 @@ from guardrails.commands.structure.import_direction import native_findings
 from guardrails.commands.structure.import_graph import run as import_graph_findings
 from guardrails.context import scope
 from guardrails.context.config.house_style import apply_exceptions
-from guardrails.context.config.profile import PROFILE_PATH
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
@@ -21,9 +20,7 @@ from guardrails.foundation.inventory import (
 
 PLACEMENT = "STRUCT.folder-placement"
 DIRECTION = "STRUCT.dependency-direction"
-SETTINGS_FIX = (
-    "or add the entry to guardrails.structure in the record profile with owner approval"
-)
+SETTINGS_FIX = "or add the entry to checkers.structure in .agentrails/config.json with owner approval"
 
 
 def placement(path: str, message: str, fix: str = "") -> Finding:
@@ -35,14 +32,14 @@ def placement(path: str, message: str, fix: str = "") -> Finding:
     )
 
 
-def root_findings(path: str, config: dict[str, Any]) -> list[Finding]:
+def root_findings(path: str, options: dict[str, Any]) -> list[Finding]:
     parts = PurePosixPath(path).parts
     if len(parts) == 1:
-        allowed = config.get("root_files")
+        allowed = options.get("root_files")
         if isinstance(allowed, list) and parts[0] not in allowed:
             return [placement(parts[0], f"unexpected root file {parts[0]}")]
         return []
-    allowed = config.get("root_directories")
+    allowed = options.get("root_directories")
     if isinstance(allowed, list) and parts[0] not in allowed:
         return [
             placement(f"{parts[0]}/", f"unexpected top-level directory {parts[0]}/")
@@ -50,9 +47,9 @@ def root_findings(path: str, config: dict[str, Any]) -> list[Finding]:
     return []
 
 
-def area_findings(path: str, config: dict[str, Any]) -> list[Finding]:
+def area_findings(path: str, options: dict[str, Any]) -> list[Finding]:
     found = []
-    areas = config.get("areas", {})
+    areas = options.get("areas", {})
     for area, allowed in areas.items() if isinstance(areas, dict) else []:
         prefix = PurePosixPath(area).parts
         parts = PurePosixPath(path).parts
@@ -69,9 +66,9 @@ def area_findings(path: str, config: dict[str, Any]) -> list[Finding]:
     return found
 
 
-def package_findings(path: str, config: dict[str, Any]) -> list[Finding]:
+def package_findings(path: str, options: dict[str, Any]) -> list[Finding]:
     found = []
-    for package in config.get("packages", []):
+    for package in options.get("packages", []):
         root = package["root"].rstrip("/")
         if not path.startswith(f"{root}/"):
             continue
@@ -102,9 +99,9 @@ def package_findings(path: str, config: dict[str, Any]) -> list[Finding]:
     return found
 
 
-def instance_findings(paths: list[str], config: dict[str, Any]) -> list[Finding]:
+def instance_findings(paths: list[str], options: dict[str, Any]) -> list[Finding]:
     found = []
-    for kind in config.get("instances", []):
+    for kind in options.get("instances", []):
         root = PurePosixPath(kind["root"])
         depth = int(kind["depth"])
         marker = kind["marker"]
@@ -140,10 +137,10 @@ def instance_findings(paths: list[str], config: dict[str, Any]) -> list[Finding]
 
 
 def forbidden_import_findings(
-    repo: Path, paths: list[str], config: dict[str, Any]
+    repo: Path, paths: list[str], options: dict[str, Any]
 ) -> list[Finding]:
     found = []
-    for rule in config.get("forbidden_imports", []):
+    for rule in options.get("forbidden_imports", []):
         found.extend(rule_import_findings(repo, paths, rule))
     return found
 
@@ -197,15 +194,15 @@ def imported_modules(tree: ast.Module) -> list[tuple[int, str]]:
 
 def path_findings(
     path: str,
-    config: dict[str, Any],
+    options: dict[str, Any],
     *,
     existing_paths: set[str] | None = None,
 ) -> list[Finding]:
     return scope.restrict(
         [
-            *root_findings(path, config),
-            *area_findings(path, config),
-            *package_findings(path, config),
+            *root_findings(path, options),
+            *area_findings(path, options),
+            *package_findings(path, options),
         ],
         [path],
         existing_paths,
@@ -213,45 +210,45 @@ def path_findings(
 
 
 def package_placement_findings(
-    paths: list[str], inventory: list[str], profile: dict[str, Any]
+    paths: list[str], inventory: list[str], config: dict[str, Any]
 ) -> list[Finding]:
-    return package_placement.package_file_findings(paths, inventory, profile)
+    return package_placement.package_file_findings(paths, inventory, config)
 
 
-def configuration_findings(config: dict[str, Any]) -> list[Finding]:
-    if isinstance(config.get("root_directories"), list) and isinstance(
-        config.get("root_files"), list
+def configuration_findings(options: dict[str, Any]) -> list[Finding]:
+    if isinstance(options.get("root_directories"), list) and isinstance(
+        options.get("root_files"), list
     ):
         return []
     return [
         placement(
-            PROFILE_PATH,
-            "guardrails.commands.structure.root_directories and root_files are not configured",
-            "record the approved root allowlist in the profile",
+            config_label("checkers"),
+            "checkers.structure.root_directories and root_files are not configured",
+            "record the approved root allowlist in checkers.structure",
         )
     ]
 
 
-def skipped(path: str, config: dict[str, Any]) -> bool:
-    return matches_any(path, as_list(config.get("skip")))
+def skipped(path: str, options: dict[str, Any]) -> bool:
+    return matches_any(path, as_list(options.get("skip")))
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    config = settings(profile, "structure")
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
+    options = settings(config, "structure")
     try:
         selected = scope.select(repo, argv)
-        paths = [path for path in selected.paths if not skipped(path, config)]
+        paths = [path for path in selected.paths if not skipped(path, options)]
     except InventoryError as error:
         return [placement(".", str(error), "run inside a Git work tree")]
     if not paths and selected.existing_paths is not None:
         return []
-    found = configuration_findings(config)
+    found = configuration_findings(options)
     try:
         with scope.checkout(repo, selected) as root:
             found.extend(
                 scope.restrict(
                     import_graph_findings(
-                        root, profile, [], inventory=selected.inventory
+                        root, config, [], inventory=selected.inventory
                     ),
                     paths,
                     selected.existing_paths,
@@ -259,20 +256,20 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             )
             for path in paths:
                 found.extend(
-                    path_findings(path, config, existing_paths=selected.existing_paths)
+                    path_findings(path, options, existing_paths=selected.existing_paths)
                 )
             found.extend(
                 scope.restrict(
-                    instance_findings(selected.inventory, config),
+                    instance_findings(selected.inventory, options),
                     paths,
                     selected.existing_paths,
                 )
             )
-            found.extend(forbidden_import_findings(root, paths, config))
-            found.extend(package_placement_findings(paths, selected.inventory, profile))
-            found.extend(native_findings(root, paths, profile))
+            found.extend(forbidden_import_findings(root, paths, options))
+            found.extend(package_placement_findings(paths, selected.inventory, config))
+            found.extend(native_findings(root, paths, config))
     except InventoryError as error:
         return [placement(".", str(error), "provide a readable Git snapshot")]
     return apply_exceptions(
-        sorted(set(found), key=lambda item: (item.path, item.message)), profile
+        sorted(set(found), key=lambda item: (item.path, item.message)), config
     )

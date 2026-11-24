@@ -34,5 +34,5 @@ BUN = Vocabulary(
 )
 
 
-def lint(repo: Path, profile: dict[str, Any], paths: list[str]) -> list[Finding]:
-    return shared_lint(repo, profile, paths, BUN)
+def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
+    return shared_lint(repo, config, paths, BUN)

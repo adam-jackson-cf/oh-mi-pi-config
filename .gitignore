@@ -97,6 +97,7 @@ agent/extensions/*
 
 !tests/
 tests/*
+!tests/test_agentrails_fixture.py
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
 !tests/dynaflows-guards-seams.test.ts

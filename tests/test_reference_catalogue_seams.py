@@ -125,7 +125,7 @@ class ToolchainParityTests(RepoCase):
         }
 
     def parity(self, options: dict[str, Any], *argv: str) -> list[Any]:
-        profile = {"guardrails": {"toolchain_parity": options}}
+        profile = {"checkers": {"toolchain_parity": options}}
         return toolchain_parity.run(self.repo, profile, list(argv))
 
     def test_consistent_uv_toolchain_passes(self) -> None:

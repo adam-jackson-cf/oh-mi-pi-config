@@ -37,16 +37,16 @@
     {
       "name": "an owner exception drops the file",
       "changed": ["app/models/invoice.py", "app/utils/strings.py"],
-      "profile": {
-        "guardrails": {
-          "exceptions": [
-            {
-              "rule": "structure-naming/technical_kind_grouping",
-              "path": "app/utils",
-              "reason": "the string helpers are shared by every capability"
-            }
-          ]
-        }
+      "config": {
+        "exceptions": [
+          {
+            "rule": "structure-naming/technical_kind_grouping",
+            "path": "app/utils",
+            "reason": "the string helpers are shared by every capability",
+            "approvedBy": "example-owner",
+            "approvedAt": "2026-11-24T09:00:00Z"
+          }
+        ]
       },
       "candidates": ["app/models/invoice.py"]
     }

@@ -14,6 +14,7 @@ from guardrails.foundation.inventory import (
     matches,
     matches_any,
     repo_paths,
+    structure_settings,
 )
 
 TIER = "STRUCT.tier-readership"
@@ -22,9 +23,8 @@ SIBLING = "STRUCT.sibling-isolation"
 DIRECTION = "STRUCT.dependency-direction"
 
 
-def import_config(profile: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
-    structure = profile.get("structure")
-    structure = structure if isinstance(structure, dict) else {}
+def import_config(config: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    structure = structure_settings(config)
     direction = structure.get("import_direction")
     return (direction if isinstance(direction, dict) else {}), as_list(
         structure.get("tiers")
@@ -196,12 +196,12 @@ def owner_findings(
 
 def run(
     repo: Path,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     argv: list[str],
     *,
     inventory: list[str] | None = None,
 ) -> list[Finding]:
-    direction, tiers = import_config(profile)
+    direction, tiers = import_config(config)
     package, root = direction.get("package"), direction.get("source_root")
     if not (isinstance(package, str) and isinstance(root, str) and tiers):
         return []
@@ -215,4 +215,4 @@ def run(
     readers, tier_readers = reader_sets(graph, found)
     found.extend(tier_findings(graph, tier_readers))
     found.extend(owner_findings(graph, readers, tier_readers))
-    return apply_exceptions(found, profile)
+    return apply_exceptions(found, config)

@@ -19,6 +19,7 @@ sys.path.insert(
 )
 
 import pytest
+from test_agentrails_fixture import config, write_config
 from test_reference_structure import FIXTURES
 
 from guardrails.commands import cli
@@ -40,10 +41,8 @@ class CheckerCase(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-structure-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name).resolve() / "repo"
-        self.record = Path(scratch.name).resolve() / "record"
-        self.record.mkdir()
         run_attached(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
-        self.profile = copy.deepcopy(CLEAN["profile"])
+        self.profile = copy.deepcopy(CLEAN["config"])
         for path, text in CLEAN["files"].items():
             self.write(path, text)
         run_attached(["git", "-C", str(self.repo), "add", "."], check=True, timeout=60)
@@ -133,8 +132,11 @@ class CheckerTests(CheckerCase):
         assert self.findings(layout) == {
             ("STRUCT.dependency-direction", "src/orders/contract/fetch.py")
         }
-        del self.profile["guardrails"]["structure"]["root_files"]
-        assert ("STRUCT.folder-placement", "record:profile.md") in self.findings(layout)
+        del self.profile["checkers"]["structure"]["root_files"]
+        assert (
+            "STRUCT.folder-placement",
+            ".agentrails/config.json#checkers",
+        ) in self.findings(layout)
 
     def test_naming_reports_house_style_violations(self) -> None:
         planted = {
@@ -164,7 +166,7 @@ class CheckerTests(CheckerCase):
         self.write("docs/records/v2/review-v3.md")
         self.write("src/orders/engine/stages/v2.json")
         assert self.findings(naming) == set()
-        self.profile["guardrails"]["naming"]["standalone_versions"] = False
+        self.profile["checkers"]["naming"]["standalone_versions"] = False
         assert self.findings(naming) == {
             ("NAME.conventions", "src/orders/engine/stages/v2.json")
         }
@@ -287,7 +289,7 @@ class CheckerTests(CheckerCase):
         entry = ("STRUCT.entry-point-placement", "src/orders/engine/stages/__main__.py")
         for module in (layout, paths):
             assert self.package_placement(module) == {data, entry}
-        self.profile["guardrails"]["exceptions"] = [
+        self.profile["exceptions"] = [
             {
                 "rule": "STRUCT.entry-point-placement",
                 "path": "src/orders/engine/stages",
@@ -309,7 +311,7 @@ class CheckerTests(CheckerCase):
     def test_record_exceptions_suppress_only_their_rule_and_path(self) -> None:
         self.write("src/orders/engine/utils.py")
         self.write("src/orders/cli/helpers.py")
-        self.profile["guardrails"]["exceptions"] = [
+        self.profile["exceptions"] = [
             {
                 "rule": "NAME.conventions",
                 "path": "src/orders/engine",
@@ -329,7 +331,7 @@ class CheckerTests(CheckerCase):
             "path": "src/**/test_performance_v2.py",
             "reason": "owner approval",
         }
-        self.profile["guardrails"]["exceptions"] = [exception]
+        self.profile["exceptions"] = [exception]
         for candidate in (path, other):
             self.write(candidate)
         found = naming.run(self.repo, self.profile, [path, other])
@@ -352,8 +354,14 @@ class CheckerTests(CheckerCase):
 
 class CheckerCliTests(CheckerCase):
     def write_profile(self) -> None:
-        text = f"---\n{json.dumps(self.profile)}\n---\n\n# Repo test profile\n"
-        (self.record / "profile.md").write_text(text)
+        write_config(self.repo, config(**self.profile))
+
+    def test_rails_state_folders_are_never_scanned(self) -> None:
+        self.write_profile()
+        self.write(".proofs/run-state.md", "setup-repo-proofs run state\n")
+        for name in ("structure", "naming", "path-check"):
+            with self.subTest(name=name):
+                assert self.run_cli(name, "--all") == (0, f"{name}: ok\n")
 
     def test_cli_runs_the_checkers_against_the_record_profile(self) -> None:
         self.write_profile()
@@ -372,8 +380,6 @@ class CheckerCliTests(CheckerCase):
                 name,
                 "--repo",
                 str(self.repo),
-                "--record",
-                str(self.record),
                 *paths,
             ])
         return code, out.getvalue()
@@ -460,25 +466,30 @@ class CheckerCliTests(CheckerCase):
     def test_check_rejects_automatic_whole_repo_naming_and_structure(self) -> None:
         for step in ("structure", "naming", "path-check"):
             with self.subTest(step=step):
-                self.profile["guardrails"]["check"] = {"run": [step]}
+                self.profile["checkers"]["check"] = {"run": [step]}
                 self.write_profile()
                 code, out = self.run_cli("check")
-                assert code == 1
-                assert "guardrails.check.run names unknown steps" in out
+                assert (code, out) == (2, ""), "config-check refuses the unknown step"
 
     def test_check_steps_come_from_a_fixed_list_and_record_findings_always_show(
         self,
     ) -> None:
-        self.profile["guardrails"]["check"] = {"run": ["diff-check"], "exclude": ["**"]}
+        self.profile["checkers"]["check"] = {"run": ["diff-check"], "exclude": ["**"]}
         self.write_profile()
-        code, out = self.run_cli("check")
-        assert code == 1
-        assert "record:profile.md: PROFILE.complete: guardrails.check.run names" in out
+        assert self.run_cli("check") == (2, ""), "config-check refuses the unknown step"
         from guardrails.commands.check import whole_repo
 
-        steps, problems = whole_repo.configured_steps({"guardrails": {"check": {}}})
+        _, problems = whole_repo.configured_steps({
+            "checkers": {"check": {"run": ["diff-check"]}}
+        })
+        assert [item.path for item in problems] == [".agentrails/config.json#checkers"]
+        assert "checkers.check.run names unknown steps" in problems[0].message
+
+        steps, problems = whole_repo.configured_steps({"checkers": {"check": {}}})
         assert (steps, problems) == (list(whole_repo.DEFAULT_STEPS), [])
         assert "adapter lint" in steps
+        self.profile["checkers"]["check"] = {}
+        self.write_profile()
         code, out = self.run_cli("check", "src")
         assert code == 1
         assert "check takes no paths or options" in out
@@ -487,7 +498,7 @@ class CheckerCliTests(CheckerCase):
         from guardrails.commands.check import whole_repo
 
         owned = {
-            "guardrails": {
+            "checkers": {
                 "check": {"repo": {"python-fanout": ["src/orders/cli/main.py"]}}
             }
         }
@@ -496,7 +507,7 @@ class CheckerCliTests(CheckerCase):
         assert steps == [
             step for step in whole_repo.DEFAULT_STEPS if step != "python-fanout"
         ]
-        self.profile["guardrails"]["check"] = {
+        self.profile["checkers"]["check"] = {
             "run": ["python-test-hygiene"],
             "repo": {
                 "naming": ["src/orders/cli/main.py"],
@@ -510,45 +521,48 @@ class CheckerCliTests(CheckerCase):
         cases = {
             "unknown step": (
                 {"repo": {"python-lint": ["checks/lint.py"]}},
-                "guardrails.check.repo names 'python-lint'",
+                "checkers.check.repo names 'python-lint'",
             ),
             "record check": (
                 {"repo": {"profile-check": ["checks/lint.py"]}},
-                "guardrails.check.repo names 'profile-check'",
+                "checkers.check.repo names 'profile-check'",
             ),
             "harness path check": (
                 {"repo": {"path-check": ["src/orders/cli/main.py"]}, "exclude": ["**"]},
-                "guardrails.check.repo names 'path-check', which the repo cannot own",
+                "checkers.check.repo names 'path-check', which the repo cannot own",
             ),
             "listed twice": (
                 {
                     "run": ["python-fanout"],
                     "repo": {"python-fanout": ["src/orders/cli/main.py"]},
                 },
-                "guardrails.check.run lists repo-owned steps ['python-fanout']",
+                "checkers.check.run lists repo-owned steps ['python-fanout']",
             ),
             "missing checker": (
                 {"repo": {"naming": ["src/orders/cli/main.py", "checks/absent.py"]}},
-                "guardrails.check.repo.naming names checks/absent.py, which is not in the repository",
+                "checkers.check.repo.naming names checks/absent.py, which is not in the repository",
             ),
-            "not a map": ({"repo": ["naming"]}, "guardrails.check.repo must map steps"),
+            "not a map": ({"repo": ["naming"]}, "checkers.check.repo must map steps"),
             "single path": (
                 {"repo": {"naming": "src/orders/cli/main.py"}},
-                "guardrails.check.repo.naming must list the repo checker files",
+                "checkers.check.repo.naming must list the repo checker files",
             ),
             "no checkers": (
                 {"repo": {"naming": []}},
-                "guardrails.check.repo.naming must list",
+                "checkers.check.repo.naming must list",
             ),
         }
-        self.profile["guardrails"].pop("naming", None)
+        self.profile["checkers"].pop("naming", None)
         for name, (check, expected) in cases.items():
             with self.subTest(name=name):
-                self.profile["guardrails"]["check"] = check
+                self.profile["checkers"]["check"] = check
                 self.write_profile()
                 code, out = self.run_cli("check")
                 assert code == 1
-                assert f"record:profile.md: PROFILE.complete: {expected}" in out
+                assert (
+                    f".agentrails/config.json#checkers: PROFILE.complete: {expected}"
+                    in out
+                )
 
     def test_check_rejects_settings_only_repo_owned_steps_read(self) -> None:
         owned = {
@@ -556,17 +570,17 @@ class CheckerCliTests(CheckerCase):
             "python-fanout": ["src/orders/cli/main.py"],
             "python-scalability": ["src/orders/cli/main.py"],
         }
-        self.profile["guardrails"]["python"] = {"maintained_roots": ["src"]}
-        self.profile["guardrails"]["check"] = {"run": ["profile-check"], "repo": owned}
+        self.profile["checkers"]["python"] = {"maintained_roots": ["src"]}
+        self.profile["checkers"]["check"] = {"run": ["adapter lint"], "repo": owned}
         self.write_profile()
         code, out = self.run_cli("check")
         assert code == 1
-        assert "guardrails.python configures only repo-owned steps" in out
-        self.profile["guardrails"]["check"]["run"].append("python-test-hygiene")
+        assert "checkers.python configures only repo-owned steps" in out
+        self.profile["checkers"]["check"]["run"].append("python-test-hygiene")
         self.write_profile()
-        assert "guardrails.python configures" not in self.run_cli("check")[1]
-        self.profile["guardrails"]["naming"] = {"skip": ["vendor/**"]}
-        self.profile["guardrails"]["check"] = {
+        assert "checkers.python configures" not in self.run_cli("check")[1]
+        self.profile["checkers"]["naming"] = {"skip": ["vendor/**"]}
+        self.profile["checkers"]["check"] = {
             "run": ["python-test-hygiene"],
             "repo": {"naming": ["src/orders/cli/main.py"]},
         }
@@ -589,8 +603,7 @@ class ImportGraphTests(unittest.TestCase):
         self.addCleanup(scratch.cleanup)
         repo, record = Path(scratch.name) / "repo", Path(scratch.name) / "record"
         run_attached(["git", "init", "-q", str(repo)], check=True, timeout=60)
-        record.mkdir()
-        (record / "profile.md").write_text(f"---\n{json.dumps(profile)}\n---\n")
+        write_config(repo, config(**profile))
         for path, text in files.items():
             target = repo / path
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -601,7 +614,7 @@ class ImportGraphTests(unittest.TestCase):
         outcomes = ("violating", "conforming")
         for case, outcome in itertools.product(self.FIXTURE["cases"], outcomes):
             with self.subTest(case=case["name"], outcome=outcome):
-                profile = copy.deepcopy(self.FIXTURE["profile"])
+                profile = copy.deepcopy(self.FIXTURE["config"])
                 repo, record = self.make_repo(case[outcome], profile)
                 expected = set(case["paths"]) if outcome == "violating" else set()
                 for checker in (layout, paths):
@@ -614,22 +627,20 @@ class ImportGraphTests(unittest.TestCase):
                             command,
                             "--repo",
                             str(repo),
-                            "--record",
-                            str(record),
                             "--all",
                         ])
                     assert (case["rule"] in output.getvalue()) == bool(expected)
 
     def test_no_import_settings_means_no_graph_findings(self) -> None:
         case = self.FIXTURE["cases"][0]
-        profile = copy.deepcopy(self.FIXTURE["profile"])
+        profile = copy.deepcopy(self.FIXTURE["config"])
         del profile["structure"]["import_direction"]
         repo, _ = self.make_repo(case["violating"], profile)
         for checker in (layout, paths):
             assert not {f.rule_id for f in checker.run(repo, profile, [])} & self.RULES
 
     def test_scan_excludes_python_outside_its_scope(self) -> None:
-        profile = copy.deepcopy(self.FIXTURE["profile"])
+        profile = copy.deepcopy(self.FIXTURE["config"])
         profile["structure"]["import_direction"]["scan"] = ["src/orders/commands"]
         files = dict(self.FIXTURE["cases"][0]["violating"])
         files["src/orders/shared/broken.py"] = "this is not Python!\n"
@@ -638,7 +649,7 @@ class ImportGraphTests(unittest.TestCase):
             assert not {f.rule_id for f in checker.run(repo, profile, [])} & self.RULES
 
     def test_unused_shared_tier_fails_but_driving_tier_does_not(self) -> None:
-        profile = copy.deepcopy(self.FIXTURE["profile"])
+        profile = copy.deepcopy(self.FIXTURE["config"])
         repo, _ = self.make_repo(
             {
                 "src/orders/shared/model.py": "VALUE = 1\n",

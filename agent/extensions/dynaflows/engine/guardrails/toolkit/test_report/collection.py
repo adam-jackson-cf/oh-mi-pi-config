@@ -9,10 +9,12 @@ from guardrails.context.config.profile import exempt_tiers
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
+    approved_targets,
     as_list,
     matches_any,
     name_matches,
     repo_paths,
+    tests_settings,
 )
 from guardrails.toolkit.test_report.junit import Report, UsageError, evidence_settings
 
@@ -20,33 +22,21 @@ PROPAGATION = "TEST.failure-propagation"
 EVASION = "TEST.no-evasion"
 SELECTORS = "TEST.tier-selectors"
 SKIP_FIX = (
-    "make the test run and pass, or record an approved_skips entry with the owner's "
-    "reason and approval reference"
+    "make the test run and pass, or ask the owner for a skip approval (approvals kind "
+    "skip, target the test id or an fnmatch pattern) with their reason"
 )
 RETRY_FIX = "fix the flake's cause so it passes on the first run; never rely on retries"
 DUPLICATE_FIX = "give every test a unique ID so each result maps to one test"
 EMPTY_FIX = "check the tier selector and command; an empty collection never passes"
 
 
-def approved(test_id: str, profile: dict[str, Any]) -> bool:
-    entries = evidence_settings(profile).get("approved_skips")
-    for entry in entries if isinstance(entries, list) else []:
-        if not isinstance(entry, dict):
-            continue
-        pattern, reason, approval = (
-            entry.get(key) for key in ("id", "reason", "approval")
-        )
-        if not all(
-            isinstance(value, str) and value.strip()
-            for value in (pattern, reason, approval)
-        ):
-            continue
-        if isinstance(pattern, str) and fnmatchcase(test_id, pattern):
-            return True
-    return False
+def approved(test_id: str, config: dict[str, Any]) -> bool:
+    return any(
+        fnmatchcase(test_id, pattern) for pattern in approved_targets(config, "skip")
+    )
 
 
-def report_findings(report: Report, profile: dict[str, Any]) -> list[Finding]:
+def report_findings(report: Report, config: dict[str, Any]) -> list[Finding]:
     if not report.cases:
         return [
             Finding(
@@ -80,7 +70,7 @@ def report_findings(report: Report, profile: dict[str, Any]) -> list[Finding]:
                     DUPLICATE_FIX,
                 )
             )
-        if final.outcome in {"skipped", "xfail"} and not approved(test_id, profile):
+        if final.outcome in {"skipped", "xfail"} and not approved(test_id, config):
             reason = f" ({final.reason})" if final.reason else ""
             found.append(
                 Finding(
@@ -134,19 +124,19 @@ def id_file(test_id: str) -> str:
     return test_id.split("::", 1)[0]
 
 
-def profile_tiers(profile: dict[str, Any]) -> list[str]:
-    tiers = profile.get("tiers")
+def profile_tiers(config: dict[str, Any]) -> list[str]:
+    tiers = tests_settings(config, "tiers")
     if not isinstance(tiers, dict):
         return []
-    return sorted(set(tiers) - exempt_tiers(profile))
+    return sorted(set(tiers) - exempt_tiers(config))
 
 
 def collection_findings(
     collections: dict[str, list[str] | None],
-    profile: dict[str, Any],
+    config: dict[str, Any],
     test_files: list[str],
 ) -> list[Finding]:
-    tiers = profile_tiers(profile)
+    tiers = profile_tiers(config)
     found = [
         Finding(
             SELECTORS,
@@ -226,12 +216,12 @@ def tier_list_findings(
     return found
 
 
-def repository_test_files(repo: Path, profile: dict[str, Any]) -> list[str]:
-    layout = profile.get("layout")
+def repository_test_files(repo: Path, config: dict[str, Any]) -> list[str]:
+    layout = tests_settings(config, "layout")
     patterns = (
         as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
     )
-    exempt = as_list(evidence_settings(profile).get("unselected_exempt"))
+    exempt = as_list(evidence_settings(config).get("unselected_exempt"))
     return [
         path
         for path in repo_paths(repo)
@@ -241,7 +231,7 @@ def repository_test_files(repo: Path, profile: dict[str, Any]) -> list[str]:
     ]
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         lists = tier_arguments(argv)
     except UsageError as error:
@@ -252,7 +242,7 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
         ]
     collections = {tier: joined_ids(repo, paths) for tier, paths in lists.items()}
     try:
-        test_files = repository_test_files(repo, profile)
+        test_files = repository_test_files(repo, config)
     except InventoryError as error:
         return [
             Finding(
@@ -262,4 +252,4 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 "run inside a git work tree",
             )
         ]
-    return collection_findings(collections, profile, test_files)
+    return collection_findings(collections, config, test_files)

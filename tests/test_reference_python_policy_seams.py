@@ -19,6 +19,11 @@ sys.path.insert(
 )
 
 import pytest
+from test_agentrails_fixture import (
+    config,
+    exception as agentrails_exception,
+    write_config,
+)
 
 from guardrails.commands import cli
 from guardrails.commands.check import whole_repo
@@ -73,9 +78,9 @@ class ShopRepo:
             target = self.path / relpath
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")
-        self.profile = copy.deepcopy(FIXTURE["profile"])
-        python = self.profile["guardrails"]["python"]
-        self.profile["guardrails"]["python"] = merged_settings(python, settings or {})
+        self.profile = copy.deepcopy(FIXTURE["config"])
+        python = self.profile["checkers"]["python"]
+        self.profile["checkers"]["python"] = merged_settings(python, settings or {})
 
     def run(self, checker: str, *argv: str) -> list[Finding]:
         return CHECKERS[checker](self.path, self.profile, list(argv))
@@ -125,7 +130,7 @@ class PythonNameScopeTests(unittest.TestCase):
             GIT_CONFIG_NOSYSTEM="1",
             GIT_CONFIG_GLOBAL=os.devnull,
         )
-        self.repo.profile["guardrails"]["check"] = {"run": ["python-quality"]}
+        self.repo.profile["checkers"]["check"] = {"run": ["python-quality"]}
         self.name_rules = {f"PYQ{number}" for number in range(100, 108)}
         self.commit()
 
@@ -191,7 +196,7 @@ class PythonNameScopeTests(unittest.TestCase):
         )
         self.write("src/shop/contracts.py", source)
         self.write("src/shop/receipt.py", source)
-        self.repo.profile["guardrails"]["python"]["contract_files"].append(
+        self.repo.profile["checkers"]["python"]["contract_files"].append(
             "src/shop/receipt.py"
         )
         self.write("src/shop/reader.py")
@@ -268,14 +273,14 @@ class FailClosedDefaultTests(unittest.TestCase):
         self,
     ) -> None:
         repo = ShopRepo(self)
-        repo.profile = {"public_entry_points": {"shop": "shop.cli:main"}}
+        repo.profile = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
         unmapped = {
             item.path for item in repo.run("quality") if item.rule_id == "PYQ100"
         }
         expected = {path for path in FIXTURE["files"] if path.endswith(".py")}
         assert expected == unmapped
         assert sorted(rules_at(repo.run("fanout"))) == [
-            ("FANOUT.general", "record:profile.md")
+            ("FANOUT.general", ".agentrails/config.json#checkers")
         ]
 
     def test_empty_script_allowlist_rejects_every_command(self) -> None:
@@ -284,7 +289,7 @@ class FailClosedDefaultTests(unittest.TestCase):
 
     def test_process_scope_defaults_to_every_maintained_root(self) -> None:
         repo = ShopRepo(self)
-        del repo.profile["guardrails"]["python"]["subprocess_wrappers"]
+        del repo.profile["checkers"]["python"]["subprocess_wrappers"]
         found = rules_at(repo.run("quality"))
         assert ("PYQ220", "src/shop/process.py") in found
         assert ("PYQ220", "scripts/build-catalogue.py") in found
@@ -303,12 +308,12 @@ class SettingsTests(unittest.TestCase):
 
     def test_guardrail_exception_with_reason_drops_the_finding(self) -> None:
         repo = ShopRepo(self, {"src/shop/utils.py": "X = 1\n"})
-        repo.profile.setdefault("guardrails", {})["exceptions"] = [
-            {
-                "rule": "PYQ104",
-                "path": "src/shop/utils.py",
-                "reason": "Owner-approved upstream compatibility filename",
-            }
+        repo.profile["exceptions"] = [
+            agentrails_exception(
+                "PYQ104",
+                "src/shop/utils.py",
+                "Owner-approved upstream compatibility filename",
+            )
         ]
         assert repo.run("quality") == []
 
@@ -381,35 +386,27 @@ class SettingsTests(unittest.TestCase):
         source = "import shop.orders\nimport shop.process\n"
         settings = {"fanout": {"architectural_max": 1}}
         repo = ShopRepo(self, {"src/shop/hub.py": source}, settings)
-        repo.profile["public_entry_points"] = {}
+        repo.profile["tests"]["public_entry_points"] = {}
         assert "fanout.root_packages" in repo.run("fanout")[0].message
 
 
 class CliTests(unittest.TestCase):
-    def write_profile(self, repo: ShopRepo) -> Path:
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        record = Path(directory.name)
-        profile = record / "profile.md"
-        profile.write_text(f"---\n{json.dumps(repo.profile)}\n---\n# Test profile\n")
-        return record
+    def write_profile(self, repo: ShopRepo) -> None:
+        write_config(repo.path, config(**repo.profile))
 
     def test_cli_dispatches_each_python_subcommand(self) -> None:
         repo = ShopRepo(self, {"src/shop/utils.py": "X = 1\n"})
-        record = self.write_profile(repo)
+        self.write_profile(repo)
         expected = {"python-quality": 1, "python-scalability": 0, "python-fanout": 0}
         for name, code in expected.items():
             with self.subTest(name), contextlib.redirect_stdout(io.StringIO()) as out:
-                argv = [name, "--repo", str(repo.path), "--record", str(record)]
+                argv = [name, "--repo", str(repo.path)]
                 assert code == cli.main(argv)
             if code:
                 assert "src/shop/utils.py: PYQ104:" in out.getvalue()
 
 
-HYGIENE_PROFILE = {
-    "layout": {"test_file_patterns": ["test_*.py"]},
-    "tiers": {"t2": {"location": "tests/boundary"}},
-}
+HYGIENE_PROFILE = {"tests": {"layout": {"test_file_patterns": ["test_*.py"]}}}
 
 
 class SubprocessTimeoutTests(unittest.TestCase):
@@ -479,11 +476,8 @@ class SubprocessTimeoutTests(unittest.TestCase):
         path = self.repo({
             "tests/unit/test_proc.py": "import subprocess\nsubprocess.call(['x'])\n"
         })
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        record = Path(directory.name)
-        (record / "profile.md").write_text(f"---\n{json.dumps(HYGIENE_PROFILE)}\n---\n")
-        argv = ["python-test-hygiene", "--repo", str(path), "--record", str(record)]
+        write_config(path, config(**HYGIENE_PROFILE))
+        argv = ["python-test-hygiene", "--repo", str(path)]
         with contextlib.redirect_stdout(io.StringIO()) as out:
             assert cli.main(argv) == 1
         assert (
@@ -493,19 +487,13 @@ class SubprocessTimeoutTests(unittest.TestCase):
 
 
 class StandaloneExclusionTests(unittest.TestCase):
-    def record(self, profile: dict[str, Any]) -> Path:
-        directory = tempfile.TemporaryDirectory()
-        self.addCleanup(directory.cleanup)
-        record = Path(directory.name)
-        (record / "profile.md").write_text(f"---\n{json.dumps(profile)}\n---\n")
-        return record
-
     def exit_codes(self, step: str, repo: Path, profile: dict[str, Any]) -> list[int]:
         codes = []
         for exclude in ([], ["tests/**"]):
-            excluded = {**profile, "guardrails": {**profile.get("guardrails", {})}}
-            excluded["guardrails"]["check"] = {"exclude": exclude}
-            argv = [step, "--repo", str(repo), "--record", str(self.record(excluded))]
+            excluded = {**profile, "checkers": {**profile.get("checkers", {})}}
+            excluded["checkers"]["check"] = {"exclude": exclude}
+            write_config(repo, config(**excluded))
+            argv = [step, "--repo", str(repo)]
             with contextlib.redirect_stdout(io.StringIO()):
                 codes.append(cli.main(argv))
         return codes
@@ -531,10 +519,10 @@ class StandaloneExclusionTests(unittest.TestCase):
 
 def test_engine_modules_stay_within_the_default_fanout_limit() -> None:
     profile = {
-        "guardrails": {
+        "checkers": {
             "python": {
                 "source_roots": ["agent/extensions/dynaflows/engine"],
-                "fanout": {"root_packages": ["guardrails"]},
+                "fanout": {"root_packages": ["checkers"]},
             }
         }
     }

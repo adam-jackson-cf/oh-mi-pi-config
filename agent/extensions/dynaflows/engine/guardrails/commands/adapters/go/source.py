@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.foundation.inventory import settings
+from guardrails.foundation.inventory import settings, tests_settings
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -153,8 +153,8 @@ def module_of(repo: Path, path: str) -> tuple[str, str] | None:
         folder = folder.parent
 
 
-def owned_roots(profile: dict[str, Any]) -> tuple[str, ...]:
-    entries = profile.get("public_entry_points")
+def owned_roots(config: dict[str, Any]) -> tuple[str, ...]:
+    entries = tests_settings(config, "public_entry_points")
     roots = set()
     for raw in entries if isinstance(entries, dict) else ():
         path = str(raw).replace("\\", "/").rstrip("/")
@@ -168,9 +168,9 @@ def under(path: str, root: str) -> bool:
     return root == "." or path == root or path.startswith(root + "/")
 
 
-def owned_imports(repo: Path, profile: dict[str, Any]) -> tuple[str, ...]:
+def owned_imports(repo: Path, config: dict[str, Any]) -> tuple[str, ...]:
     prefixes = []
-    for root in owned_roots(profile):
+    for root in owned_roots(config):
         module = module_of(repo, posixpath.join(root, "x.go"))
         if module is None:
             continue
@@ -184,12 +184,12 @@ def owned_import(path: str, prefixes: tuple[str, ...]) -> bool:
     return any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
 
 
-def owned_path(path: str, profile: dict[str, Any]) -> bool:
-    return any(under(path, root) for root in owned_roots(profile))
+def owned_path(path: str, config: dict[str, Any]) -> bool:
+    return any(under(path, root) for root in owned_roots(config))
 
 
-def command(profile: dict[str, Any]) -> list[str]:
-    configured = settings(profile, SETTINGS).get("command")
+def command(config: dict[str, Any]) -> list[str]:
+    configured = settings(config, SETTINGS).get("command")
     if configured is not None:
         if (
             not isinstance(configured, list)
@@ -197,7 +197,7 @@ def command(profile: dict[str, Any]) -> list[str]:
             or not all(isinstance(part, str) for part in configured)
         ):
             raise SourceError(
-                f"guardrails.{SETTINGS}.command must be a nonempty argv list"
+                f"checkers.{SETTINGS}.command must be a nonempty argv list"
             )
         return configured
     go = shutil.which("go")

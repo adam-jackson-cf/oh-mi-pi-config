@@ -29,8 +29,8 @@ def selector_arguments(selector: str) -> list[str]:
     return shlex.split(selector)
 
 
-def command(profile: dict[str, Any]) -> list[str]:
-    configured = settings(profile, SETTINGS).get("command")
+def command(config: dict[str, Any]) -> list[str]:
+    configured = settings(config, SETTINGS).get("command")
     if configured is not None:
         if (
             not isinstance(configured, list)
@@ -38,7 +38,7 @@ def command(profile: dict[str, Any]) -> list[str]:
             or not all(isinstance(part, str) for part in configured)
         ):
             raise ValueError(
-                f"guardrails.{SETTINGS}.command must be a nonempty argv list"
+                f"checkers.{SETTINGS}.command must be a nonempty argv list"
             )
         return configured
     bun = shutil.which("bun")
@@ -49,8 +49,8 @@ def command(profile: dict[str, Any]) -> list[str]:
     return [bun]
 
 
-def collect_timeout(profile: dict[str, Any]) -> float:
-    timeout = settings(profile, SETTINGS).get("collect_timeout_s", 120)
+def collect_timeout(config: dict[str, Any]) -> float:
+    timeout = settings(config, SETTINGS).get("collect_timeout_s", 120)
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
@@ -80,15 +80,15 @@ def selected_ids(report: Path) -> list[str]:
 
 
 def collect_tier(
-    repo: Path, profile: dict[str, Any], tier: str, out: Path
+    repo: Path, config: dict[str, Any], tier: str, out: Path
 ) -> list[Finding]:
-    spec = adapter_tiers(profile, NAME).get(tier)
+    spec = adapter_tiers(config, NAME).get(tier)
     try:
         if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
             raise ValueError(
                 f"the bun_test adapter needs a bun test selector for tier {tier}"
             )
-        timeout = collect_timeout(profile)
+        timeout = collect_timeout(config)
         with tempfile.TemporaryDirectory(prefix="omp-bun-collect-") as scratch:
             report = Path(scratch) / "ids.xml"
             entry = Path(scratch) / "collect.preload.mjs"
@@ -97,7 +97,7 @@ def collect_tier(
                 entry, {"mode": "collect", "tier": tier, "journal": str(journal)}
             )
             argv = [
-                *command(profile),
+                *command(config),
                 "test",
                 "--preload",
                 str(entry),
@@ -143,9 +143,9 @@ def collect_tier(
 
 
 def list_tiers(
-    repo: Path, profile: dict[str, Any], tiers: list[str], out: Path
+    repo: Path, config: dict[str, Any], tiers: list[str], out: Path
 ) -> list[Finding]:
     findings = []
-    for tier in tiers or sorted(adapter_tiers(profile, NAME)):
-        findings.extend(collect_tier(repo, profile, tier, out))
+    for tier in tiers or sorted(adapter_tiers(config, NAME)):
+        findings.extend(collect_tier(repo, config, tier, out))
     return findings

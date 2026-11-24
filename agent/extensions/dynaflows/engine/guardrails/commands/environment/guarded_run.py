@@ -7,10 +7,14 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
-from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches_any, settings
+from guardrails.foundation.findings import CONFIG_LABEL, Finding, config_label
+from guardrails.foundation.inventory import (
+    as_list,
+    matches_any,
+    settings,
+    tests_settings,
+)
 from guardrails.host.process import run_attached
 
 USER_DATA = "TEST.user-data-guard"
@@ -46,22 +50,24 @@ def parse(argv: list[str]) -> tuple[argparse.Namespace, list[str]]:
 
 
 def resolve_command(
-    options: argparse.Namespace, command: list[str], profile: dict[str, Any]
+    options: argparse.Namespace, command: list[str], config: dict[str, Any]
 ) -> list[str]:
     if command:
         return command
     if not options.tier:
         raise GuardError("pass --tier <tier> or a command after '--'")
-    tiers = profile.get("tiers")
+    tiers = tests_settings(config, "tiers")
     tier = tiers.get(options.tier) if isinstance(tiers, dict) else None
     text = tier.get("command") if isinstance(tier, dict) else None
     if not isinstance(text, str) or not text.strip():
-        raise GuardError(f"tiers.{options.tier}.command is not set in {PROFILE_PATH}")
+        raise GuardError(
+            f"tests.tiers.{options.tier}.command is not set in {CONFIG_LABEL}"
+        )
     return shlex.split(text)
 
 
-def network_prefix(config: dict[str, Any], home: Path) -> list[str] | None:
-    value = config.get("network_none_command")
+def network_prefix(opts: dict[str, Any], home: Path) -> list[str] | None:
+    value = opts.get("network_none_command")
     prefix = shlex.split(value) if isinstance(value, str) else as_list(value)
     return [part.replace("{home}", str(home)) for part in prefix] or None
 
@@ -132,37 +138,42 @@ def user_data_finding(changed: list[str]) -> Finding:
     )
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    config = settings(profile, CHECKER)
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
+    opts = settings(config, CHECKER)
     options, command = parse(argv)
     try:
-        command = resolve_command(options, command, profile)
+        command = resolve_command(options, command, config)
     except GuardError as error:
         return [
-            Finding(USER_DATA, PROFILE_PATH, str(error), "name the command to guard")
+            Finding(
+                USER_DATA,
+                config_label("tests"),
+                str(error),
+                "name the command to guard",
+            )
         ]
-    watched = as_list(config.get("watch"))
+    watched = as_list(opts.get("watch"))
     if not watched:
         return [
             Finding(
                 USER_DATA,
-                PROFILE_PATH,
-                "guardrails.guarded_run.watch names no real-home paths to protect",
+                config_label("checkers"),
+                "checkers.guarded_run.watch names no real-home paths to protect",
                 "list the user-data paths the product and its tools write, relative to home",
             )
         ]
-    ignore = as_list(config.get("ignore"))
+    ignore = as_list(opts.get("ignore"))
     real_home = Path.home()
     with tempfile.TemporaryDirectory(prefix="omp-guard-") as scratch:
         env, home = guarded_env(Path(scratch))
         if options.network_none:
-            prefix = network_prefix(config, home)
+            prefix = network_prefix(opts, home)
             if prefix is None:
                 return [
                     Finding(
                         ISOLATION,
-                        PROFILE_PATH,
-                        "--network-none needs guardrails.guarded_run.network_none_command",
+                        config_label("checkers"),
+                        "--network-none needs checkers.guarded_run.network_none_command",
                         "record the container or sandbox prefix that denies network access",
                     )
                 ]

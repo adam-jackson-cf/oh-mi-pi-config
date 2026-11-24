@@ -54,16 +54,16 @@
       "head": {
         "src/shop/grading/coverage_offline.py": "from .coverage_store import RECORD\n\n\ndef offline():\n    return RECORD\n"
       },
-      "profile": {
-        "guardrails": {
-          "exceptions": [
-            {
-              "rule": "STRUCT.prefix-folder",
-              "path": "src/shop/grading/coverage_store.py",
-              "reason": "the store keeps its public import path until callers move"
-            }
-          ]
-        }
+      "config": {
+        "exceptions": [
+          {
+            "rule": "STRUCT.prefix-folder",
+            "path": "src/shop/grading/coverage_store.py",
+            "reason": "the store keeps its public import path until callers move",
+            "approvedBy": "example-owner",
+            "approvedAt": "2026-11-24T09:00:00Z"
+          }
+        ]
       },
       "findings": []
     },
@@ -72,16 +72,16 @@
       "head": {
         "src/shop/grading/coverage_offline.py": "from .coverage_store import RECORD\n\n\ndef offline():\n    return RECORD\n"
       },
-      "profile": {
-        "guardrails": {
-          "exceptions": [
-            {
-              "rule": "STRUCT.prefix-folder",
-              "path": "src/shop/grading",
-              "reason": "grading is being split in the next change"
-            }
-          ]
-        }
+      "config": {
+        "exceptions": [
+          {
+            "rule": "STRUCT.prefix-folder",
+            "path": "src/shop/grading",
+            "reason": "grading is being split in the next change",
+            "approvedBy": "example-owner",
+            "approvedAt": "2026-11-24T09:00:00Z"
+          }
+        ]
       },
       "findings": []
     },

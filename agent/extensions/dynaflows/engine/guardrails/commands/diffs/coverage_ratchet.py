@@ -16,15 +16,20 @@ from guardrails.context.changes import (
     parse_range,
     range_finding,
 )
-from guardrails.context.config.profile import is_missing_text
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches, name_matches, settings
+from guardrails.foundation.inventory import (
+    approved_targets,
+    as_list,
+    matches,
+    name_matches,
+    settings,
+)
 
 RULE = "TEST.coverage-ratchet"
 CHECKER = "coverage_ratchet"
 FIX = (
-    "keep coverage at or above its floor with outcome or property cases, or ask the owner to "
-    "approve this path in the record's guardrails.coverage_ratchet.approvals"
+    "keep coverage at or above its floor with outcome or property cases, or ask the owner "
+    "for a ratchet approval of this path (approvals kind ratchet)"
 )
 DEFAULT_CONFIG_FILES = [
     ".coveragerc",
@@ -168,13 +173,13 @@ def coverage_changes(
 
 
 def config_findings(
-    repo: Path, diff: DiffRange, target: ConfigChange, config: dict[str, Any]
+    repo: Path, diff: DiffRange, target: ConfigChange, options: dict[str, Any]
 ) -> list[Finding]:
     path = target.head_path or target.paths[0]
     changes, head_text = coverage_changes(repo, diff, target)
     removed, added = changes.removed, changes.added
     floor_re = key_pattern(
-        as_list(config.get("floor_keys")) or DEFAULT_FLOOR_KEYS,
+        as_list(options.get("floor_keys")) or DEFAULT_FLOOR_KEYS,
         r"(?P<value>\d+(?:\.\d+)?)",
     )
     found: list[Finding] = []
@@ -197,7 +202,7 @@ def config_findings(
     if head_text is None:
         return found
     exclusion_re = key_pattern(
-        as_list(config.get("exclusion_keys")) or DEFAULT_EXCLUSION_KEYS, ""
+        as_list(options.get("exclusion_keys")) or DEFAULT_EXCLUSION_KEYS, ""
     )
     excluded = exclusion_line_numbers(head_text, exclusion_re)
     moved = {entry_text(text) for _, text in removed}
@@ -220,7 +225,7 @@ def change_config_findings(
     diff: DiffRange,
     change: Change,
     config_files: list[str],
-    config: dict[str, Any],
+    options: dict[str, Any],
 ) -> list[Finding]:
     paths = tuple(name for name in change.paths if is_config(name, config_files))
     if not paths:
@@ -232,7 +237,7 @@ def change_config_findings(
         base if change.status != "A" and is_config(base, config_files) else None,
         change.path if kept else None,
     )
-    return config_findings(repo, diff, target, config)
+    return config_findings(repo, diff, target, options)
 
 
 def entry_text(line: str) -> str:
@@ -253,37 +258,25 @@ def pragma_findings(
     ]
 
 
-def approvals(profile: dict[str, Any]) -> set[tuple[str, str]]:
-    entries = settings(profile, CHECKER).get("approvals")
-    found = set()
-    for entry in entries if isinstance(entries, list) else []:
-        if not isinstance(entry, dict):
-            continue
-        path, approval = entry.get("path"), entry.get("approval")
-        if isinstance(path, str) and path and not is_missing_text(approval):
-            found.add((path, str(approval)))
-    return found
-
-
 def is_config(path: str, patterns: list[str]) -> bool:
     return any(name_matches(path, pattern) for pattern in patterns)
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    config = settings(profile, CHECKER)
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
+    options = settings(config, CHECKER)
     try:
         diff = parse_range(argv)
         changes = changed_files(repo, diff)
         pragma = re.compile(
-            str(config.get("pragma_pattern") or DEFAULT_PRAGMA), re.IGNORECASE
+            str(options.get("pragma_pattern") or DEFAULT_PRAGMA), re.IGNORECASE
         )
-        config_files = as_list(config.get("config_files")) or DEFAULT_CONFIG_FILES
-        skip = as_list(config.get("pragma_skip")) or DEFAULT_PRAGMA_SKIP
+        config_files = as_list(options.get("config_files")) or DEFAULT_CONFIG_FILES
+        skip = as_list(options.get("pragma_skip")) or DEFAULT_PRAGMA_SKIP
         found: list[Finding] = []
         for change in changes:
             path = change.path
             found.extend(
-                change_config_findings(repo, diff, change, config_files, config)
+                change_config_findings(repo, diff, change, config_files, options)
             )
             if change.status == "D":
                 continue
@@ -291,9 +284,9 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 found.extend(pragma_findings(repo, diff, path, pragma))
     except DiffError as error:
         return [range_finding(RULE, error)]
-    approved = approvals(profile)
+    approved = approved_targets(config, "ratchet")
     return [
         finding
         for finding in found
-        if not any(matches(finding.path, pattern) for pattern, _ in approved)
+        if not any(matches(finding.path, pattern) for pattern in approved)
     ]

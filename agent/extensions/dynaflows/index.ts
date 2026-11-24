@@ -225,12 +225,12 @@ type BashCall = { actions: GitAction[]; executables: string[] };
 const COMMIT_COMPANIONS = ["cd", "pushd", "popd", "true"];
 const READ_ONLY_GIT = /^git (?:status|diff|log|show|rev-parse)\b/;
 // The harness checks: guardrails run from the harness's own reference project (never installed
-// into the repo), over the whole repo, with the record as config. Rails append
-// `--repo <worktree> --record <record dir>`.
+// into the repo), over the whole repo, with the repo's .agentrails/config.json as config. Rails
+// append `--repo <worktree>`; the engine finds the main checkout's config itself.
 const guardrailsProject = join(import.meta.dir, "engine");
 const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "check"];
 const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "path-check"];
-const defaultProfileCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "profile-check"];
+const defaultConfigCheckCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "config-check"];
 // The judgment registry (engine/workflows.py) as the rails call it: questions, then record.
 const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "python", join(import.meta.dir, "lib", "decide.py")];
 // The harness checks run only after checks.commit passed, so a harness-only finding can mean a repo
@@ -536,7 +536,7 @@ type ScopeInput = Parameters<ReturnType<typeof sessionRails>["judged"]["scopeRea
 type StructuredRequest = { notice: string; slug: string; dir: string; task: boolean };
 
 type DynaflowsOptions = {
-	modesPath: string; configPath: string; configRoot: string; guardrailsCommand: string[]; guardrailsProfileCommand: string[];
+	modesPath: string; configPath: string; configRoot: string; guardrailsCommand: string[]; guardrailsConfigCheckCommand: string[];
 	ompCommand: string[]; extensionDir: string; reviewsPath: string; obligationSources: ObligationSource[];
 	/** The decision store the rails ledger writes (lib/rails-ledger.ts); never a repository. */
 	storePath: string;
@@ -550,7 +550,7 @@ function defaultOptions(): DynaflowsOptions {
 		configPath: join(import.meta.dir, "rails.yml"),
 		configRoot: defaultConfigRoot(),
 		guardrailsCommand: defaultGuardrailsCommand,
-		guardrailsProfileCommand: defaultProfileCommand,
+		guardrailsConfigCheckCommand: defaultConfigCheckCommand,
 		ompCommand: ["omp"],
 		extensionDir: import.meta.dir,
 		// The omp agent dir, by the same rule as the judgment call log; never a repository.
@@ -564,7 +564,7 @@ function defaultOptions(): DynaflowsOptions {
 
 export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOptions> = {}): void {
 	const {
-		modesPath, configPath, configRoot, guardrailsCommand, guardrailsProfileCommand, ompCommand, extensionDir, reviewsPath, obligationSources,
+		modesPath, configPath, configRoot, guardrailsCommand, guardrailsConfigCheckCommand, ompCommand, extensionDir, reviewsPath, obligationSources,
 		decideCommand, judge, storePath,
 	}: DynaflowsOptions = { ...defaultOptions(), ...options };
 	// A ledger row's repository and mode at cwd; one that cannot be resolved (no origin, an unreadable mode) is recorded as null.
@@ -611,7 +611,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 			return pr !== undefined && "head" in pr && pr.state === "OPEN";
 		},
 		repoRun: (argv, cwd, timeout) => repoExec(pi, argv, cwd, timeout),
-		checks: { profile: guardrailsProfileCommand, check: guardrailsCommand },
+		checks: { config: guardrailsConfigCheckCommand, check: guardrailsCommand },
 		loadError: () => loadError,
 	});
 	async function gateAt(root: string, state: State, ctx: ExtensionContext, strict = false): Promise<Gate | undefined> {
@@ -673,7 +673,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	async function runPathCheck(root: string, canonicalRoot: string, changed: string[]): Promise<void> {
 		const record = await recordAt(root);
 		if (!record) throw new Error("per-repo record disappeared during path check");
-		const result = await repoExec(pi, [...harnessPathCommand, "--repo", canonicalRoot, "--record", record.dir, "--event", "edit", ...changed], canonicalRoot, SUBPROCESS_TIMEOUT_MS);
+		const result = await repoExec(pi, [...harnessPathCommand, "--repo", canonicalRoot, "--event", "edit", ...changed], canonicalRoot, SUBPROCESS_TIMEOUT_MS);
 		if (result.code !== 0 || result.killed) throw new Error(`${result.stdout}\n${result.stderr}`.trim());
 	}
 	async function checkPaths(root: string, changed: string[], state: State): Promise<string | undefined> {
@@ -694,14 +694,14 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	async function commitChecksReason(root: string): Promise<Refusal | undefined> {
 		const record = await recordAt(root);
 		if (!record) return undefined;
-		const pathResult = await repoExec(pi, [...harnessPathCommand, "--repo", root, "--record", record.dir, "--event", "staged"], root, SUBPROCESS_TIMEOUT_MS);
+		const pathResult = await repoExec(pi, [...harnessPathCommand, "--repo", root, "--event", "staged"], root, SUBPROCESS_TIMEOUT_MS);
 		if (pathResult.code !== 0 || pathResult.killed) {
 			return refuse("staged-path-check", `Agent rails: staged path check failed in ${root}: ${pathResult.stdout}\n${pathResult.stderr}\nFix the findings, then commit again.`,
 				`Agent rails: staged path check failed in ${root}`);
 		}
 		const runs: CommitRun[] = [
 			{ code: "commit-checks", label: `checks.commit (${record.gate.commit.join(" ")})`, argv: record.gate.commit },
-			{ code: "harness-checks", label: "harness checks (guardrails)", argv: [...guardrailsCommand, "--repo", root, "--record", record.dir] },
+			{ code: "harness-checks", label: "harness checks (guardrails)", argv: [...guardrailsCommand, "--repo", root] },
 		];
 		const deadline = Date.now() + COMMIT_CHECKS_TIMEOUT_MS;
 		for (const run of runs) {

@@ -8,7 +8,11 @@ from typing import Any
 from guardrails.context.config import repo_config
 from guardrails.context.config.repo_config import ConfigError
 
+# Every problem config-check reports belongs to this rule's problem class.
+RULE = "PROFILE.complete"
 DESCRIPTION = """Validate an agent-rails config (<main checkout>/.agentrails/config.json).
+
+Each problem is a PROFILE.complete problem: a value missing, malformed or not owner-approved.
 
   --repo DIR                     the main checkout's config, checked against DIR's origin
   --file PATH [--slug OWNER/NAME]  any config file; --slug checks repo.slug against it

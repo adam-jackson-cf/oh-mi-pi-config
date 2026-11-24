@@ -96,7 +96,7 @@ def exit_findings(report: Report, exit_code: int | None) -> list[Finding]:
 
 
 def evaluate(
-    report: Report, profile: dict[str, Any], exit_code: int | None
+    report: Report, config: dict[str, Any], exit_code: int | None
 ) -> list[Finding]:
     if exit_code is None:
         exit_code = as_int(report.properties.get("omp.exit_code"))
@@ -114,17 +114,17 @@ def evaluate(
         *outcome_findings(report),
         *truncation_findings(report),
         *exit_findings(report, exit_code),
-        *report_findings(report, profile),
+        *report_findings(report, config),
     ]
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         options = report_options(repo, argv)
-        report = load_run_report(repo, profile, options)
+        report = load_run_report(repo, config, options)
     except UsageError as error:
         return [Finding(RULE, "report-check", f"usage: {error}", "fix the arguments")]
     except ReportError as error:
         path = display_path(repo, options.junit, "report-check")
         return [Finding(RULE, path, str(error), FAIL_FIX)]
-    return evaluate(report, profile, options.exit_code)
+    return evaluate(report, config, options.exit_code)

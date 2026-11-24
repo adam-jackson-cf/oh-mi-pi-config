@@ -1,20 +1,20 @@
+"""Section schemas the repo config's tests, structure, houseStyle and checkers reuse.
+
+repo_config.py is the validator; this module holds the shared leaf and section checks and
+the exemption reading the checkers use.
+"""
+
 from __future__ import annotations
 
-import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, TypeGuard
 
 from guardrails.context.config.adapter_declarations import TIER_KEYS, installed
 from guardrails.context.config.house_style import load_house_style
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.inventory import approved_targets, config_section
 
-PROFILE_FILE = "profile.md"
-PROFILE_PATH = "record:profile.md"
-RULE = "PROFILE.complete"
-FENCE = "---"
 EXEMPTABLE = frozenset({
     "tiers.t3",
     "verification_surface",
@@ -39,41 +39,7 @@ PLACEHOLDER = re.compile(r"<[^<>\n]+>|\bTBD\b|\bTODO\b", re.IGNORECASE)
 
 
 class ProfileError(Exception):
-    pass
-
-
-def load_profile(record: Path) -> dict[str, Any]:
-    path = record / PROFILE_FILE
-    try:
-        text = path.read_text(encoding="utf-8")
-    except FileNotFoundError as error:
-        raise ProfileError(f"{PROFILE_PATH} does not exist") from error
-    except (OSError, UnicodeError) as error:
-        raise ProfileError(f"{PROFILE_PATH} cannot be read: {error}") from error
-    return parse_front_matter(text)
-
-
-def parse_front_matter(text: str) -> dict[str, Any]:
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != FENCE:
-        raise ProfileError(f"{PROFILE_PATH} must start with a '---' front-matter block")
-    try:
-        end = next(
-            index for index, line in enumerate(lines[1:], 1) if line.strip() == FENCE
-        )
-    except StopIteration as error:
-        raise ProfileError(
-            f"{PROFILE_PATH} front matter has no closing '---' line"
-        ) from error
-    try:
-        values = json.loads("\n".join(lines[1:end]))
-    except json.JSONDecodeError as error:
-        raise ProfileError(
-            f"{PROFILE_PATH} front matter is not valid JSON: {error}"
-        ) from error
-    if not isinstance(values, dict):
-        raise ProfileError(f"{PROFILE_PATH} front matter must be one JSON object")
-    return values
+    """A config value a checker needs (e.g. tests.adapters) cannot drive the run."""
 
 
 OPTIONAL_MARK = "?"
@@ -83,7 +49,6 @@ MACHINE = {
     "runtime": "text",
     "wall_limit_s": "positive",
     "per_test_limit_s": "positive",
-    "approval": "text",
 }
 TIER = {"command": "text"}
 ADAPTER_TIER = {"selector": "text", "location": "texts"}
@@ -91,7 +56,6 @@ ADAPTER = {
     "name": "text",
     "tiers": {"t1?": ADAPTER_TIER, "t2?": ADAPTER_TIER, "t3?": ADAPTER_TIER},
 }
-EXCEPTION = {"rule": "text", "path": "text", "reason": "text", "check?": "text"}
 SCHEMA: dict[str, Any] = {
     "tiers": {"t1": TIER, "t2": TIER, "t3": TIER},
     "public_entry_points": "map",
@@ -162,12 +126,6 @@ GUARDRAILS_SECTIONS = (
     "test_evidence",
     "toolchain_parity",
 )
-OPTIONAL = {
-    "guardrails": {
-        **{f"{section}{OPTIONAL_MARK}": "object" for section in GUARDRAILS_SECTIONS},
-        "exceptions?": ("optional_records", EXCEPTION),
-    }
-}
 
 
 def is_missing_text(value: object) -> bool:
@@ -180,32 +138,6 @@ def is_missing_text(value: object) -> bool:
         or lowered.startswith(("none:", "none "))
         or bool(PLACEHOLDER.search(text))
     )
-
-
-def validate_profile(profile: dict[str, Any]) -> list[Finding]:
-    problems: list[tuple[str, str]] = []
-    for key in sorted(set(profile) - set(SCHEMA) - set(OPTIONAL)):
-        problems.append((key, "is not a profile key; remove it or fix its spelling"))
-    for key, spec in SCHEMA.items():
-        check_value(profile.get(key), spec, key, problems)
-    for key, spec in OPTIONAL.items():
-        if key in profile:
-            check_value(profile[key], spec, key, problems)
-    problems.extend(house_style_version_problems(profile))
-    problems.extend(adapter_problems(profile))
-    return [
-        Finding(
-            RULE, PROFILE_PATH, f"{key} {problem}", "record the owner-approved value"
-        )
-        for key, problem in problems
-    ]
-
-
-def house_style_version_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
-    declared = profile.get("house_style", {})
-    version = declared.get("version") if isinstance(declared, dict) else None
-    problem = house_style_version_problem(version)
-    return [] if problem is None else [("house_style.version", problem)]
 
 
 def house_style_version_problem(version: object) -> str | None:
@@ -224,8 +156,8 @@ def is_exemption(value: object) -> TypeGuard[dict[str, Any]]:
     return isinstance(value, dict) and "none" in value
 
 
-def exempt_tiers(profile: dict[str, Any]) -> frozenset[str]:
-    tiers = profile.get("tiers")
+def exempt_tier_keys(tiers: object) -> frozenset[str]:
+    """Tiers written as an exemption ({none: true}), whatever their approval."""
     return frozenset(
         tier
         for tier, value in (tiers.items() if isinstance(tiers, dict) else ())
@@ -233,11 +165,35 @@ def exempt_tiers(profile: dict[str, Any]) -> frozenset[str]:
     )
 
 
-def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
-    entries = profile.get("adapters")
+def approved_exemption(config: dict[str, Any], target: str) -> bool:
+    """tests.<target> is {none: true} and the owner approved the exemption."""
+    parent, _, leaf = target.rpartition(".")
+    tests = config_section(config, "tests")
+    holder = tests.get(parent) if parent else tests
+    return (
+        target in EXEMPTABLE
+        and isinstance(holder, dict)
+        and is_exemption(holder.get(leaf))
+        and target in approved_targets(config, "exemption")
+    )
+
+
+def exempt_tiers(config: dict[str, Any]) -> frozenset[str]:
+    """Tiers the config exempts with an owner exemption approval."""
+    tiers = config_section(config, "tests").get("tiers")
+    return frozenset(
+        tier
+        for tier in (tiers if isinstance(tiers, dict) else {})
+        if approved_exemption(config, f"tiers.{tier}")
+    )
+
+
+def adapter_problems(tests: dict[str, Any]) -> list[tuple[str, str]]:
+    """Adapter declarations against the tiers of one tests section."""
+    entries = tests.get("adapters")
     if not isinstance(entries, list):
         return []
-    exempt = exempt_tiers(profile)
+    exempt = exempt_tier_keys(tests.get("tiers"))
     problems: list[tuple[str, str]] = []
     seen: set[str] = set()
     covered: set[str] = set()
@@ -263,7 +219,7 @@ def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
             problems.extend(
                 (
                     f"{key}.tiers.{tier}",
-                    f"takes part in tier {tier}, which the profile exempts",
+                    f"takes part in tier {tier}, which tests.tiers exempts",
                 )
                 for tier in sorted(exempt.intersection(tiers))
             )
@@ -273,27 +229,6 @@ def adapter_problems(profile: dict[str, Any]) -> list[tuple[str, str]]:
         if tier not in covered and tier not in exempt
     )
     return problems
-
-
-def check_exemption(
-    value: dict[str, Any], key: str, problems: list[tuple[str, str]]
-) -> None:
-    extra = sorted(set(value) - {"none", "approval"})
-    if extra:
-        problems.append((key, f"exemption has unexpected keys {extra}"))
-    if is_missing_text(value.get("none")):
-        problems.append((key, "exemption needs a real 'none' reason"))
-    if is_missing_text(value.get("approval")):
-        problems.append((key, "exemption needs an owner 'approval' reference"))
-
-
-def profile_unknown_key(key: str, extra: str) -> str:
-    if key == "house_style" and extra == "exceptions":
-        return (
-            "is obsolete; move entries to guardrails.exceptions and replace the old "
-            "justification field with reason"
-        )
-    return "is not a profile key; remove it or fix its spelling"
 
 
 ExemptionCheck = Callable[[dict[str, Any], str, list[tuple[str, str]]], None]
@@ -306,9 +241,6 @@ class SectionRules:
     unknown_key: UnknownKey
 
 
-PROFILE_RULES = SectionRules(check_exemption, profile_unknown_key)
-
-
 def child_key(key: str, name: str) -> str:
     return f"{key}.{name}" if key else name
 
@@ -318,7 +250,7 @@ def check_value(
     spec: Any,
     key: str,
     problems: list[tuple[str, str]],
-    rules: SectionRules = PROFILE_RULES,
+    rules: SectionRules,
 ) -> None:
     if key in EXEMPTABLE and is_exemption(value):
         rules.exemption(value, key, problems)
@@ -336,7 +268,7 @@ def check_section(
     spec: dict[str, Any],
     key: str,
     problems: list[tuple[str, str]],
-    rules: SectionRules = PROFILE_RULES,
+    rules: SectionRules,
 ) -> None:
     if not isinstance(value, dict):
         problems.append((key, "is missing" if value is None else "must be an object"))
@@ -355,7 +287,7 @@ def check_records(
     spec: tuple[Any, ...],
     key: str,
     problems: list[tuple[str, str]],
-    rules: SectionRules = PROFILE_RULES,
+    rules: SectionRules,
 ) -> None:
     kind, fields = spec
     if not isinstance(value, list):
@@ -456,8 +388,3 @@ def placeholder_problem(value: object) -> str | None:
     if isinstance(value, str) and is_missing_text(value):
         return f"holds a placeholder or sentinel value {value!r}"
     return None
-
-
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
-    del repo, argv
-    return validate_profile(profile)

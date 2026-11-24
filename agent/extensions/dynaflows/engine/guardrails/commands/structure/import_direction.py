@@ -21,8 +21,8 @@ from guardrails.foundation.inventory import (
 from guardrails.host.process import run_text
 
 
-def direction_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[Finding]:
-    direction, tiers = import_config(profile)
+def direction_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Finding]:
+    direction, tiers = import_config(config)
     package, source_root = direction.get("package"), direction.get("source_root")
     if not (
         isinstance(package, str)
@@ -69,9 +69,9 @@ def direction_findings(repo: Path, path: str, profile: dict[str, Any]) -> list[F
 
 
 def native_findings(
-    repo: Path, paths: list[str], profile: dict[str, Any]
+    repo: Path, paths: list[str], config: dict[str, Any]
 ) -> list[Finding]:
-    direction, _ = import_config(profile)
+    direction, _ = import_config(config)
     native = direction.get("native")
     scan = as_list(direction.get("scan")) or as_list(direction.get("source_root"))
     sources = sorted({

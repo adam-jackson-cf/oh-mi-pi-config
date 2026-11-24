@@ -20,9 +20,11 @@ from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
+    config_section,
     matches,
     matches_any,
     repo_paths,
+    structure_settings,
 )
 
 RULE = "TEST.tier-selectors"
@@ -34,33 +36,37 @@ class Selection:
     reason: str
 
 
-def section(profile: dict[str, Any], key: str) -> dict[str, Any]:
-    value = profile.get(key)
+def section(values: dict[str, Any], key: str) -> dict[str, Any]:
+    value = values.get(key)
     return value if isinstance(value, dict) else {}
 
 
-def t2_files(paths: list[str], profile: dict[str, Any]) -> list[str]:
-    locations = adapter_declarations.tier_locations(profile).get("t2", [])
+def t2_files(paths: list[str], config: dict[str, Any]) -> list[str]:
+    locations = adapter_declarations.tier_locations(config).get("t2", [])
     journeys = as_list(
-        section(profile, "verification_surface").get("journey_file_pattern")
+        section(config_section(config, "tests"), "verification_surface").get(
+            "journey_file_pattern"
+        )
     )
     return sorted(
         path
         for path in paths
-        if (matches_any(path, locations) and is_test_file(path, profile))
+        if (matches_any(path, locations) and is_test_file(path, config))
         or any(fnmatchcase(path, pattern) for pattern in journeys)
     )
 
 
-def area_of_test(path: str, profile: dict[str, Any]) -> str | None:
-    for pattern, area in section(section(profile, "ownership_areas"), "map").items():
+def area_of_test(path: str, config: dict[str, Any]) -> str | None:
+    for pattern, area in section(
+        section(structure_settings(config), "ownership_areas"), "map"
+    ).items():
         if matches(path, str(pattern)) and isinstance(area, str):
             return area
     return None
 
 
-def owner_of(path: str, profile: dict[str, Any]) -> str | None:
-    owners = section(section(profile, "structure"), "owners")
+def owner_of(path: str, config: dict[str, Any]) -> str | None:
+    owners = section(structure_settings(config), "owners")
     files = section(owners, "files")
     exact = files.get(path)
     if isinstance(exact, str):
@@ -77,38 +83,38 @@ def owner_of(path: str, profile: dict[str, Any]) -> str | None:
     return best[1] if best else None
 
 
-def is_production(path: str, profile: dict[str, Any]) -> bool:
-    layout = section(profile, "layout")
+def is_production(path: str, config: dict[str, Any]) -> bool:
+    layout = section(config_section(config, "tests"), "layout")
     holders = [
         value
         for value in (layout.get("fixtures_dir"), layout.get("support_dir"))
         if value
     ]
-    scope = as_list(section(profile, "coverage").get("scope"))
+    scope = as_list(section(config_section(config, "tests"), "coverage").get("scope"))
     return (
         matches_any(path, scope)
-        and not is_test_file(path, profile)
+        and not is_test_file(path, config)
         and not matches_any(path, [str(holder) for holder in holders])
     )
 
 
 def select(
-    changed: list[str], inventory: list[str], profile: dict[str, Any]
+    changed: list[str], inventory: list[str], config: dict[str, Any]
 ) -> Selection:
-    candidates = t2_files(inventory, profile)
-    production = [path for path in changed if is_production(path, profile)]
-    unowned = [path for path in production if owner_of(path, profile) is None]
+    candidates = t2_files(inventory, config)
+    production = [path for path in changed if is_production(path, config)]
+    unowned = [path for path in production if owner_of(path, config) is None]
     if unowned:
         return Selection(
             tuple(candidates),
             f"all T2: changed production code has no owner in structure.owners: {unowned}",
         )
-    areas = {owner_of(path, profile) for path in production}
-    changed_t2 = set(t2_files(changed, profile)) & set(candidates)
+    areas = {owner_of(path, config) for path in production}
+    changed_t2 = set(t2_files(changed, config)) & set(candidates)
     picked = [
         path
         for path in candidates
-        if area_of_test(path, profile) in areas or path in changed_t2
+        if area_of_test(path, config) in areas or path in changed_t2
     ]
     named = ", ".join(sorted(area for area in areas if area)) or "none"
     return Selection(
@@ -116,19 +122,19 @@ def select(
     )
 
 
-def affected(repo: Path, profile: dict[str, Any], argv: list[str]) -> Selection:
+def affected(repo: Path, config: dict[str, Any], argv: list[str]) -> Selection:
     diff = parse_range(argv)
     changed = [path for change in changed_files(repo, diff) for path in change.paths]
     try:
         inventory = repo_paths(repo)
     except InventoryError as error:
         raise DiffError(str(error)) from error
-    return select(changed, inventory, profile)
+    return select(changed, inventory, config)
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
-        selection = affected(repo, profile, argv)
+        selection = affected(repo, config, argv)
     except DiffError as error:
         return [range_finding(RULE, error)]
     print(f"selection: {selection.reason}", file=sys.stderr)
@@ -145,18 +151,18 @@ class TierCommand:
 
 
 def print_affected(
-    repo: Path, profile: dict[str, Any], command: TierCommand, base: str, head: str
+    repo: Path, config: dict[str, Any], command: TierCommand, base: str, head: str
 ) -> list[Finding]:
     try:
-        selection = affected(repo, profile, ["--base", base, "--head", head])
+        selection = affected(repo, config, ["--base", base, "--head", head])
     except DiffError as error:
         return [range_finding(RULE, error)]
     print(f"selection: {selection.reason}", file=sys.stderr)
     paths = adapter_declarations.claimed(
-        profile, command.name, "t2", selection.paths, command.suffixes
+        config, command.name, "t2", selection.paths, command.suffixes
     )
     if paths:
-        tiers = adapter_declarations.adapter_tiers(profile, command.name)
+        tiers = adapter_declarations.adapter_tiers(config, command.name)
         selector = tiers.get("t2", {}).get("selector", "")
         print(shlex.join(command.arguments(selector, paths)))
     return []

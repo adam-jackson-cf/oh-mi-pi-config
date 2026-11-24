@@ -41,8 +41,10 @@ def surface_profile(**overrides: str) -> dict[str, Any]:
     }
     values.update(overrides)
     return {
-        "verification_surface": values,
-        "layout": {"test_file_patterns": ["test_*.py"]},
+        "tests": {
+            "verification_surface": values,
+            "layout": {"test_file_patterns": ["test_*.py"]},
+        }
     }
 
 
@@ -55,7 +57,7 @@ class LeverSelftestCase(unittest.TestCase):
     def selftest(self, mode: str, **settings: object) -> list[Any]:
         lever = shlex.join([sys.executable, str(FAKE_LEVER), "--mode", mode])
         profile = surface_profile(lever_command=lever)
-        profile["guardrails"] = {
+        profile["checkers"] = {
             "lever_selftest": {"doctor_args": ["doctor"], **settings}
         }
         return lever_selftest.run(self.repo, profile, [])

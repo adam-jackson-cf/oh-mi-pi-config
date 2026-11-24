@@ -19,16 +19,16 @@ SUFFIXES = ("_test.go",)
 
 
 def affected_arguments(
-    repo: Path, profile: dict[str, Any], base: str, head: str
+    repo: Path, config: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
     try:
-        selection = affected(repo, profile, ["--base", base, "--head", head])
+        selection = affected(repo, config, ["--base", base, "--head", head])
     except DiffError as error:
         return [range_finding(RULE, error)]
     print(f"selection: {selection.reason}", file=sys.stderr)
-    paths = claimed(profile, NAME, "t2", selection.paths, SUFFIXES)
+    paths = claimed(config, NAME, "t2", selection.paths, SUFFIXES)
     if paths:
-        selector = adapter_tiers(profile, NAME).get("t2", {}).get("selector", "")
+        selector = adapter_tiers(config, NAME).get("t2", {}).get("selector", "")
         folders = sorted({PurePosixPath(path).parent.as_posix() for path in paths})
         print(shlex.join([*selector_arguments(selector), *package_patterns(folders)]))
     return []

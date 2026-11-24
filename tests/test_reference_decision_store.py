@@ -320,7 +320,7 @@ class DecisionStoreTests(StoreCase):
 
 class CheckLogTests(StoreCase):
     def log(self, findings: list[Finding]) -> str:
-        target = cli.Target(self.dir / "repo", self.dir / "config/repos/owner/repo")
+        target = cli.Target(self.dir / "repo", {"repo": {"slug": "owner/repo"}})
         err = StringIO()
         with (
             patch.dict("os.environ", {"PI_CODING_AGENT_DIR": str(self.dir / "agent")}),

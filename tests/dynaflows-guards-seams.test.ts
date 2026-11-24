@@ -82,9 +82,7 @@ function repoCommand(command: string, args: string[]): [string, string[]] {
 	if (command === "uv" && args[4] === "path-check") {
 		assert.deepEqual(args.slice(0, 6), ["run", "--project",
 			resolve(import.meta.dir, "../agent/extensions/dynaflows/engine"), "guardrails", "path-check", "--repo"]);
-		assert.equal(args[7], "--record");
-		assert.match(args[8] ?? "", /\/repos\/[^/]+\/[^/]+$/);
-		return ["path-check", args.slice(9)];
+		return ["path-check", args.slice(7)];
 	}
 	return [command, args];
 }
@@ -151,7 +149,7 @@ function extensionOptions(machine: string, records: string, choices: CommandChoi
 			}));
 			return { answers, model: judged.model };
 		},
-		reviewsPath: join(machine, "reviews.json"), extensionDir: join(machine, "extension"), guardrailsProfileCommand: ["true"],
+		reviewsPath: join(machine, "reviews.json"), extensionDir: join(machine, "extension"), guardrailsConfigCheckCommand: ["true"],
 		// The rails ledger goes to this harness's machine dir (its decision store), never ~/.omp/agent.
 		storePath: join(machine, "dynaflows", "dynaflows.db"),
 		ompCommand: choices.ompCommand ?? ["sh", "-c", 'cat "$1"', "omp", join(machine, "worktree-base")],
@@ -202,7 +200,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 				assert.equal(command, "env");
 				assert.deepEqual(args, ["-u", "AGENT", "--", "uv", "run", "--project",
 					resolve(import.meta.dir, "../agent/extensions/dynaflows/engine"),
-					"guardrails", "path-check", "--repo", options.cwd, "--record", recordDir(options.cwd), ...paths]);
+					"guardrails", "path-check", "--repo", options.cwd, ...paths]);
 				return { code: pathFailure ? 1 : 0, killed: false, stdout: "",
 					stderr: pathFailure ? `${paths.join("\n")}: ${pathFailure}` : "" };
 			}

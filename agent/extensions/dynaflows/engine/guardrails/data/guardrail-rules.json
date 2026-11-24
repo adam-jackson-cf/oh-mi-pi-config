@@ -215,7 +215,7 @@
         "bundle_root_without_python_ends_the_search": true,
         "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the profile's layout fixtures_dir and support_dir, and every profile test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
-        "exceptions": "record guardrails.exceptions entries {rule, path, reason}",
+        "exceptions": "record exceptions entries {rule, path, reason}",
         "diagnostic_names_file_and_code_folder": true
       },
       "summary": "Reject runtime data and template files inside a folder of Python code.",
@@ -246,13 +246,13 @@
         "reject_entry_modules_deeper_than_top_tier": true,
         "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the profile's layout fixtures_dir and support_dir, and every profile test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
-        "internal_tool_exemption": "an owner-approved record guardrails.exceptions entry {rule, path, reason}",
+        "internal_tool_exemption": "an owner-approved record exceptions entry {rule, path, reason}",
         "diagnostic_names_file_depth_and_package": true
       },
       "summary": "Keep __main__.py and cli.py entry modules in their package's top tier.",
       "remediation": {
         "root_cause": "A command entry module was added deep inside an implementation tier, so the package's interface is spread across its internals instead of sitting at its top tier.",
-        "fix": "Move the entry module to the package root or a folder directly under it and import the implementation from there; for an internal tool that no user or deployment invokes, record an owner-approved guardrails.exceptions entry instead."
+        "fix": "Move the entry module to the package root or a folder directly under it and import the implementation from there; for an internal tool that no user or deployment invokes, record an owner-approved exceptions entry instead."
       },
       "reference": [
         {
@@ -289,13 +289,13 @@
           "labelled_pairs": "235 council-labelled unit pairs from the owner's projects, leave-one-repository-out cutoff",
           "note": "the owner accepted 0.74 held-out precision as a pass"
         },
-        "exceptions": "a record guardrails.exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
+        "exceptions": "a record exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
         "diagnostic_names_both_units_and_closest_definition_pair": true
       },
       "summary": "Reject a changed folder whose Python code repeats another folder's code.",
       "remediation": {
         "root_cause": "The same logic was written in two folders, so each copy changes on its own and the two drift apart.",
-        "fix": "Move the shared logic into one shared mechanism both folders use and delete the copy, or record an owner-approved guardrails.exceptions entry {rule, path, reason} when the copies must stay apart."
+        "fix": "Move the shared logic into one shared mechanism both folders use and delete the copy, or record an owner-approved exceptions entry {rule, path, reason} when the copies must stay apart."
       },
       "reference": [
         {
@@ -336,7 +336,7 @@
           "baselines": "flag every cluster 47/63 = 0.75; the Jev question alone 46/60 = 0.77, so Jev added nothing",
           "synthetic": "council agreed with the intended label on 39/40 synthetic clusters"
         },
-        "exceptions": "a record guardrails.exceptions entry {rule, path, reason} on the folder or any member suppresses the cluster",
+        "exceptions": "a record exceptions entry {rule, path, reason} on the folder or any member suppresses the cluster",
         "diagnostic_names_prefix_members_and_closest_pair": true
       },
       "summary": "Reject sibling files sharing a name prefix that implement one concept outside a folder named for it.",
@@ -368,7 +368,7 @@
           "files": "the final path segment uses its house-style stem (before the first dot, except dotfiles)",
           "conventions": "language convention packs exempt Python __init__.py and __main__.py and Go package filenames from parent repetition, supported by ecosystem references; other exceptions require an owner-approved reason in the record",
           "check": "child-repeats-parent",
-          "exceptions": "record guardrails.exceptions entries require rule, path and nonempty reason; path uses shared profile matching (fnmatchcase for globs, path or descendants for plain paths); optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
+          "exceptions": "record exceptions entries require rule, path and nonempty reason; path uses shared profile matching (fnmatchcase for globs, path or descendants for plain paths); optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
           "whole_words_only": "a single-token parent counts as a whole word in a longer child (guardrails/omp_guardrails), never as a substring (rail/guardrails); partial or reordered multi-token parents do not count"
         }
       },
@@ -534,14 +534,14 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "configuration": "record:gate.json",
+        "configuration": ".agentrails/config.json#commands",
         "schema_version": 2,
-        "authoritative_command_field": "checks.ci",
+        "authoritative_command_field": "commands.ci",
         "required_context_field": "ci.requiredContext",
         "runner_field": "ci.runner",
         "required_context_green_on_exact_head_whoever_posts_it": true,
-        "ci_executes_checks_ci_argv_or_parallel_jobs_whose_union_equals_it": true,
-        "parallel_jobs_must_use_the_checks_ci_runner_with_tier_selectors_only": true,
+        "ci_executes_commands_ci_argv_or_parallel_jobs_whose_union_equals_it": true,
+        "parallel_jobs_must_use_the_commands_ci_runner_with_tier_selectors_only": true,
         "default_required_context": "gate",
         "parallel_gate_aggregate_depends_on_every_tier_job": true,
         "parallel_gate_aggregate_always_runs": true,
@@ -550,10 +550,10 @@
         "check_only": true,
         "nonzero_exit_propagates": true
       },
-      "summary": "Make CI execute exactly the declared checks.ci: the full T1 and T2 suite.",
+      "summary": "Make CI execute exactly the declared commands.ci: the full T1 and T2 suite.",
       "remediation": {
-        "root_cause": "CI runs a different command list than checks.ci, so local results and CI results can disagree.",
-        "fix": "Make the CI workflow invoke exactly the record's checks.ci command and nothing else, so one declared command defines both runs."
+        "root_cause": "CI runs a different command list than commands.ci, so local results and CI results can disagree.",
+        "fix": "Make the CI workflow invoke exactly the config's commands.ci command and nothing else, so one declared command defines both runs."
       },
       "reference": [
         {
@@ -568,18 +568,18 @@
       "applicability": "always",
       "evidence_kind": "git_hook",
       "contract": {
-        "configuration": "record:gate.json",
-        "required_command_field": "checks.commit",
+        "configuration": ".agentrails/config.json#commands",
+        "required_command_field": "commands.commit",
         "scope": "static_checks_all_t1_and_t2_boundary_tests_for_affected_code",
         "hook_manager": "any_tracked_manager_or_native_hook",
-        "installed_pre_commit_hook_executes_exact_checks_commit_argv": true,
+        "installed_pre_commit_hook_executes_exact_commands_commit_argv": true,
         "hook_installed_in_every_clone": true,
         "nonzero_exit_blocks_commit": true
       },
-      "summary": "Run checks.commit before every commit through an installed hook and propagate failure.",
+      "summary": "Run commands.commit before every commit through an installed hook and propagate failure.",
       "remediation": {
-        "root_cause": "Commits can land without running checks.commit because no installed hook runs it or the hook hides its failures.",
-        "fix": "Install a pre-commit hook that runs checks.commit and returns its exit status unchanged, and commit only through that hook."
+        "root_cause": "Commits can land without running commands.commit because no installed hook runs it or the hook hides its failures.",
+        "fix": "Install a pre-commit hook that runs commands.commit and returns its exit status unchanged, and commit only through that hook."
       }
     },
     {
@@ -588,7 +588,7 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "configuration": "record:profile.md",
+        "configuration": ".agentrails/config.json#checkers",
         "harness_subcommand": "guardrails path-check",
         "changed_paths_appended_as_arguments": true,
         "success_exit_code": 0,
@@ -596,7 +596,7 @@
         "diagnostic": "one_error_per_line_naming_file_and_fix",
         "checks": ["structure", "naming", "test_placement"]
       },
-      "summary": "Run harness-owned changed-path checks over record settings with actionable per-file errors.",
+      "summary": "Run harness-owned changed-path checks over config settings with actionable per-file errors.",
       "remediation": {
         "root_cause": "Changed paths reach a commit without the harness path check, so per-file structure and naming errors surface late.",
         "fix": "Run guardrails path-check over the record settings for every changed path and fix each reported file before committing."
@@ -1015,7 +1015,7 @@
       "kind": "bespoke",
       "applicability": "conditional",
       "contract": {
-        "max_public_methods": "profile guardrails.python.class_limits.max_public_methods; off when unset"
+        "max_public_methods": "profile checkers.python.class_limits.max_public_methods; off when unset"
       },
       "summary": "Public methods per class at most the profile's approved limit",
       "remediation": {
@@ -2399,8 +2399,8 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "profile": "record:profile.md",
-        "format": "json_front_matter",
+        "configuration": ".agentrails/config.json",
+        "validator": "guardrails config-check",
         "missing_values": [
           "absent",
           "empty",
@@ -2415,28 +2415,33 @@
           "run_events.nightly_scheduler",
           "identity_artefacts"
         ],
-        "exemption_requires": ["none_reason", "approval_reference"],
+        "exemption_requires": ["none_true", "owner_exemption_approval"],
         "guardrail_exceptions": {
-          "field": "guardrails.exceptions",
-          "required_fields": ["rule", "path", "reason"],
+          "field": "exceptions",
+          "required_fields": [
+            "rule",
+            "path",
+            "reason",
+            "approvedBy",
+            "approvedAt"
+          ],
           "optional_fields": ["check"],
           "values": "nonempty strings without placeholders",
           "unknown_fields_rejected": true,
-          "obsolete_style_exception_key": "rejected with migration instructions",
           "path_matching": "fnmatchcase for globs; plain path or descendants",
           "check_matching": "exact finding sub-check when present; whole rule when omitted"
         },
         "prove_prerequisite": true
       },
-      "summary": "Require every repo test profile value, allowing only four approved exemptions.",
+      "summary": "Require every repo config value, allowing only four owner-approved exemptions.",
       "remediation": {
-        "root_cause": "The repo test profile is missing required values or carries unapproved exemptions, so checks run with gaps.",
-        "fix": "Record every required profile value with owner approval and remove exemptions outside the four approved ones."
+        "root_cause": "The repo config is missing required values or carries unapproved exemptions, so checks run with gaps.",
+        "fix": "Record every required config value and get an owner exemption approval for each of the four exemptable fields left as {none: true}."
       },
       "reference": [
         {
-          "subcommand": "profile-check",
-          "module": "guardrails.context.config.profile"
+          "subcommand": "config-check",
+          "module": "guardrails.commands.config.command"
         }
       ]
     },
@@ -3309,7 +3314,7 @@
         "unreadable_commits_are_a_finding": true,
         "candidate": "a .py file other than __init__.py with at least one top-level def or class, directly in a folder whose last segment is a technical-kind word (models, schemas, services, handlers, controllers, utils, helpers, types, adapters, clients, managers, constants, exceptions, interfaces, repositories, validators, serializers, middleware, mixins, enums, dto, entities, manager, in singular or plural form), outside hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles",
         "scope": "candidates whose file is added, modified or renamed in base..head",
-        "exceptions": "a record guardrails.exceptions entry {rule: structure-naming/technical_kind_grouping, path, reason} on the file drops it before judgment"
+        "exceptions": "a record exceptions entry {rule: structure-naming/technical_kind_grouping, path, reason} on the file drops it before judgment"
       },
       "summary": "Report unreadable base or head commits when proposing structure-naming kind-folder files.",
       "remediation": {
@@ -3332,7 +3337,7 @@
         "unreadable_commits_are_a_finding": true,
         "candidate": "a .py file other than __init__.py with an ancestor package folder below the repository root, outside repository-root tests, fixtures, migrations, build and scripts folders, hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles, that has a run marker (main guard, argparse, click, typer, fire, streamlit, Dash, gradio, Flask, FastAPI, a textual App or rich.live), that no other tracked .py file imports, that no non-test .py file names by path (a string ending in its path, or its bare file name inside its own package) or by module string (as runpy or python -m take it), docstrings excepted, and that no [project.scripts], gui-scripts, poetry scripts or setup console entry names",
         "scope": "candidates whose file is added, modified or renamed in base..head",
-        "exceptions": "a record guardrails.exceptions entry {rule: structure-naming/consumer_placement, path, reason} on the file drops it before judgment"
+        "exceptions": "a record exceptions entry {rule: structure-naming/consumer_placement, path, reason} on the file drops it before judgment"
       },
       "summary": "Report unreadable base or head commits when proposing structure-naming consumer files.",
       "remediation": {
@@ -3362,7 +3367,7 @@
         ],
         "det_score": "0.5 * name_sim + 0.5 * body_sim",
         "scope": "pairs with at least one name defined in a file added, modified or renamed in base..head",
-        "exceptions": "a record guardrails.exceptions entry {rule: structure-naming/same_thing, path, reason} on either name's file drops the pair before judgment"
+        "exceptions": "a record exceptions entry {rule: structure-naming/same_thing, path, reason} on either name's file drops the pair before judgment"
       },
       "summary": "Report unreadable base or head commits when proposing structure-naming name pairs.",
       "remediation": {

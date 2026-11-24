@@ -4,7 +4,7 @@ Each rule enforces the linked generic guidance. The rule catalogue at
 `agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json` defines contracts,
 diagnostics and subcommands.
 
-- PROFILE.complete (guardrails profile-check) → skill://test-guidance/references/tiers.md#start-here
+- PROFILE.complete (guardrails config-check) → skill://test-guidance/references/tiers.md#start-here
 - TEST.fast-tier-isolation (guardrails guard-run) → skill://test-guidance/references/tiers.md#membership
 - TEST.tier-selectors (guardrails collection-check) → skill://test-guidance/references/tiers.md#membership
 - TEST.placement (guardrails path-check) → skill://test-guidance/references/suite-budget.md#placement

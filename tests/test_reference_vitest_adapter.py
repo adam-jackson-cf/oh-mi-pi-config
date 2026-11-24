@@ -92,7 +92,7 @@ class VitestAdapterTests(unittest.TestCase):
                 tiers.command(repo, {})
             with pytest.raises(ValueError, match="nonempty argv list"):
                 tiers.command(
-                    repo, {"guardrails": {"adapter_vitest": {"command": "vitest"}}}
+                    repo, {"checkers": {"adapter_vitest": {"command": "vitest"}}}
                 )
 
     def test_stryker_normalizes_every_status_and_scopes_ids(self) -> None:

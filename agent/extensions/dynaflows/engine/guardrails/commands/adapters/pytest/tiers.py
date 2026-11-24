@@ -11,9 +11,8 @@ from typing import Any
 
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.context.config.adapter_declarations import adapter_tiers
-from guardrails.context.config.profile import PROFILE_PATH
 from guardrails.foundation.child_env import repo_environment
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import as_list, settings
 from guardrails.host.process import run_text
 
@@ -59,20 +58,20 @@ def package_environment() -> dict[str, str]:
 
 
 def collect_tier(
-    repo: Path, profile: dict[str, Any], tier: str, out_dir: Path
+    repo: Path, config: dict[str, Any], tier: str, out_dir: Path
 ) -> list[Finding]:
-    spec = adapter_tiers(profile, NAME).get(tier)
+    spec = adapter_tiers(config, NAME).get(tier)
     if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
         return [
             Finding(
                 PROPAGATION,
-                PROFILE_PATH,
+                config_label("tests"),
                 f"the pytest adapter has no selector for tier {tier}",
                 "record it under adapters[].tiers",
             )
         ]
     locations = as_list(spec.get("location"))
-    timeout = settings(profile, SETTINGS).get("collect_timeout_s")
+    timeout = settings(config, SETTINGS).get("collect_timeout_s")
     with tempfile.TemporaryDirectory(prefix="omp-collect-") as scratch:
         listing = Path(scratch) / "ids.json"
         command = collect_command(locations, spec["selector"], listing)
@@ -130,9 +129,9 @@ def timeout_finding(tier: str, timeout: object) -> Finding:
 
 
 def list_tiers(
-    repo: Path, profile: dict[str, Any], tiers: list[str], out_dir: Path
+    repo: Path, config: dict[str, Any], tiers: list[str], out_dir: Path
 ) -> list[Finding]:
     findings: list[Finding] = []
-    for tier in tiers or sorted(adapter_tiers(profile, NAME)):
-        findings.extend(collect_tier(repo, profile, tier, out_dir))
+    for tier in tiers or sorted(adapter_tiers(config, NAME)):
+        findings.extend(collect_tier(repo, config, tier, out_dir))
     return findings

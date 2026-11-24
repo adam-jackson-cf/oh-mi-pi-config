@@ -20,7 +20,12 @@ from guardrails.context.changes import (
 )
 from guardrails.context.config.adapter_declarations import tier_locations
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches_any, settings
+from guardrails.foundation.inventory import (
+    as_list,
+    matches_any,
+    settings,
+    tests_settings,
+)
 
 COMMENTS = "CODE.no-comments"
 PLACEHOLDERS = "CODE.no-placeholder-bodies"
@@ -264,14 +269,14 @@ def lex(text: str, path: str) -> tuple[list[tuple[int, int, str]], str]:
     return comments, "".join(masked)
 
 
-def is_test(path: str, profile: dict[str, Any]) -> bool:
-    layout = profile.get("layout", {})
+def is_test(path: str, config: dict[str, Any]) -> bool:
+    layout = tests_settings(config, "layout") or {}
     locations = [
-        location for values in tier_locations(profile).values() for location in values
+        location for values in tier_locations(config).values() for location in values
     ]
     locations.extend(as_list(layout.get("support_dir")))
     locations.extend(as_list(layout.get("fixtures_dir")))
-    locations.extend(as_list(settings(profile, "check").get("exclude")))
+    locations.extend(as_list(settings(config, "check").get("exclude")))
     return matches_any(path, locations)
 
 
@@ -408,7 +413,7 @@ def mock_import_finding(node: ast.AST, path: str) -> Finding | None:
 
 
 def python_findings(
-    text: str, path: str, added: set[int], profile: dict[str, Any]
+    text: str, path: str, added: set[int], config: dict[str, Any]
 ) -> list[Finding]:
     findings: list[Finding] = []
     try:
@@ -427,7 +432,7 @@ def python_findings(
     names = declaration_names(tree)
     protocol_methods = protocol_members(tree, names)
     findings.extend(docstring_findings(tree, path, added))
-    product = not is_test(path, profile)
+    product = not is_test(path, config)
     for node in ast.walk(tree):
         lines = range(
             getattr(node, "lineno", 0), (getattr(node, "end_lineno", 0) or 0) + 1
@@ -448,15 +453,15 @@ def python_findings(
 
 
 def inspect(
-    text: str, path: str, added: set[int], profile: dict[str, Any]
+    text: str, path: str, added: set[int], config: dict[str, Any]
 ) -> list[Finding]:
     if not added:
         return []
     if path.endswith((".py", ".pyi")):
-        return python_findings(text, path, added, profile)
+        return python_findings(text, path, added, config)
     comments, code = lex(text, path)
     findings = comment_findings(comments, path, added - parser_directives(text, path))
-    if not is_test(path, profile):
+    if not is_test(path, config):
         findings.extend(script_mock_findings(text, code, path, added))
     return findings
 
@@ -500,11 +505,11 @@ def script_mock_findings(
     return findings
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         diff = parse_range(argv)
         changes = name_changes(repo, diff.base, diff.head)
-        return check_files(repo, profile, changes, Revisions(diff.base, diff.head))
+        return check_files(repo, config, changes, Revisions(diff.base, diff.head))
     except DiffError as error:
         return [range_finding(COMMENTS, error)]
 
@@ -517,7 +522,7 @@ class Revisions:
 
 
 def check_files(
-    repo: Path, profile: dict[str, Any], changes: list[Change], revisions: Revisions
+    repo: Path, config: dict[str, Any], changes: list[Change], revisions: Revisions
 ) -> list[Finding]:
     findings = []
     base, head, staged = revisions.base, revisions.head, revisions.staged
@@ -554,11 +559,11 @@ def check_files(
                 added.update(range(start, start + count))
         if not patch and file_at(repo, base, change.old_path or path) is None:
             added.update(range(1, len(text.splitlines()) + 1))
-        findings.extend(inspect(text, path, added, profile))
+        findings.extend(inspect(text, path, added, config))
     return findings
 
 
-def commit_findings(repo: Path, profile: dict[str, Any]) -> list[Finding]:
+def commit_findings(repo: Path, config: dict[str, Any]) -> list[Finding]:
     try:
         base = commit_base(repo)
         staged = name_changes(repo, "--cached", base)
@@ -567,11 +572,11 @@ def commit_findings(repo: Path, profile: dict[str, Any]) -> list[Finding]:
             *name_changes(repo, base),
             *(Change("A", path) for path in untracked.split("\0") if path),
         ]
-        findings = check_files(repo, profile, staged, Revisions(base, staged=True))
+        findings = check_files(repo, config, staged, Revisions(base, staged=True))
         findings.extend(
             check_files(
                 repo,
-                profile,
+                config,
                 [change for change in changes if (repo / change.path).is_file()],
                 Revisions(base),
             )

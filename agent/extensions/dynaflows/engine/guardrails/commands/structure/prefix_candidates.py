@@ -13,7 +13,7 @@ from typing import Any
 
 from guardrails.commands.structure.import_graph import import_config
 from guardrails.context.changes import DiffError, git, parse_range, range_finding
-from guardrails.context.config.profile import ProfileError, load_profile
+from guardrails.context.config.repo_config import ConfigError, load_config
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
@@ -130,21 +130,21 @@ def owned_python(paths: list[str]) -> list[str]:
     return [path for path in paths if path.endswith(".py") and not skipped(path)]
 
 
-def _test_like(path: str, profile: dict[str, Any]) -> bool:
+def _test_like(path: str, config: dict[str, Any]) -> bool:
     pure = PurePosixPath(path)
     return (
-        is_test_file(path, profile)
+        is_test_file(path, config)
         or pure.name == "conftest.py"
         or bool(TEST_FOLDERS.intersection(pure.parts[:-1]))
     )
 
 
 def _groups(
-    paths: list[str], added: set[str], profile: dict[str, Any]
+    paths: list[str], added: set[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     siblings: dict[str, list[str]] = defaultdict(list)
     for path in owned_python(paths):
-        if PurePosixPath(path).name != "__init__.py" and not _test_like(path, profile):
+        if PurePosixPath(path).name != "__init__.py" and not _test_like(path, config):
             siblings[PurePosixPath(path).parent.as_posix()].append(path)
     clusters: list[dict[str, Any]] = []
     touched = {PurePosixPath(path).parent.as_posix() for path in added}
@@ -175,8 +175,8 @@ def _groups(
     return clusters
 
 
-def _module_names(path: str, profile: dict[str, Any]) -> list[str]:
-    direction, _ = import_config(profile)
+def _module_names(path: str, config: dict[str, Any]) -> list[str]:
+    direction, _ = import_config(config)
     root, package = direction.get("source_root"), direction.get("package")
     names = []
     if isinstance(root, str) and isinstance(package, str):
@@ -184,7 +184,7 @@ def _module_names(path: str, profile: dict[str, Any]) -> list[str]:
         if PurePosixPath(path).is_relative_to(source):
             relative = PurePosixPath(path).relative_to(source).with_suffix("")
             names.append(".".join([package, *relative.parts]).removesuffix(".__init__"))
-    for root in [*as_list(settings(profile, "python").get("source_roots")), "."]:
+    for root in [*as_list(settings(config, "python").get("source_roots")), "."]:
         source = PurePosixPath(root)
         if PurePosixPath(path).is_relative_to(source):
             relative = PurePosixPath(path).relative_to(source).with_suffix("")
@@ -214,10 +214,10 @@ def _imported_names(tree: ast.Module, path: str, parent: str) -> list[str]:
 
 
 def _import_edges(
-    repo: Path, head: str, paths: list[str], profile: dict[str, Any]
+    repo: Path, head: str, paths: list[str], config: dict[str, Any]
 ) -> set[tuple[str, str]]:
     names = {
-        path: _module_names(path, profile) for path in paths if path.endswith(".py")
+        path: _module_names(path, config) for path in paths if path.endswith(".py")
     }
     modules = {name: path for path, aliases in names.items() for name in aliases}
     edges = set()
@@ -249,23 +249,23 @@ def _co_change(repo: Path, head: str, members: set[str]) -> Counter[tuple[str, s
 
 
 def candidates(
-    repo: Path, profile: dict[str, Any], base: str, head: str = "HEAD"
+    repo: Path, config: dict[str, Any], base: str, head: str = "HEAD"
 ) -> list[dict[str, Any]]:
     added = _added_or_moved(repo, base, head)
     if not added:
         return []
-    excluded = as_list(settings(profile, "check").get("exclude")) + as_list(
-        settings(profile, "python").get("excluded_paths")
+    excluded = as_list(settings(config, "check").get("exclude")) + as_list(
+        settings(config, "python").get("excluded_paths")
     )
     paths = sorted(
         path
         for path in git(repo, "ls-tree", "-r", "--name-only", "-z", head).split("\0")
         if path and not matches_any(path, excluded)
     )
-    clusters = _groups(paths, added, profile)
+    clusters = _groups(paths, added, config)
     if not clusters:
         return []
-    edges = _import_edges(repo, head, paths, profile)
+    edges = _import_edges(repo, head, paths, config)
     counts = _co_change(
         repo, head, {member for cluster in clusters for member in cluster["members"]}
     )
@@ -285,10 +285,10 @@ def candidates(
     return clusters
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         diff = parse_range(argv)
-        result = candidates(repo, profile, diff.base, diff.head)
+        result = candidates(repo, config, diff.base, diff.head)
     except (DiffError, SyntaxError, ValueError) as error:
         return [range_finding(RULE, DiffError(str(error)))]
     print(json.dumps(result, sort_keys=True))
@@ -300,16 +300,15 @@ def main(argv: list[str] | None = None) -> int:
         description=SUBCOMMANDS["prefix-candidates"].summary
     )
     parser.add_argument("--repo", type=Path, default=Path.cwd())
-    parser.add_argument("--record", type=Path, required=True)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", default="HEAD")
     args = parser.parse_args(argv)
     try:
-        profile = load_profile(args.record)
-    except ProfileError as error:
+        config = load_config(args.repo)
+    except ConfigError as error:
         print(str(error), file=sys.stderr)
         return 2
-    findings = run(args.repo, profile, ["--base", args.base, "--head", args.head])
+    findings = run(args.repo, config, ["--base", args.base, "--head", args.head])
     for finding in findings:
         print(f"{finding.rule_id}: {finding.message}", file=sys.stderr)
     return 2 if findings else 0

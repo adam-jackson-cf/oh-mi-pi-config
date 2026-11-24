@@ -45,7 +45,7 @@ class GuardedRunCase(unittest.TestCase):
         patcher = unittest.mock.patch.dict(os.environ, {"HOME": str(self.real_home)})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.profile = {"guardrails": {"guarded_run": {"watch": [".config/app"]}}}
+        self.profile = {"checkers": {"guarded_run": {"watch": [".config/app"]}}}
 
     def guard(
         self, argv: list[str], profile: dict[str, Any] | None = None

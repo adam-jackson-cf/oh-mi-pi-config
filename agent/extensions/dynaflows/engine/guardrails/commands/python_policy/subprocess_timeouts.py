@@ -157,11 +157,11 @@ class ProcessWaits(ast.NodeVisitor):
         return positive_timeout(timeout)
 
 
-def is_test_source(path: str, profile: dict[str, Any]) -> bool:
+def is_test_source(path: str, config: dict[str, Any]) -> bool:
     if PurePosixPath(path).name == "conftest.py":
         return True
-    return is_test_file(path, profile) or matches_any(
-        path, adapter_declarations.locations(profile)
+    return is_test_file(path, config) or matches_any(
+        path, adapter_declarations.locations(config)
     )
 
 
@@ -171,15 +171,15 @@ def unbounded_lines(tree: ast.AST) -> list[int]:
     return visitor.lines
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     selected = parse_paths("python-test-hygiene", argv)
     try:
-        files = python_files(repo, load_settings(profile), selected)
+        files = python_files(repo, load_settings(config), selected)
     except InventoryError as error:
         return [inventory_finding(RULE, error)]
     found: list[Finding] = []
     for relpath in files:
-        if not is_test_source(relpath, profile):
+        if not is_test_source(relpath, config):
             continue
         source = read_source(repo, relpath)
         if source.tree is None:
@@ -193,4 +193,4 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             )
             for line in unbounded_lines(source.tree)
         )
-    return house_style.apply_exceptions(found, profile)
+    return house_style.apply_exceptions(found, config)

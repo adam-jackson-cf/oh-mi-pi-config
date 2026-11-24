@@ -1,4 +1,4 @@
-"""guardrails init: drafts the repo's personal record and writes nothing into the repo."""
+"""guardrails init: drafts the setup config sections outside the repo and writes nothing into it."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ import io
 import json
 import os
 import re
-import shutil
 import sys
 import tempfile
 import tomllib
@@ -23,17 +22,21 @@ sys.path.insert(
 )
 
 import pytest
+from test_agentrails_fixture import approval, config, fixture, write_config
 
 from guardrails.commands import cli
-from guardrails.commands.init import harness, lsp, native_config, native_languages
+from guardrails.commands.init import (
+    lsp,
+    native_config,
+    native_languages,
+    sections_draft,
+)
 from guardrails.context.config.house_style import load_house_style
-from guardrails.context.config.profile import load_profile
 
 pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
-SKILL_TEMPLATE = ROOT / "agent/extensions/dynaflows/record/profile.md"
 
 CATALOGUE = REFERENCE / "guardrails/data/guardrail-rules.json"
 OFFLINE = ("--offline",)
@@ -104,12 +107,19 @@ def snapshot(root: Path) -> dict[str, object]:
     return {"files": files, "hooksPath": git(root, "config", "--get", "core.hooksPath")}
 
 
+def proposed(output: str, name: str) -> str:
+    """The text init printed for one proposed native config."""
+    lines = output.splitlines()
+    start = lines.index(f"--- begin {name}") + 1
+    return "\n".join(lines[start : lines.index(f"--- end {name}", start)]) + "\n"
+
+
 class InitCase(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="omp-init-")
         self.addCleanup(self.temporary.cleanup)
         self.repo = Path(self.temporary.name).resolve() / "repo"
-        self.record = Path(self.temporary.name).resolve() / "records/owner/target"
+        self.out = Path(self.temporary.name).resolve() / "drafts/sections.json"
         self.repo.mkdir()
         git(self.repo, "init", "-q")
         (self.repo / "pyproject.toml").write_text(
@@ -134,7 +144,7 @@ class InitCase(unittest.TestCase):
 
     def init(self, *args: str, offline: bool = True) -> tuple[int, str]:
         output = io.StringIO()
-        location = ["--repo", str(self.repo), "--record", str(self.record)]
+        location = ["--repo", str(self.repo), "--out", str(self.out)]
         with contextlib.redirect_stdout(output):
             code = cli.main(["init", *location, *(OFFLINE if offline else ()), *args])
         return code, output.getvalue()
@@ -145,20 +155,16 @@ class InitCase(unittest.TestCase):
         path.write_text(text)
         return path
 
-    def write_record(self, name: str, text: str) -> None:
-        self.record.mkdir(parents=True, exist_ok=True)
-        (self.record / name).write_text(text)
-
-    def gate(self) -> dict[str, Any]:
-        gate: dict[str, Any] = json.loads((self.record / "gate.json").read_text())
-        return gate
+    def draft(self) -> dict[str, Any]:
+        drafted: dict[str, Any] = json.loads(self.out.read_text())
+        return drafted
 
     def assert_second_run_changes_nothing(self, *args: str) -> None:
-        before = snapshot(self.record)
+        before = snapshot(self.out.parent)
         code, output = self.init(*args)
         assert code == 0, output
         assert "no changes" in output
-        assert snapshot(self.record) == before
+        assert snapshot(self.out.parent) == before
 
 
 MAKEFILE = """.PHONY: gate-commit gate-ci
@@ -184,8 +190,8 @@ jobs:
 """
 
 
-class DraftRecordTests(InitCase):
-    def test_drafts_gate_and_profile_in_the_record_and_never_touches_the_repo(
+class DraftSectionTests(InitCase):
+    def test_drafts_the_setup_sections_outside_and_never_touches_the_repo(
         self,
     ) -> None:
         self.write("Makefile", MAKEFILE)
@@ -194,114 +200,102 @@ class DraftRecordTests(InitCase):
         code, output = self.init()
         assert code == 0, output
         assert snapshot(self.repo) == before
-        assert self.gate() == {
-            "schemaVersion": 2,
-            "checks": {"commit": ["make", "gate-commit"], "ci": ["make", "gate-ci"]},
-            "ci": {"requiredContext": "gate", "runner": "github-actions"},
+        drafted = self.draft()
+        assert tuple(drafted) == sections_draft.SETUP_SECTIONS
+        assert drafted["commands"] == {
+            "commit": ["make", "gate-commit"],
+            "ci": ["make", "gate-ci"],
         }
-        profile = load_profile(self.record)
-        assert profile["house_style"]["version"] == load_house_style()["version"]
-        assert set(profile["house_style"]) == {"version"}
-        assert set(profile["guardrails"]["exceptions"][0]) == {"rule", "path", "reason"}
-        assert profile["command_notes"]["lsp"] == [
+        assert drafted["houseStyle"] == {"version": load_house_style()["version"]}
+        assert drafted["tests"]["command_notes"]["lsp"] == [
             {
                 "stack": "python",
                 "server": "pyright-langserver",
                 "install": lsp.STACKS[0].install,
             }
         ]
-        assert profile["tiers"]["t1"] == {
+        assert drafted["tests"]["tiers"]["t1"] == {
             "command": "<command that runs every framework in the tier>"
         }
-        assert profile["adapters"][0]["tiers"]["t1"]["selector"] == "<native selector>"
+        assert drafted["tests"]["adapters"][0]["tiers"]["t1"]["selector"] == (
+            "<native selector>"
+        )
+        assert "fill: tests.tiers.t1.command: is missing" in output
+        assert "init: drafting from the section template (config outside)" in output
         assert "discovered: make targets: check-paths, gate-ci, gate-commit" in output
         assert (
             "discovered: CI jobs: gate (.github/workflows/gate.yml), Build docs"
             in output
         )
         assert "required checks not read (--offline)" in output
-        assert "dynaflows" not in output
-        assert "confirm: agentMerge is the owner's to set" in output
-        assert "ownerOnlyPaths" not in output
-        assert "ownerOnlyPaths" not in self.gate()
+        for retired in ("dynaflows", "agentMerge", "ownerOnlyPaths", "gate.json"):
+            assert retired not in output
 
     def test_second_run_changes_nothing(self) -> None:
         self.write("Makefile", MAKEFILE)
         assert self.init()[0] == 0
         self.assert_second_run_changes_nothing()
 
-    def test_template_is_the_test_guidance_skill_template(self) -> None:
-        assert harness.PROFILE_TEMPLATE == SKILL_TEMPLATE
+    def test_the_template_is_engine_data_holding_the_setup_sections(self) -> None:
+        assert tuple(sections_draft.template()) == sections_draft.SETUP_SECTIONS
+        assert (REFERENCE / "guardrails/data/config-template.json").is_file()
         assert not (REFERENCE / "guardrails/commands/init/test-profile.md").exists()
 
-    def test_recorded_values_and_approvals_are_kept(self) -> None:
-        gate = {
-            "schemaVersion": 2,
-            "checks": {"commit": ["make", "verify"], "audit": ["make", "audit"]},
-            "agentMerge": "allowed",
-        }
-        self.write_record("gate.json", json.dumps(gate))
-        values = {
-            "adapters": [
-                {
-                    "name": "pytest",
-                    "tiers": {"t1": {"selector": "fast", "location": "t"}},
-                }
+    def test_the_repo_config_seeds_the_draft_and_its_values_are_kept(self) -> None:
+        values = config(
+            checkers={"naming": {"roots": ["src"]}},
+            tests={"verification_surface": {"none": True}},
+            approvals=[
+                *fixture()["approvals"],
+                approval("exemption", "verification_surface", "library (ADR-7)"),
             ],
-            "verification_surface": {
-                "none": "library without a UI",
-                "approval": "ADR-7",
-            },
-            "guardrails": {"naming": {"roots": ["src"]}},
-        }
-        self.write_record(
-            "profile.md", f"---\n{json.dumps(values)}\n---\n\n# Our profile\n"
         )
+        write_config(self.repo, values)
         settings = self.repo.parent / "settings.json"
         settings.write_text(json.dumps({"naming": {"roots": ["lib"], "extra": 1}}))
         self.write("Makefile", MAKEFILE)
         code, output = self.init("--settings", str(settings))
         assert code == 0, output
-        drafted = self.gate()
-        assert drafted["checks"] == {
-            "commit": ["make", "verify"],
-            "audit": ["make", "audit"],
+        assert "init: drafting from the repo's .agentrails/config.json" in output
+        drafted = self.draft()
+        assert drafted["commands"] == {
+            "commit": ["make", "gate-commit"],
             "ci": ["make", "gate-ci"],
         }
-        assert drafted["agentMerge"] == "allowed"
-        assert "dynaflows" not in drafted
-        profile = load_profile(self.record)
-        assert profile["verification_surface"]["approval"] == "ADR-7"
-        assert [entry["name"] for entry in profile["adapters"]] == ["pytest"]
-        assert profile["guardrails"]["naming"] == {"roots": ["src"], "extra": 1}
-        assert (self.record / "profile.md").read_text().endswith("# Our profile\n")
+        assert drafted["tests"]["verification_surface"] == {"none": True}
+        assert drafted["tests"]["adapters"] == values["tests"]["adapters"]
+        assert drafted["checkers"]["naming"] == {"roots": ["src"], "extra": 1}
+        assert sections_draft.section_problems(drafted) == []
+        assert not [line for line in output.splitlines() if line.startswith("fill:")]
 
-    def test_flags_supply_commands_and_ci_and_empty_flags_are_refused(self) -> None:
+    def test_flags_supply_commands_and_empty_flags_are_refused(self) -> None:
         code, output = self.init(
-            "--commit-command",
-            "pre-commit run --all-files",
-            "--ci-command",
-            "just ci",
-            "--required-context",
-            "ci",
-            "--runner",
-            "ci-gate",
+            "--commit-command", "pre-commit run --all-files", "--ci-command", "just ci"
         )
         assert code == 0, output
-        gate = self.gate()
-        assert gate["checks"]["ci"] == ["just", "ci"]
-        assert gate["ci"] == {"requiredContext": "ci", "runner": "ci-gate"}
+        assert self.draft()["commands"] == {
+            "commit": ["pre-commit", "run", "--all-files"],
+            "ci": ["just", "ci"],
+        }
         assert required_fields(output) == []
-        for flags in (("--runner", " "), ("--commit-command", "")):
+        for flags in (("--ci-command", " "), ("--commit-command", "")):
             code, output = self.init(*flags)
             assert code == 1
             assert "must not be empty" in output
 
-    def test_repo_path_command_flag_is_refused_without_writing_the_record(self) -> None:
-        code, output = self.init("--path-command", "python3 scripts/check_paths.py")
-        assert code == 1
-        assert "invalid init arguments: --offline --path-command" in output
-        assert not self.record.exists()
+    def test_removed_flags_are_refused_without_writing_the_draft(self) -> None:
+        for flag, value in (
+            ("--path-command", "python3 scripts/check_paths.py"),
+            ("--record", str(self.repo.parent / "record")),
+            ("--runner", "ci-gate"),
+            ("--required-context", "gate"),
+        ):
+            with self.subTest(flag=flag):
+                code, output = self.init(flag, value)
+                assert code == 1
+                assert "invalid init arguments: " in output
+                assert f"--offline {flag}" in output
+                assert not self.out.exists()
 
     def test_pre_commit_config_drafts_the_commit_command(self) -> None:
         self.write(
@@ -310,98 +304,25 @@ class DraftRecordTests(InitCase):
         )
         code, output = self.init()
         assert code == 0, output
-        assert self.gate()["checks"] == {"commit": ["pre-commit", "run", "--all-files"]}
+        assert self.draft()["commands"] == {
+            "commit": ["pre-commit", "run", "--all-files"]
+        }
         assert "discovered: pre-commit hooks: ruff" in output
-        assert "confirm: no checks.ci found" in output
-        assert "confirm: no ci found" in output
+        assert "confirm: no commands.ci found" in output
         assert required_fields(output) == []
 
     def test_no_commit_command_found_is_reported_as_required(self) -> None:
         code, output = self.init()
         assert code == 0, output
-        assert "required: no checks.commit found; pass --commit-command" in output
+        assert "required: no commands.commit found; pass --commit-command" in output
+        assert "fill: commands.commit: is missing" in output
 
-    def test_unreadable_gate_or_unknown_field_is_reported_not_rewritten(self) -> None:
-        for gate, named in (
-            ({"schemaVersion": 3}, "schemaVersion 2"),
-            (
-                {"schemaVersion": 2, "otherField": "github"},
-                "unknown field otherField must be removed",
-            ),
-            (
-                {"schemaVersion": 2, "unknownField": 3},
-                "unknown field unknownField must be removed",
-            ),
-            (
-                {"schemaVersion": 2, "checks": {"lint": ["x"]}},
-                "unknown field checks.lint must be removed",
-            ),
-            (
-                {"schemaVersion": 2, "ownerOnlyPaths": []},
-                "unknown field ownerOnlyPaths must be removed",
-            ),
-            (
-                {"schemaVersion": 2, "dynaflows": {"mode": "structured"}},
-                "unknown field dynaflows must be removed",
-            ),
-            (
-                {"schemaVersion": 2, "afterMerge": {"argv": []}},
-                "afterMerge must be {argv, paths?}",
-            ),
-            (
-                {"schemaVersion": 2, "mergePolicies": []},
-                "mergePolicies must be a nonempty list",
-            ),
-        ):
-            with self.subTest(gate=gate):
-                self.write_record("gate.json", json.dumps(gate))
-                code, output = self.init()
-                assert code == 1
-                assert "GATE.local-ci-parity" in output
-                assert named in output
-                assert self.gate() == gate
-
-    def harness_init(self, *args: str) -> tuple[int, str]:
-        harness = Path(self.temporary.name).resolve() / "harness"
-        engine = harness / "agent/extensions/dynaflows/engine"
-        shutil.copytree(
-            REFERENCE / "guardrails",
-            engine / "guardrails",
-            ignore=shutil.ignore_patterns("__pycache__"),
-            dirs_exist_ok=True,
-        )
-        template = harness / "agent/extensions/dynaflows/record/profile.md"
-        template.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(SKILL_TEMPLATE, template)
-        location = ["--repo", str(self.repo), "--record", str(self.record)]
-        result = run_text(
-            [sys.executable, "-m", "guardrails.commands.cli", "init", *location]
-            + [*OFFLINE, *args],
-            env={**os.environ, "PYTHONPATH": str(engine)},
-            timeout=120,
-        )
-        return result.returncode, result.stdout + result.stderr
-
-    def test_live_record_is_written_without_a_mode(self) -> None:
-        live = Path(self.temporary.name).resolve() / "harness/repos"
-        self.record = live / "owner/target"
-        code, output = self.harness_init("--commit-command", "make check")
-        assert code == 0, output
-        assert (self.record / "gate.json").is_file()
-        assert "dynaflows" not in self.gate()
-        assert f"init: record at {self.record}" in output
-        code, output = self.harness_init("--dynaflows-mode", "structured")
-        assert code != 0, "the removed mode flag is refused"
-        self.record = live / "owner"
-        code, output = self.harness_init()
-        assert code != 0
-        assert "must be a repo's record" in output
-        assert not (live / "owner/gate.json").exists()
-
-    def test_record_inside_the_repo_is_refused(self) -> None:
-        self.record = self.repo / "record"
-        assert self.init()[0] == 2
-        assert not self.record.exists()
+    def test_a_draft_inside_the_repository_is_refused(self) -> None:
+        self.out = self.repo / "drafts/sections.json"
+        code, output = self.init()
+        assert code == 1
+        assert "is inside the repository" in output
+        assert not self.out.exists()
 
 
 class RequiredChecksTests(InitCase):
@@ -424,50 +345,20 @@ class RequiredChecksTests(InitCase):
             "    sys.stderr.write('HTTP 404'); sys.exit(1)\n"
         )
         with mock.patch.dict(os.environ, {"AGENT": "harness-agent"}):
-            code, output = self.init("--runner", "ci-gate", offline=False)
+            code, output = self.init(offline=False)
         assert code == 0, output
         assert "required checks on the default branch: verify" in output
-        assert self.gate()["ci"] == {"requiredContext": "verify", "runner": "ci-gate"}
+        assert "ci" not in self.draft(), "the Q&A owns the ci section"
 
     def test_gh_failure_leaves_required_checks_unknown(self) -> None:
         self.fake_gh("import sys\nsys.stderr.write('not logged in'); sys.exit(4)\n")
         code, output = self.init(offline=False)
         assert code == 0, output
         assert "required checks unknown: gh repo view exited 4: not logged in" in output
-        assert "ci" not in self.gate()
 
 
 def required_fields(output: str) -> list[str]:
-    fields = []
-    for line in output.splitlines():
-        if line.startswith("required:"):
-            fields.append(line)
-    return fields
-
-
-class ExistingRecordTests(InitCase):
-    """Init fills the absent fields of an existing record."""
-
-    def setUp(self) -> None:
-        super().setUp()
-        adapters = [
-            {"name": "pytest", "tiers": {"t1": {"selector": "fast", "location": "t"}}}
-        ]
-        self.write_record(
-            "profile.md", f"---\n{json.dumps({'adapters': adapters})}\n---\n"
-        )
-
-    def test_drafts_the_missing_required_fields(self) -> None:
-        self.write_record(
-            "gate.json",
-            json.dumps({"schemaVersion": 2}),
-        )
-        self.write("Makefile", MAKEFILE)
-        code, output = self.init()
-        assert code == 0, output
-        assert self.gate()["checks"]["commit"] == ["make", "gate-commit"]
-        assert required_fields(output) == []
-        self.assert_second_run_changes_nothing()
+    return [line for line in output.splitlines() if line.startswith("required:")]
 
 
 def catalogue_values() -> dict[str, dict[str, Any]]:
@@ -510,19 +401,19 @@ class NativeConfigTests(InitCase):
             else:
                 assert tables[family][name] == contract["value"], rule_id
 
-    def test_proposes_ruff_and_mypy_in_the_record_from_the_repo_and_data(self) -> None:
+    def test_proposes_ruff_and_mypy_from_the_repo_and_data(self) -> None:
         self.write("src/target/__init__.py", "")
         code, output = self.init()
         assert code == 0, output
         assert not (self.repo / "ruff.toml").exists()
         assert (
-            "record:proposed/ruff.toml (apply it to the repository as a fix)" in output
+            "native: proposed ruff.toml (apply it to the repository as a fix)" in output
         )
-        ruff = tomllib.loads((self.record / "proposed/ruff.toml").read_text())
+        ruff = tomllib.loads(proposed(output, "ruff.toml"))
         assert ruff["target-version"] == "py311"
         assert ruff["lint"]["isort"]["known-first-party"] == ["target"]
         assert ruff["lint"]["pylint"]["max-args"] == 5
-        mypy = (self.record / "proposed/mypy.ini").read_text()
+        mypy = proposed(output, "mypy.ini")
         assert "python_version = 3.11" in mypy
         assert "packages = target" in mypy
         assert "mypy_path = src" in mypy
@@ -540,7 +431,7 @@ class NativeConfigTests(InitCase):
         self.write("setup.cfg", "[mypy]\nstrict = True\n")
         code, output = self.init()
         assert code == 0, output
-        assert not (self.record / "proposed").exists()
+        assert "--- begin " not in output
         assert (
             "kept the existing ruff configuration in pyproject.toml [tool.ruff]"
             in output
@@ -551,24 +442,25 @@ class NativeConfigTests(InitCase):
         self.write("pyproject.toml", '[project]\nname = "target"\n')
         code, output = self.init()
         assert code == 0, output
-        assert not (self.record / "proposed/ruff.toml").exists()
+        assert "--- begin ruff.toml" not in output
         assert "ruff not proposed; set project.requires-python first" in output
 
-    def test_import_contract_follows_recorded_structure_tiers(self) -> None:
-        assert self.init()[0] == 0
-        assert not (self.record / "proposed/.importlinter").exists()
-        path = self.record / "profile.md"
-        text = path.read_text()
-        values = load_profile(self.record)
-        values["structure"]["tiers"] = ["core", "cli"]
-        values["structure"]["import_direction"] = {
-            "package": "target",
-            "source_root": "src",
-        }
-        body = text.split("\n---\n", 1)[1]
-        path.write_text(f"---\n{json.dumps(values, indent=2)}\n---\n{body}")
-        assert self.init()[0] == 0
-        contract = (self.record / "proposed/.importlinter").read_text()
+    def test_import_contract_follows_the_config_structure_tiers(self) -> None:
+        code, output = self.init()
+        assert code == 0, output
+        assert "--- begin .importlinter" not in output
+        write_config(
+            self.repo,
+            config(
+                structure={
+                    "tiers": ["core", "cli"],
+                    "import_direction": {"package": "target", "source_root": "src"},
+                }
+            ),
+        )
+        code, output = self.init()
+        assert code == 0, output
+        contract = proposed(output, ".importlinter")
         assert "root_package = target" in contract
         assert "layers =\n    cli\n    core\n" in contract
 
@@ -696,7 +588,7 @@ class LanguageNativeConfigTests(InitCase):
                 )
                 assert limit == expected
 
-    def test_proposes_typescript_go_and_shell_configs_in_the_record(self) -> None:
+    def test_proposes_typescript_go_and_shell_configs(self) -> None:
         self.write("package.json", "{}\n")
         self.write("go.mod", "module example.com/shop\n\ngo 1.24\n")
         self.write("scripts/release.sh", "#!/bin/sh\necho release\n")
@@ -704,7 +596,6 @@ class LanguageNativeConfigTests(InitCase):
         code, output = self.init()
         assert code == 0, output
         assert snapshot(self.repo) == before
-        proposed = self.record / "proposed"
         for name in (
             "tsconfig.json",
             ".oxlintrc.json",
@@ -713,28 +604,27 @@ class LanguageNativeConfigTests(InitCase):
             ".editorconfig",
         ):
             assert (
-                f"record:proposed/{name} (apply it to the repository as a fix)"
+                f"native: proposed {name} (apply it to the repository as a fix)"
                 in output
             )
-        tsconfig = json.loads((proposed / "tsconfig.json").read_text())
+        tsconfig = json.loads(proposed(output, "tsconfig.json"))
         assert tsconfig["compilerOptions"]["exactOptionalPropertyTypes"] is True
-        golangci = json.loads((proposed / ".golangci.json").read_text())
+        golangci = json.loads(proposed(output, ".golangci.json"))
         assert golangci["formatters"]["settings"]["goimports"]["local-prefixes"] == [
             "example.com/shop"
         ]
-        assert (
-            "enable=check-set-e-suppressed\n"
-            in (proposed / ".shellcheckrc").read_text()
-        )
-        assert (
-            "[*.{sh,bash}]\nindent_style = space\n"
-            in (proposed / ".editorconfig").read_text()
+        assert "enable=check-set-e-suppressed\n" in proposed(output, ".shellcheckrc")
+        assert "[*.{sh,bash}]\nindent_style = space\n" in proposed(
+            output, ".editorconfig"
         )
         self.assert_second_run_changes_nothing()
 
     def test_proposed_oxlint_config_is_read_by_the_pinned_oxlint(self) -> None:
         self.write("package.json", "{}\n")
-        assert self.init()[0] == 0
+        code, output = self.init()
+        assert code == 0, output
+        oxlintrc = self.out.parent / "proposed.oxlintrc.json"
+        oxlintrc.write_text(proposed(output, ".oxlintrc.json"))
         source = self.write(
             "wide.ts",
             "export function wide(a: number, b: number, c: number, d: number, e: number, f: number): number {\n  return a + b + c + d + e + f;\n}\n",
@@ -743,7 +633,7 @@ class LanguageNativeConfigTests(InitCase):
             [
                 str(ROOT / "node_modules/.bin/oxlint"),
                 "-c",
-                str(self.record / "proposed/.oxlintrc.json"),
+                str(oxlintrc),
                 str(source),
             ],
             timeout=60,
@@ -766,8 +656,8 @@ class LanguageNativeConfigTests(InitCase):
         self.write(".editorconfig", SHELL_EDITORCONFIG)
         code, output = self.init()
         assert code == 0, output
-        assert not (self.record / "proposed/tsconfig.json").exists()
-        assert not (self.record / "proposed/.editorconfig").exists()
+        assert "--- begin tsconfig.json" not in output
+        assert "--- begin .editorconfig" not in output
         assert "lacks TSC.strict " not in output
         assert "lacks TSC.noUncheckedIndexedAccess " not in output
         assert (
@@ -809,7 +699,7 @@ class LanguageNativeConfigTests(InitCase):
         code, output = self.init()
         assert code == 0, output
         for name in (".oxlintrc.json", ".golangci.json", ".shellcheckrc"):
-            assert not (self.record / "proposed" / name).exists(), name
+            assert f"--- begin {name}" not in output.splitlines(), name
         assert (
             "native: kept the existing lint configuration in eslint.config.js" in output
         )

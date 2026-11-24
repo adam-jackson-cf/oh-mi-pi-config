@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.inventory import tests_settings
 
 RULE = "TEST.no-test-hooks"
 FIX = (
@@ -55,8 +56,8 @@ def used_names(tree: ast.Module, *, skip: frozenset[int] = frozenset()) -> set[s
     return names
 
 
-def entry_point_symbols(profile: dict[str, Any]) -> set[str]:
-    entries = profile.get("public_entry_points")
+def entry_point_symbols(config: dict[str, Any]) -> set[str]:
+    entries = tests_settings(config, "public_entry_points")
     symbols = set()
     for value in entries.values() if isinstance(entries, dict) else []:
         text = str(value)
@@ -70,7 +71,7 @@ def entry_point_symbols(profile: dict[str, Any]) -> set[str]:
 def test_only_findings(
     production: dict[str, str],
     tests: dict[str, str],
-    profile: dict[str, Any],
+    config: dict[str, Any],
     reported: set[str],
 ) -> list[Finding]:
     defined: list[Definition] = []
@@ -88,7 +89,7 @@ def test_only_findings(
         tree = parse(source)
         for name in used_names(tree) if tree is not None else set():
             test_uses.setdefault(name, path)
-    public = entry_point_symbols(profile)
+    public = entry_point_symbols(config)
     return [
         Finding(
             RULE,

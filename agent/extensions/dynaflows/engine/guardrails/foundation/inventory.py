@@ -8,6 +8,15 @@ from typing import Any
 from guardrails.host.process import run_bytes
 
 GLOB_CHARACTERS = frozenset("*?[")
+# Rails state inside a checkout: the repo config and setup-repo-proofs run state. Like
+# .git, these folders are never repository content, so no scan reports them.
+RAILS_STATE_DIRS = (".agentrails", ".proofs")
+
+
+def is_rails_state(path: str) -> bool:
+    """The path is a rails state folder or inside one (.agentrails/, .proofs/)."""
+    top = PurePosixPath(path).parts[:1]
+    return bool(top) and top[0] in RAILS_STATE_DIRS
 
 
 class InventoryError(Exception):
@@ -35,7 +44,11 @@ def repo_paths(repo: Path) -> list[str]:
         raise InventoryError(
             result.stderr.decode(errors="replace").strip() or "git ls-files failed"
         )
-    return sorted({path for path in result.stdout.decode().split("\0") if path})
+    return sorted({
+        path
+        for path in result.stdout.decode().split("\0")
+        if path and not is_rails_state(path)
+    })
 
 
 def normalized_path(repo: Path, raw: str) -> str | None:
@@ -78,10 +91,62 @@ def as_list(value: object) -> list[str]:
     return []
 
 
-def settings(profile: dict[str, Any], checker: str) -> dict[str, Any]:
-    section = profile.get("guardrails")
-    value = section.get(checker) if isinstance(section, dict) else None
+def config_section(config: dict[str, Any], name: str) -> dict[str, Any]:
+    """One top-level section of the repo's .agentrails/config.json, {} when absent."""
+    value = config.get(name)
     return value if isinstance(value, dict) else {}
+
+
+def settings(config: dict[str, Any], checker: str) -> dict[str, Any]:
+    """checkers.<checker>: one checker's settings."""
+    value = config_section(config, "checkers").get(checker)
+    return value if isinstance(value, dict) else {}
+
+
+def tests_settings(config: dict[str, Any], key: str) -> Any:
+    """tests.<key>: the test-guidance settings (tiers, adapters, layout, ...)."""
+    return config_section(config, "tests").get(key)
+
+
+def structure_settings(config: dict[str, Any]) -> dict[str, Any]:
+    """structure: owners, tiers, import_direction and ownership_areas."""
+    return config_section(config, "structure")
+
+
+def house_style_version(config: dict[str, Any]) -> object:
+    return config_section(config, "houseStyle").get("version")
+
+
+def config_exceptions(config: dict[str, Any]) -> list[dict[str, Any]]:
+    """The owner-approved exceptions: {rule, path, check?, reason, approvedBy, approvedAt}."""
+    entries = config.get("exceptions")
+    if not isinstance(entries, list):
+        return []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def approvals(config: dict[str, Any], kind: str) -> list[dict[str, Any]]:
+    """The owner approvals of one kind (budget, ratchet, skip or exemption)."""
+    entries = config.get("approvals")
+    return [
+        entry
+        for entry in (entries if isinstance(entries, list) else [])
+        if isinstance(entry, dict) and entry.get("kind") == kind
+    ]
+
+
+def approved_targets(config: dict[str, Any], kind: str) -> set[str]:
+    """The targets of one kind's approvals that carry an approver and a reason."""
+    return {
+        entry["target"]
+        for entry in approvals(config, kind)
+        if isinstance(entry.get("target"), str)
+        and entry["target"].strip()
+        and all(
+            isinstance(entry.get(key), str) and entry[key].strip()
+            for key in ("reason", "approvedBy")
+        )
+    }
 
 
 def path_prefixes(paths: Iterable[str]) -> set[str]:

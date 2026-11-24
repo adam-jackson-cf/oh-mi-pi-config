@@ -7,7 +7,7 @@ from typing import Any
 from guardrails.context.config.adapter_declarations import tier_locations
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.inventory import as_list, matches_any, tests_settings
 
 RUNTIME_DATA = "STRUCT.runtime-data-placement"
 ENTRY_POINT = "STRUCT.entry-point-placement"
@@ -67,18 +67,18 @@ class PackageTree:
         return current.as_posix()
 
 
-def held_by_tests(path: str, profile: dict[str, Any]) -> bool:
+def held_by_tests(path: str, config: dict[str, Any]) -> bool:
     placement = conventions.load_pack("python")["placement"]
     folders = {placement["root"], placement["fixtures_dir"]}
     if folders.intersection(PurePosixPath(path).parts[:-1]):
         return True
-    layout = profile.get("layout")
+    layout = tests_settings(config, "layout")
     holders = (
         as_list([layout.get("fixtures_dir"), layout.get("support_dir")])
         if isinstance(layout, dict)
         else []
     )
-    locations = [item for items in tier_locations(profile).values() for item in items]
+    locations = [item for items in tier_locations(config).values() for item in items]
     return matches_any(path, [*holders, *locations])
 
 
@@ -114,18 +114,18 @@ def entry_point_findings(path: str, tree: PackageTree) -> list[Finding]:
             f"entry module {pure.name} sits {depth} folders deep in package {root}/, "
             "below its top tier",
             f"move it to {root}/ or a folder directly under it, or record an "
-            "owner-approved guardrails.exceptions entry for an internal tool",
+            "owner-approved exceptions entry for an internal tool",
         )
     ]
 
 
 def package_file_findings(
-    paths: Iterable[str], inventory: Iterable[str], profile: dict[str, Any]
+    paths: Iterable[str], inventory: Iterable[str], config: dict[str, Any]
 ) -> list[Finding]:
     tree = PackageTree(inventory)
     found: list[Finding] = []
     for path in paths:
-        if held_by_tests(path, profile):
+        if held_by_tests(path, config):
             continue
         found.extend(runtime_data_findings(path, tree))
         found.extend(entry_point_findings(path, tree))

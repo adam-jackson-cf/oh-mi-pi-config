@@ -8,9 +8,9 @@ from typing import Any, Protocol
 
 from guardrails.context.changes import DiffRange, changed_files, git
 from guardrails.context.config import adapter_declarations
-from guardrails.context.config.profile import PROFILE_PATH, is_missing_text
+from guardrails.context.config.profile import is_missing_text
 from guardrails.context.config.suite_files import is_test_file
-from guardrails.foundation.findings import Finding
+from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import matches_any
 
 GROWTH = "TEST.growth.justified"
@@ -53,9 +53,9 @@ class FrameworkCollector:
     collect: Collector
 
 
-def framework_collectors(profile: dict[str, Any]) -> list[FrameworkCollector]:
+def framework_collectors(config: dict[str, Any]) -> list[FrameworkCollector]:
     found = []
-    for name in adapter_declarations.names(profile):
+    for name in adapter_declarations.names(config):
         if not adapter_declarations.installed(name):
             raise ValueError(f"adapter {name!r} is not installed")
         try:
@@ -67,7 +67,7 @@ def framework_collectors(profile: dict[str, Any]) -> list[FrameworkCollector]:
         found.append(
             FrameworkCollector(
                 name,
-                tuple(adapter_declarations.locations(profile, name)),
+                tuple(adapter_declarations.locations(config, name)),
                 tuple(module.SUFFIXES),
                 module.collect,
             )
@@ -75,8 +75,8 @@ def framework_collectors(profile: dict[str, Any]) -> list[FrameworkCollector]:
     return found
 
 
-def adapter_collector(profile: dict[str, Any]) -> Collector:
-    frameworks = framework_collectors(profile)
+def adapter_collector(config: dict[str, Any]) -> Collector:
+    frameworks = framework_collectors(config)
 
     def collect(path: str, text: str) -> CollectedFile:
         owners = [
@@ -97,7 +97,7 @@ def adapter_collector(profile: dict[str, Any]) -> Collector:
     return collect
 
 
-def test_blobs(repo: Path, ref: str, profile: dict[str, Any]) -> dict[str, str]:
+def test_blobs(repo: Path, ref: str, config: dict[str, Any]) -> dict[str, str]:
     output = git(repo, "ls-tree", "-r", "-z", ref)
     blobs = {}
     for entry in output.split("\0"):
@@ -105,7 +105,7 @@ def test_blobs(repo: Path, ref: str, profile: dict[str, Any]) -> dict[str, str]:
             continue
         meta, path = entry.split("\t", 1)
         kind, blob = meta.split()[1:3]
-        if kind == "blob" and is_test_file(path, profile):
+        if kind == "blob" and is_test_file(path, config):
             blobs[path] = blob
     return blobs
 
@@ -188,25 +188,25 @@ def collection_findings(head: Snapshot, changed: set[str]) -> list[Finding]:
     ]
 
 
-def check(repo: Path, profile: dict[str, Any], diff: DiffRange) -> list[Finding]:
+def check(repo: Path, config: dict[str, Any], diff: DiffRange) -> list[Finding]:
     changes = changed_files(repo, diff)
     changed_paths = {path for change in changes for path in change.paths}
-    if not any(is_test_file(path, profile) for path in changed_paths):
+    if not any(is_test_file(path, config) for path in changed_paths):
         return []
     try:
-        collect = adapter_collector(profile)
+        collect = adapter_collector(config)
     except ValueError as error:
         return [
             Finding(
                 GROWTH,
-                PROFILE_PATH,
+                config_label("tests"),
                 str(error),
                 "declare installed adapters that ship 'cases.collect' and 'cases.SUFFIXES'",
             )
         ]
     cache: dict[str, CollectedFile | ValueError] = {}
-    base = snapshot(repo, test_blobs(repo, diff.base, profile), collect, cache)
-    head = snapshot(repo, test_blobs(repo, diff.head, profile), collect, cache)
+    base = snapshot(repo, test_blobs(repo, diff.base, config), collect, cache)
+    head = snapshot(repo, test_blobs(repo, diff.head, config), collect, cache)
     found = collection_findings(head, changed_paths)
     found.extend(growth_findings(base, head))
     found.extend(duplicate_findings(base.fingerprints, head.fingerprints))

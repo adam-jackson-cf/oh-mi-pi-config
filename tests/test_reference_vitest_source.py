@@ -24,9 +24,11 @@ ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
 
 PROFILE: dict[str, Any] = {
-    "public_entry_points": {"shop/core.ts": ["checkout"]},
-    "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
-    "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
+    "tests": {
+        "public_entry_points": {"shop/core.ts": ["checkout"]},
+        "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
+        "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
+    }
 }
 
 

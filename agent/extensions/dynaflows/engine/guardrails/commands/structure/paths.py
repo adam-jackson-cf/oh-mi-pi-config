@@ -23,17 +23,18 @@ from guardrails.foundation.inventory import (
     matches_any,
     normalized_path,
     settings,
+    structure_settings,
 )
 
 PLACEMENT = "STRUCT.folder-placement"
 GATE = "GATE.path-check"
 
 
-def ownership_findings(path: str, profile: dict[str, Any]) -> list[Finding]:
-    owners = section(section(profile, "structure"), "owners")
+def ownership_findings(path: str, config: dict[str, Any]) -> list[Finding]:
+    owners = section(structure_settings(config), "owners")
     if path in owners.get("files", {}):
         return []
-    extensions = as_list(settings(profile, "paths").get("directory_extensions"))
+    extensions = as_list(settings(config, "paths").get("directory_extensions"))
     directory = f"{PurePosixPath(path).parent.as_posix()}/"
     if directory in owners.get("directories", {}) and (
         not extensions or any(path.endswith(ext) for ext in extensions)
@@ -54,7 +55,7 @@ def ownership_findings(path: str, profile: dict[str, Any]) -> list[Finding]:
 def path_findings(
     repo: Path,
     raw: str,
-    profile: dict[str, Any],
+    config: dict[str, Any],
     *,
     existing_paths: set[str] | None = None,
 ) -> list[Finding]:
@@ -68,29 +69,29 @@ def path_findings(
                 "use a repository path without traversal",
             )
         ]
-    if matches_any(path, as_list(settings(profile, "paths").get("skip"))):
+    if matches_any(path, as_list(settings(config, "paths").get("skip"))):
         return []
     problems = layout.path_findings(
-        path, settings(profile, "structure"), existing_paths=existing_paths
+        path, settings(config, "structure"), existing_paths=existing_paths
     )
-    python_findings = python_path_findings(path, profile, existing_paths or set())
+    python_findings = python_path_findings(path, config, existing_paths or set())
     return [
         *problems,
-        *([] if problems else ownership_findings(path, profile)),
-        *naming.path_findings(repo, path, profile, existing_paths=existing_paths),
+        *([] if problems else ownership_findings(path, config)),
+        *naming.path_findings(repo, path, config, existing_paths=existing_paths),
         *python_findings,
-        *test_placement_findings(repo, path, profile),
-        *direction_findings(repo, path, profile),
+        *test_placement_findings(repo, path, config),
+        *direction_findings(repo, path, config),
     ]
 
 
-def owned_paths(root: Path, raw_paths: list[str], profile: dict[str, Any]) -> list[str]:
-    skip = as_list(settings(profile, "paths").get("skip"))
+def owned_paths(root: Path, raw_paths: list[str], config: dict[str, Any]) -> list[str]:
+    skip = as_list(settings(config, "paths").get("skip"))
     found = (normalized_path(root, raw) for raw in raw_paths)
     return [path for path in found if path is not None and not matches_any(path, skip)]
 
 
-def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         selected = scope.select(repo, argv)
     except InventoryError as error:
@@ -103,21 +104,21 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 finding
                 for raw in selected.paths
                 for finding in path_findings(
-                    root, raw, profile, existing_paths=selected.existing_paths
+                    root, raw, config, existing_paths=selected.existing_paths
                 )
             ]
-            found.extend(native_findings(root, selected.paths, profile))
+            found.extend(native_findings(root, selected.paths, config))
             found.extend(
                 layout.package_placement_findings(
-                    owned_paths(root, selected.paths, profile),
+                    owned_paths(root, selected.paths, config),
                     selected.inventory,
-                    profile,
+                    config,
                 )
             )
             found.extend(
                 scope.restrict(
                     layout.instance_findings(
-                        selected.inventory, settings(profile, "structure")
+                        selected.inventory, settings(config, "structure")
                     ),
                     selected.paths,
                     selected.existing_paths,
@@ -127,13 +128,13 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
                 layout.forbidden_import_findings(
                     root,
                     selected.paths,
-                    settings(profile, "structure"),
+                    settings(config, "structure"),
                 )
             )
             found.extend(
                 scope.restrict(
                     import_graph_findings(
-                        root, profile, [], inventory=selected.inventory
+                        root, config, [], inventory=selected.inventory
                     ),
                     selected.paths,
                     selected.existing_paths,
@@ -141,4 +142,4 @@ def run(repo: Path, profile: dict[str, Any], argv: list[str]) -> list[Finding]:
             )
     except InventoryError as error:
         return [Finding(GATE, ".", str(error), "provide a readable Git snapshot")]
-    return apply_exceptions(found, profile)
+    return apply_exceptions(found, config)
