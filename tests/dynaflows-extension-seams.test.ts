@@ -7,9 +7,7 @@ import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { machineName, storePath, withStore } from "../agent/extensions/dynaflows/lib/decision-store.ts";
-import { harness, execute, reasonOf, isBlocked, repoCommand, integrity, structure, enforcement, tiers, verification, ciHead, greenCi, mockPrCi, forbidGh, askAutonomy, ciGate, ciRunner, harnessConfig, type Input, originRemote, proveResult, structureResult, railsConfig, mergeRecover, watchedProofCall } from "./dynaflows-guards-seams.test";
-
-const proofs = "skill://structured-workflow/references/proofs.md";
+import { harness, execute, reasonOf, isBlocked, repoCommand, ciHead, greenCi, mockPrCi, forbidGh, askAutonomy, ciGate, ciRunner, harnessConfig, type Input, originRemote, proveResult, structureResult, railsConfig, watchedProofCall } from "./dynaflows-guards-seams.test";
 
 function assertRefused(result: Parameters<typeof reasonOf>[0], fragment: string): void {
 	assert.equal(isBlocked(result), true, fragment);
@@ -44,33 +42,16 @@ async function withFailingOriginRead(body: (fail: (how: "exit128" | "kill" | "pa
 }
 
 describe("dynaflows extension", () => {
-	test("blocks new code and test files until every mapped reference is successfully read", async () => {
+	test("edits and new code or test files need no skill reads in a governed repository", async () => {
 		const h = harness();
+		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-guards-scratch-")));
 		try {
 			h.govern();
-			const input = { path: "tests/new.test.ts", content: "test('behaviour', () => {});" };
-			const blocked = await h.call("write", input);
-			assert.equal(isBlocked(blocked), true);
-			for (const url of [integrity, structure, tiers, enforcement, proofs]) assert.ok(reasonOf(blocked).includes(url));
-			await h.emit("tool_result", { toolName: "read", input: { path: tiers }, isError: true });
-			await h.read(integrity, structure);
-			assert.ok((await h.call("write", input))?.reason?.includes(tiers));
-			await h.read(`${tiers}:1-40:raw`, enforcement, proofs);
-			assert.equal(await h.call("write", input), undefined);
-		} finally { h.cleanup(); }
-	});
-
-	test("dynaflows gates both existing code and new tests on their mapped reads", async () => {
-		const h = harness();
-		try {
-			h.govern();
-			assert.ok((await h.call("edit", { path: "existing.ts" }))?.reason?.includes(integrity));
-			await h.read(integrity, structure);
-			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
-			assert.ok((await h.call("write", { path: "tests/contract.test.ts" }))?.reason?.includes(tiers));
-			await h.read(tiers, enforcement, proofs);
-			assert.equal(await h.call("write", { path: "tests/contract.test.ts" }), undefined);
-		} finally { h.cleanup(); }
+			for (const [tool, input] of [
+				["write", { path: "tests/new.test.ts", content: "test('behaviour', () => {});" }], ["write", { path: "src/new.ts", content: "export {};\n" }],
+				["edit", { path: "existing.ts" }], ["write", { path: join(scratch, "scratch.ts"), content: "export {};\n" }],
+			] as const) assert.equal(await h.call(tool, input), undefined, `${tool} ${JSON.stringify(input)}`);
+		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
 	});
 
 	test("runs the harness path check with all changed paths, surfacing command failures", async () => {
@@ -79,7 +60,6 @@ describe("dynaflows extension", () => {
 			h.pathFailure("use feature ownership");
 			h.config();
 			h.govern();
-			await h.read(integrity, structure);
 			writeFileSync(join(h.root, "another.ts"), "export {};\n");
 			const result = await h.call("edit", { paths: ["existing.ts", "another.ts"] });
 			assert.ok(result?.additionalContext?.includes(join(h.root, "existing.ts")));
@@ -89,7 +69,7 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("absent and invalid configs refuse edits with the onboarding text before any reference read, and do not throw", async () => {
+	test("absent and invalid configs refuse edits with the onboarding text, and do not throw", async () => {
 		const h = harness();
 		try {
 			assert.ok(reasonOf(await h.call("edit", { path: "existing.ts" })).includes("owner/repo is not onboarded (missing)"));
@@ -97,35 +77,35 @@ describe("dynaflows extension", () => {
 			assert.ok(reasonOf(await h.call("edit", { path: "existing.ts" })).includes("owner/repo is not onboarded (invalid: "));
 			h.rawConfig(JSON.stringify({ ...harnessConfig("owner/repo"), commands: { commit: "not an argv array" } }));
 			const invalid = reasonOf(await h.call("edit", { path: "existing.ts" }));
-			assert.ok(invalid.includes("commands.commit: must be a non-empty argv array") && !invalid.includes(integrity), invalid);
+			assert.ok(invalid.includes("commands.commit: must be a non-empty argv array"), invalid);
 			assert.deepEqual(h.notes, [], "the refusal carries the problems; nothing else is noted");
 			h.govern();
-			await h.read(integrity);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 		} finally { h.cleanup(); }
 	});
 
-	test("handoff needs only the verification read after code edits in a governed repository, never a check run", async () => {
+	test("handoff after code edits in a governed repository needs no read and runs no check", async () => {
 		const h = harness();
 		try {
+			const ran: string[] = [];
+			const exec = h.api.exec.bind(h.api);
+			h.api.exec = async (command, args, options) => {
+				if (repoCommand(command, args)[0] === "bun") ran.push(args.join(" "));
+				return exec(command, args, options);
+			};
 			h.config({ commands: { commit: ["bun", "check"], ci: ["bun", "ci"] } });
 			await h.emit("session_start");
 			writeFileSync(join(h.root, "existing.ts"), "pulled change\n");
 			writeFileSync(join(h.root, "session.log"), "growing log\n");
 			assert.equal(await h.emit("session_stop"), undefined, "tree changes outside this session's edits never block");
-			await h.read(integrity, structure);
 			await h.call("edit", { path: "existing.ts" });
-			const blocked = await h.emit("session_stop");
-			assert.equal(blocked?.decision, "block");
-			assert.ok(reasonOf(blocked).includes(verification));
-			assert.ok(!reasonOf(blocked).includes("bun"), "no repository check is demanded at handoff");
-			await h.read(verification);
 			writeFileSync(join(h.root, "session.log"), "grew again\n");
 			assert.equal(await h.emit("session_stop"), undefined);
+			assert.deepEqual(ran, [], "no repository check runs at handoff");
 		} finally { h.cleanup(); }
 	});
 
-	test("discovery tools are never gated by reference reads, before or after compaction", async () => {
+	test("discovery tools are never gated, before or after compaction", async () => {
 		const h = harness();
 		try {
 			for (const tool of ["find", "grep", "glob", "ast_grep"]) {
@@ -138,24 +118,6 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("newFile reads apply only to new code files inside a repository", async () => {
-		const h = harness();
-		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-guards-scratch-")));
-		try {
-			h.govern();
-			assert.equal(await h.call("write", { path: join(scratch, "notes.md"), content: "# notes\n" }), undefined,
-				"a new file outside any repository needs no reads");
-			await h.read(integrity);
-			assert.equal(await h.call("write", { path: join(scratch, "scratch.ts"), content: "export {};\n" }), undefined,
-				"a new code file outside any repository needs no newFile reads");
-			assert.equal(await h.call("write", { path: "notes.md", content: "# notes\n" }), undefined,
-				"a new non-code file inside a repository needs no reads");
-			const blocked = await h.call("write", { path: "src/new.ts", content: "export {};\n" });
-			assert.equal(isBlocked(blocked), true);
-			for (const url of [structure]) assert.ok(reasonOf(blocked).includes(url));
-		} finally { h.cleanup(); rmSync(scratch, { recursive: true, force: true }); }
-	});
-
 	test("dynaflows commits run the record's checks.commit, then the whole-repo harness checks, without AGENT", async () => {
 		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-guards-commit-")));
 		const log = join(scratch, "runs.log");
@@ -165,7 +127,6 @@ describe("dynaflows extension", () => {
 		const previous = process.env["AGENT"];
 		process.env["AGENT"] = "1";
 		try {
-			await h.read("skill://git-tool", mergeRecover);
 			const commit = () => h.call("bash", { command: "git commit -m x" });
 			const runs = () => existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
 			assert.ok(reasonOf(await commit()).includes("owner/repo is not onboarded (missing)"));
@@ -189,8 +150,8 @@ describe("dynaflows extension", () => {
 			assert.equal(isBlocked(blocked), true);
 			assert.ok(reasonOf(blocked).includes(`harness checks (guardrails) failed in ${h.root} (exit 1)`), String(blocked?.reason));
 			assert.ok(reasonOf(blocked).includes("harness finding: src/x.py"), String(blocked?.reason));
-			assert.ok(reasonOf(blocked).includes("commands.commit passed. If a repo checker already enforces a failing step's rules"),
-				"a harness-only finding tells the agent not to reshape repo code to the harness copy");
+			assert.ok(reasonOf(blocked).includes("Checks come from .agentrails/config.json commands; the owner changes them through the setup-repo-proofs writer.") &&
+				reasonOf(blocked).includes("do not reshape repo code to the harness copy"), "a harness-only finding points at the config's writer, not at reshaping repo code");
 			h.config();
 			rmSync(log);
 			assert.equal((await commit())?.block, true, "harness checks run even when commands.commit checks nothing");
@@ -210,7 +171,6 @@ describe("dynaflows extension", () => {
 	test("dynaflows commits run the harness path check over the paths the commit can take, first", async () => {
 		const h = harness();
 		try {
-			await h.read("skill://git-tool", mergeRecover);
 			writeFileSync(join(h.root, "tracked.ts"), "export {};\n");
 			await execute("git", ["add", "existing.ts", "tracked.ts"], { cwd: h.root });
 			await execute("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"], { cwd: h.root });
@@ -249,7 +209,6 @@ describe("dynaflows extension", () => {
 	test("dynaflows commits need no message shape, but must be the call's only change over a fully staged index", async () => {
 		const h = harness();
 		try {
-			await h.read("skill://git-tool", mergeRecover);
 			h.config({ commands: { commit: ["true"] } });
 			h.govern();
 			assert.ok((await h.call("bash", { command: "git add -A && git commit -m x" }))?.reason?.includes("in a command of its own"));
@@ -273,7 +232,6 @@ describe("dynaflows extension", () => {
 	test("the default harness check is guardrails from the harness's own reference project", async () => {
 		const h = harness({ guardrailsCommand: "default" });
 		try {
-			await h.read("skill://git-tool", mergeRecover);
 			h.govern();
 			const seen: string[][] = [];
 			const exec = h.api.exec.bind(h.api);
@@ -293,7 +251,6 @@ describe("dynaflows extension", () => {
 	test("a config missing commands.commit, or carrying an unknown field, refuses commits and pushes by name", async () => {
 		const h = harness();
 		try {
-			await h.read("skill://git-tool", mergeRecover);
 			h.govern();
 			const complete = harnessConfig("owner/repo");
 			for (const [config, named] of [
@@ -320,8 +277,6 @@ describe("dynaflows extension", () => {
 			h.pathFailure("bad path");
 			h.config();
 			h.govern();
-			await h.read(integrity, structure);
-			await h.read(verification);
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path check failed"));
 			assert.equal((await h.emit("session_stop"))?.decision, "block");
 			assert.equal((await h.emit("session_stop"))?.decision, "block");
@@ -335,26 +290,28 @@ describe("dynaflows extension", () => {
 	});
 
 
-	test("isolates sessions, restores successful branch reads, and forgets compacted reads", async () => {
+	test("the agentrails_config writer sees this session's skill reads, restored on a branch rebuild and forgotten after compaction", async () => {
 		const h = harness();
 		try {
 			h.govern();
-			await h.read(integrity);
+			const unread = "read skill://test-guidance in this session before recording tests";
+			const record = () => h.tool("agentrails_config", { section: "tests", value: {}, scope: { kind: "whole" } });
+			assert.ok((await record()).includes(unread));
+			await h.read("skill://test-guidance");
+			assert.ok(!(await record()).includes(unread), "a successful read counts");
 			h.setSession("second");
-			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
-			h.setSession("first");
-			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
+			assert.ok((await record()).includes(unread), "another session has its own reads");
 			h.branch.push(
 				{ type: "message", message: { role: "assistant", content: [
-					{ type: "toolCall", id: "restored", name: "read", arguments: { path: integrity } },
+					{ type: "toolCall", id: "restored", name: "read", arguments: { path: "skill://test-guidance" } },
 				] } },
 				{ type: "message", message: { role: "toolResult", toolCallId: "restored", isError: false } },
 			);
 			await h.emit("session_tree");
-			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
+			assert.ok(!(await record()).includes(unread), "a read on the rebuilt branch is restored");
 			h.branch.push({ type: "compaction" });
 			await h.emit("session_branch");
-			assert.equal((await h.call("edit", { path: "existing.ts" }))?.block, true);
+			assert.ok((await record()).includes(unread), "compaction forgets reads");
 		} finally { h.cleanup(); }
 	});
 
@@ -377,11 +334,9 @@ describe("dynaflows extension", () => {
 		const h = harness();
 		try {
 			h.config({ commands: { commit: ["false"] } });
-			await h.read("skill://git-tool", mergeRecover);
 			assert.ok(reasonOf(await h.call("bash", { command: "git commit -m x" })).includes("commands.commit (false) failed"));
 			await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
 			h.setSession("no-origin");
-			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "no commit checks outside GitHub repositories");
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined, "no onboarding refusal or reference reads");
 		} finally { h.cleanup(); }
@@ -392,7 +347,6 @@ describe("dynaflows extension", () => {
 		try {
 			h.govern();
 			await withFailingOriginRead(async fail => {
-				await h.read("skill://git-tool", mergeRecover);
 				fail(how);
 				const unresolved = "could not resolve this repository's agent-rails config: git remote get-url origin in";
 				for (const command of ["git commit -m x", "git push origin HEAD:agent/feature"]) {
@@ -414,7 +368,6 @@ describe("dynaflows extension", () => {
 				await execute("git", ["remote", "remove", "origin"], { cwd: h.root });
 				h.setSession(`no-origin-${how}`);
 				await h.emit("session_start");
-				await h.read("skill://git-tool", mergeRecover);
 				assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined, "a repo with no origin remote runs the fixed guards only");
 			});
 		} finally { h.cleanup(); }
@@ -426,7 +379,6 @@ describe("dynaflows extension", () => {
 			h.pathFailure("bad path");
 			h.config();
 			h.govern();
-			await h.read(integrity, structure);
 			assert.equal(await h.call("ast_edit", { paths: ["existing.ts"] }, {
 				applied: false, files: ["existing.ts"], totalReplacements: 1,
 			}), undefined);
@@ -455,12 +407,10 @@ test("path checks forget deleted and ignored failures without skipping live repo
 		};
 		h.config();
 		h.govern();
-		await h.read(integrity, structure);
 		await h.call("edit", { paths: ["existing.ts", "ignored.ts", "deleted.ts"] });
 		assert.deepEqual(checked, [["--event", "edit", join(h.root, "existing.ts")]]);
 		rmSync(join(h.root, "existing.ts"));
 		await h.call("edit", { path: "ignored.ts" });
-		await h.read(verification);
 		assert.equal(await h.emit("session_stop"), undefined);
 		assert.equal(checked.length, 1);
 	} finally { h.cleanup(); }
@@ -482,7 +432,6 @@ test("edit tools never write Git directory internals, and live files still reach
 		};
 		h.config();
 		h.govern();
-		await h.read(integrity, structure);
 		assert.ok(reasonOf(await h.call("edit", { paths: [internal, live] })).includes("inside Git's internal directory"));
 		await h.call("edit", { paths: [live] });
 		assert.deepEqual(checked, [["--event", "edit", live]]);
@@ -506,11 +455,9 @@ test("path checks ignore content edits to existing tracked names", async () => {
 		};
 		h.config();
 		h.govern();
-		await h.read(integrity, structure);
 		assert.equal(await h.call("edit", { path }), undefined);
 		assert.deepEqual(checked, []);
 		writeFileSync(path, committed);
-		await h.read(verification);
 		assert.equal(await h.emit("session_stop"), undefined);
 		assert.deepEqual(checked, []);
 	} finally { h.cleanup(); }
@@ -535,7 +482,6 @@ test("path checks keep ignored files excluded when a path crosses a symlink", as
 		};
 		h.config();
 		h.govern();
-		await h.read(integrity, structure);
 		await h.call("edit", { paths: [ignored, join(h.root, "link/file")] });
 		assert.ok(!checked.some(args => args.some(path => path.includes("node_modules/"))),
 			"ignored paths must not reach the path check when another path breaks git check-ignore");
@@ -546,7 +492,6 @@ test("dynaflows merge requires prove()'s result file to say pass for the exact h
 	const h = harness();
 	try {
 		await execute("git", ["init"], { cwd: h.root });
-		await h.read("skill://git-tool", mergeRecover);
 		const head = "a".repeat(40);
 		const command = `env gh pr merge 3 --rebase --match-head-commit=${head}`;
 		mockPrCi(h, greenCi, { head, selector: "3" });
@@ -578,7 +523,6 @@ test("dynaflows merge requires prove()'s result file to say pass for the exact h
 test("dynaflows merge requires a valid exact-head structure result and blocks every enforced finding, never a shadow one", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		await proveResult(h);
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const command = `gh pr merge 3 --rebase --match-head-commit ${ciHead}`;
@@ -639,7 +583,6 @@ test.each([
 ])("ci.enabled false: a structured merge needs no CI status ($name)", async scenario => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.config({ ci: { enabled: false } });
 		h.govern();
 		await proveResult(h);
@@ -670,7 +613,6 @@ test.each([
 ])("required context merge: $name", async scenario => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		await originRemote(h, "git@github.com:base-owner/base-repo.git");
 		h.config(ciGate);
 		h.govern();
@@ -688,7 +630,6 @@ test.each([
 test("agent tools never write a repository's agent-rails config; reads pass", async () => {
 	const h = harness();
 	try {
-		await h.read(integrity, structure);
 		h.config();
 		const text = h.configText();
 		const foreign = join(h.machine, "elsewhere", ".agentrails", "config.json");
@@ -722,7 +663,6 @@ test("agent tools never write a repository's agent-rails config; reads pass", as
 test("merges in a repository that is not onboarded, or is onboarding, are refused without querying GitHub", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		forbidGh(h);
 		const merge = `gh pr merge 3 --rebase --match-head-commit ${ciHead}`;
 		assert.ok(reasonOf(await h.call("bash", { command: merge })).includes("owner/repo is not onboarded (missing)"));
@@ -734,7 +674,6 @@ test("merges in a repository that is not onboarded, or is onboarding, are refuse
 test("a gate with every optional check and a ci block allows publishing", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.config({ ...ciGate, commands: { commit: ["true"], ci: ["make", "ci"], format: ["ruff", "format"] } });
 		assert.equal(await h.call("bash", { command: "git push" }), undefined);
 	} finally { h.cleanup(); }
@@ -743,7 +682,6 @@ test("a gate with every optional check and a ci block allows publishing", async 
 test.each(["git@github.com:OWNER/REPO.git", "https://github.com/owner/repo.git"])("PR URL repository: %s", async remote => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		await originRemote(h, remote);
 		h.config(ciGate);
 		h.govern();
@@ -760,7 +698,6 @@ test.each(["git@github.com:OWNER/REPO.git", "https://github.com/owner/repo.git"]
 test("PR URL selector accepts the checkout repository case-insensitively", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		await originRemote(h, "git@github.com:OWNER/REPO.git");
 		h.config(ciGate);
 		h.govern();
@@ -775,7 +712,6 @@ test("PR URL selector accepts the checkout repository case-insensitively", async
 test("required context blocks merge despite a prove() pass", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		h.config(ciGate);
 		await proveResult(h);
@@ -790,7 +726,6 @@ test("required context blocks merge despite a prove() pass", async () => {
 test("PR query contract: requests the PR URL", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		await originRemote(h);
 		h.govern();
 		await proveResult(h);
@@ -810,7 +745,6 @@ test("PR query contract: requests the PR URL", async () => {
 test("a merge reports a gh failure while reading the PR", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		await proveResult(h);
 		await structureResult(h);
@@ -823,7 +757,6 @@ test("a merge reports a gh failure while reading the PR", async () => {
 test.each(["head mismatch", "red CI", "green CI"])("merge CI gate: %s", async scenario => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.config({ ci: { enabled: true, runner: "github-actions", requiredContext: "test" } });
 		h.govern();
 		await proveResult(h);
@@ -844,7 +777,6 @@ test.each(["head mismatch", "red CI", "green CI"])("merge CI gate: %s", async sc
 test("an invalid config refuses merges before the CI guard and autonomy", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		forbidGh(h);
 		for (const config of [{ ...harnessConfig("owner/repo", ciGate), mergePolicies: "none" }, { ...harnessConfig("owner/repo", { ...ciGate, ...askAutonomy }), extra: 1 }]) {
 			h.rawConfig(JSON.stringify(config));
@@ -856,7 +788,6 @@ test("an invalid config refuses merges before the CI guard and autonomy", async 
 test("autonomy.merge ask refuses a structured merge until the owner approves that PR number, once", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.config({ ...ciGate, autonomy: { merge: "ask" } });
 		h.govern();
 		await proveResult(h);
@@ -882,7 +813,6 @@ test.each([
 ])("merge diagnostics gate: $name", async scenario => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const result = await h.call("bash", { command: `gh pr merge 3 ${scenario.args}` });
@@ -894,7 +824,6 @@ test.each([
 test("merge diagnostics gate: missing prove() result", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const result = await h.call("bash", { command: `gh pr merge 3 --rebase --match-head-commit ${ciHead}` });
@@ -912,7 +841,6 @@ test("path checks canonicalize a symlinked repository root before executing", as
 		h.context.cwd = alias;
 		h.config();
 		h.govern();
-		await h.read(integrity, structure);
 		const exec = h.api.exec.bind(h.api);
 		let checked = false;
 		h.api.exec = async (command, args, options) => {
@@ -942,13 +870,12 @@ test("path check runs under the one fixed rails timeout; a killed checker is sur
 		};
 		h.config();
 		h.govern();
-		await h.read(integrity, structure);
 		assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path check failed"));
 		assert.deepEqual(timeouts, [20000]);
 	} finally { h.cleanup(); }
 });
 
-test("child handoff requires its own verification read and repaired path checks", async () => {
+test("child handoff requires its own repaired path checks", async () => {
 	const h = harness();
 	try {
 		h.context.agent.kind = "sub";
@@ -956,12 +883,9 @@ test("child handoff requires its own verification read and repaired path checks"
 		h.pathFailure("bad path");
 		h.config({ commands: { commit: ["not-run"], ci: ["not-run"] } });
 		h.govern();
-		await h.read(integrity, structure);
 		await h.call("edit", { path: join(h.root, "existing.ts") });
 		assert.equal((await h.emit("session_stop"))?.decision, "block");
 		h.pathFailure();
-		assert.ok((await h.emit("session_stop"))?.reason?.includes(verification));
-		await h.read(verification);
 		assert.equal(await h.emit("session_stop"), undefined);
 	} finally { h.cleanup(); }
 });
@@ -976,7 +900,6 @@ test("linked worktrees resolve the main checkout's config", async () => {
 		h.context.cwd = linked;
 		assert.equal(existsSync(join(linked, ".agentrails")), false, "the linked worktree holds no config of its own");
 		const head = (await execute("git", ["rev-parse", "HEAD"], { cwd: linked })).stdout.trim();
-		await h.read("skill://git-tool", mergeRecover);
 		mockPrCi({ ...h, root: linked }, greenCi, { head, selector: "3" });
 		const blocked = await h.call("bash", { command: `gh pr merge 3 --rebase --match-head-commit=${head}` });
 		assert.ok(reasonOf(blocked).includes(join(realpathSync(h.root), ".git", "omp-prove", `${head}.result.json`)),
@@ -987,7 +910,6 @@ test("linked worktrees resolve the main checkout's config", async () => {
 test("mise commits run the record's checks in a real repository", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		h.config({ commands: { commit: ["true"] } });
 		assert.equal(await h.emit("tool_call", { toolName: "bash", input: { command: "mise exec -- git commit -m x" } }), undefined);
@@ -1000,7 +922,6 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 	const h = harness();
 	const target = harness({ configRoot: h.records, remote: "git@github.com:owner/target.git" });
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		target.config({ commands: { commit: ["true"] } });
 		target.govern();
 		target.config({ commands: { commit: ["false"] } });
@@ -1017,30 +938,23 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 	} finally { h.cleanup(); target.cleanup(); }
 });
 
-test.each(["outside", "governed"])("repo-scoped harness process runs only in a governed repository (%s) while Git reads always apply", async scope => {
+test.each(["outside", "governed"])("repo-scoped harness process runs only in a governed repository (%s)", async scope => {
 	const h = harness(scope === "outside" ? { remote: "https://gitlab.com/owner/repo.git" } : {});
 	try {
 		if (scope === "governed") h.govern();
 		h.pathFailure("path policy violation");
 		const edit = await h.call("write", { path: "tests/new.test.ts" });
 		if (scope === "governed") {
-			assert.equal(isBlocked(edit), true);
-			for (const url of [integrity, structure, tiers, enforcement]) assert.ok(reasonOf(edit).includes(url));
-			await h.read(integrity, structure, tiers, enforcement);
+			assert.equal(isBlocked(edit), false, "a governed repository needs no reads before a new test file");
 			writeFileSync(join(h.root, "existing.ts"), "export const answer = 43;\n");
 			assert.ok((await h.call("edit", { path: "existing.ts" }))?.additionalContext?.includes("path policy violation"));
 			assert.equal((await h.emit("session_stop"))?.decision, "block");
 			h.pathFailure();
-			assert.ok((await h.emit("session_stop"))?.reason?.includes(verification));
-			await h.read(verification);
 		} else {
 			assert.equal(edit, undefined);
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 		}
 		assert.equal(await h.emit("session_stop"), undefined);
-		const git = await h.call("bash", { command: "git push" });
-		assert.equal(isBlocked(git), true);
-		assert.ok(reasonOf(git).includes("skill://git-tool"));
 	} finally { h.cleanup(); }
 });
 
@@ -1051,13 +965,11 @@ test("edit and handoff policy follows each edited repo, not the session cwd", as
 		h.govern();
 		h.pathFailure("enabled repo violation");
 		assert.equal(await h.call("edit", { path: join(other.root, "existing.ts") }), undefined);
-		assert.equal(await h.emit("session_stop"), undefined, "editing only an ungoverned repo does not require a handoff read");
-		assert.ok((await h.call("edit", { path: join(h.root, "existing.ts") }))?.reason?.includes(integrity));
-		await h.read(integrity, structure);
+		assert.equal(await h.emit("session_stop"), undefined, "editing only an ungoverned repo runs no path check");
 		assert.ok((await h.call("edit", { path: join(h.root, "existing.ts") }))?.additionalContext?.includes("enabled repo violation"));
 		assert.equal((await h.emit("session_stop"))?.decision, "block");
 		h.unconfigure();
-		assert.equal(await h.emit("session_stop"), undefined, "a removed config suppresses both outstanding retries and handoff reads");
+		assert.equal(await h.emit("session_stop"), undefined, "a removed config suppresses outstanding retries");
 		assert.ok(reasonOf(await h.call("edit", { path: join(h.root, "existing.ts") })).includes("owner/repo is not onboarded (missing)"));
 	} finally { h.cleanup(); other.cleanup(); }
 });
@@ -1081,7 +993,6 @@ test("native rules always load: session start never changes the user's ttsr.disa
 test("structured merges refuse --admin before reading the PR", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		forbidGh(h);
 		for (const flag of ["--admin", "--admin=true"]) {
@@ -1094,7 +1005,6 @@ test("structured merges refuse --admin before reading the PR", async () => {
 test("without a matching merge policy a merge must rebase and carry proof", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		for (const flags of ["", "--merge", "--squash", "-s", "--rebase --merge"]) {
@@ -1115,7 +1025,6 @@ test("gates.commitChecks and gates.pathCheck switch the commit checks and the pa
 	writeFileSync(script, `#!/bin/sh\necho "$1" >> '${log}'\nexit 1\n`, { mode: 0o755 });
 	const h = harness({ guardrailsCommand: [script, "harness"] });
 	try {
-		await h.read("skill://git-tool", mergeRecover, integrity, structure);
 		const runs = () => existsSync(log) ? readFileSync(log, "utf8").trim().split("\n") : [];
 		const pathChecks: string[][] = [];
 		const exec = h.api.exec.bind(h.api);
@@ -1149,7 +1058,6 @@ test("gates.commitChecks and gates.pathCheck switch the commit checks and the pa
 test("gates.prove and gates.structureReview decide which proof a proof merge policy needs", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		mockPrCi(h, greenCi, { head: ciHead, selector: "3" });
 		const merge = () => h.call("bash", { command: `gh pr merge 3 --rebase --match-head-commit ${ciHead}` });
@@ -1168,7 +1076,6 @@ test("gates.prove and gates.structureReview decide which proof a proof merge pol
 test("a config merge policy sets the method and whether proof is needed for its base and head prefix", async () => {
 	const h = harness();
 	try {
-		await h.read("skill://git-tool", mergeRecover);
 		h.govern();
 		h.config({
 			ci: { enabled: true, runner: "github-actions", requiredContext: "test" },
@@ -1210,7 +1117,6 @@ describe("rails ledger", () => {
 	test("a refusal writes a coded block row and a later passing call on the same target resolves it", async () => {
 		const h = harness();
 		try {
-			h.govern();
 			assert.equal(isBlocked(await h.call("edit", { path: "existing.ts" })), true);
 			assert.equal(isBlocked(await h.call("edit", { path: "existing.ts" })), true);
 			await h.call("bash", { command: "ls" });
@@ -1219,10 +1125,10 @@ describe("rails ledger", () => {
 			assert.equal(first.session, "first");
 			assert.equal(first.repo, "owner/repo");
 			assert.equal(first.machine, machineName());
-			assert.equal(first.reason, `Agent rails: read ${integrity}, then retry.`);
-			await h.read(integrity, structure);
+			assert.ok(first.reason?.startsWith("Agent rails: owner/repo is not onboarded (missing)."), first.reason ?? "");
+			h.govern();
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
-			assert.deepEqual(brief(ledger(h)), ["block read-gate edit", "block read-gate edit", "resolved read-gate edit calls=3 refusals=2"],
+			assert.deepEqual(brief(ledger(h)), ["block onboarding-required edit", "block onboarding-required edit", "resolved onboarding-required edit calls=3 refusals=2"],
 				"an unrelated passing call resolves nothing; the episode counts both refusals and the calls to the pass");
 			assert.equal(await h.call("edit", { path: "existing.ts" }), undefined);
 			assert.equal(ledger(h).length, 3, "passing calls with no open episode write nothing");
@@ -1233,14 +1139,13 @@ describe("rails ledger", () => {
 		const h = harness();
 		try {
 			h.govern();
-			assert.equal(isBlocked(await h.call("bash", { command: "git commit -m x" })), true);
-			await h.read("skill://git-tool", mergeRecover);
+			assert.equal(isBlocked(await h.call("bash", { command: "git commit -a -m x" })), true);
 			assert.equal(isBlocked(await h.call("bash", { command: "git push origin main" })), true);
 			assert.equal(await h.call("bash", { command: "git commit -m x" }), undefined);
 			const override = await h.call("bash", { command: "gh pr create -R other/repo" });
 			assert.ok(reasonOf(override).startsWith("Agent rails: policy could not be evaluated: Error: gh remote repository overrides"), "the text is unchanged");
 			assert.equal(isBlocked(await h.call("bash", { command: "echo 'unterminated" })), true);
-			assert.deepEqual(brief(ledger(h)), ["block read-gate bash", "block push-default-branch bash", "resolved read-gate bash calls=2 refusals=1",
+			assert.deepEqual(brief(ledger(h)), ["block commit-scope bash", "block push-default-branch bash", "resolved commit-scope bash calls=2 refusals=1",
 				"block gh-repo-override bash", "block shell-unparseable bash"]);
 			assert.equal(ledger(h)[0]?.repo, "owner/repo");
 		} finally { h.cleanup(); }
@@ -1252,7 +1157,6 @@ describe("rails ledger", () => {
 		writeFileSync(script, "#!/bin/sh\necho 'COMMIT-BODY finding in src/x.py'\nexit 3\n", { mode: 0o755 });
 		const h = harness();
 		try {
-			await h.read("skill://git-tool", mergeRecover);
 			h.config({ commands: { commit: [script] } });
 			h.govern();
 			const blocked = await h.call("bash", { command: "git commit -m x" });
@@ -1281,7 +1185,6 @@ describe("rails ledger", () => {
 		const h = harness();
 		try {
 			h.govern();
-			await h.read(integrity, structure);
 			h.pathFailure("FINDING-BODY use feature ownership");
 			writeFileSync(join(h.root, "another.ts"), "export {};\n");
 			const result = await h.call("edit", { path: "another.ts" });
@@ -1298,12 +1201,13 @@ describe("rails ledger", () => {
 		const h = harness();
 		try {
 			h.govern();
-			await h.read(integrity, structure);
+			h.pathFailure("bad path");
 			await h.call("edit", { path: "existing.ts" });
 			assert.equal((await h.emit("session_stop"))?.decision, "block");
-			await h.read(verification);
+			h.pathFailure();
 			assert.equal(await h.emit("session_stop"), undefined);
-			assert.deepEqual(brief(ledger(h)), ["block handoff-read session_stop", "resolved handoff-read session_stop calls=0 refusals=1"]);
+			assert.deepEqual(brief(ledger(h)), ["context path-check edit", "block handoff-path-check session_stop",
+				"resolved path-check edit calls=0 refusals=1", "resolved handoff-path-check session_stop calls=0 refusals=1"]);
 		} finally { h.cleanup(); }
 	});
 
@@ -1313,7 +1217,7 @@ describe("rails ledger", () => {
 			writeFileSync(join(h.machine, "dynaflows"), "not a directory\n");
 			const blocked = await h.call("bash", { command: "git commit -m x" });
 			assert.equal(isBlocked(blocked), true);
-			assert.ok(reasonOf(blocked).includes("read skill://git-tool"));
+			assert.ok(reasonOf(blocked).includes("owner/repo is not onboarded (missing)"));
 			assert.ok(h.notes.some(note => note.startsWith(`Agent rails: cannot write the rails ledger ${storePath(h.machine)}:`)), h.notes.join("\n"));
 		} finally { h.cleanup(); }
 	});

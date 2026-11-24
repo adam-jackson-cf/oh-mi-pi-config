@@ -5,7 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { harness, execute, reasonOf, isBlocked, askAutonomy, ciGate, harnessConfig, ciHead, greenCi, mockPrCi, mergeRecover } from "./dynaflows-guards-seams.test";
+import { harness, execute, reasonOf, isBlocked, askAutonomy, ciGate, harnessConfig, ciHead, greenCi, mockPrCi } from "./dynaflows-guards-seams.test";
 import { extensionDiff, extensionRevision } from "../agent/extensions/dynaflows/lib/restart-review.ts";
 import { MAX_FOLLOW_UPS, ranCommand, shellJoin } from "../agent/extensions/dynaflows/lib/obligations.ts";
 
@@ -251,11 +251,9 @@ describe("review on restart", () => {
 		const h = harness();
 		try {
 			h.govern();
-			await h.read("skill://git-tool", mergeRecover);
 			await changedExtension(h);
 			const before = reviews(h)["owner/repo"];
 			await h.emit("session_start");
-			await h.read("skill://git-tool", mergeRecover);
 			const task = messageText(await prompt(h, "work"));
 			assert.ok(task.includes("First task: the dynaflows extension changed") && task.includes("Config checks") &&
 				task.includes("guardrails config-check: exit 0") && task.includes("guardrails check: exit 0"), task);
@@ -282,7 +280,6 @@ describe("review on restart", () => {
 			await execute("git", ["worktree", "add", "-q", "-b", "agent/wt", worktree], { cwd: h.root });
 			await changedExtension(h);
 			await h.emit("session_start");
-			await h.read("skill://git-tool", mergeRecover);
 			await prompt(h, "work");
 			for (const command of [`git -C '${worktree}' commit --allow-empty -m x`, `cd '${worktree}' && git commit --allow-empty -m x`]) {
 				assert.ok(reasonOf(await h.call("bash", { command })).includes("acknowledge: true"), command);
@@ -330,7 +327,6 @@ describe("review on restart", () => {
 			change("feat: first rails");
 			h.config({ afterMerge: { argv: ["make", "sync"] } });
 			h.govern();
-			await h.read("skill://git-tool", mergeRecover);
 			await h.emit("session_start");
 			assert.match(reviews(h)["owner/repo"] ?? "", /^git:[0-9a-f]{40}$/);
 			change("refactor: rename an internal helper");
@@ -340,7 +336,6 @@ describe("review on restart", () => {
 			assert.ok(h.notes.some(note => note.includes("extension-impact/impact no") && note.includes("no review task; revision stored")),
 				`a no outcome is shown to the owner: ${h.notes.join("; ")}`);
 			assert.equal(reviews(h)["owner/repo"], `git:${git("rev-parse", "HEAD").toString().trim()}`);
-			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await commit(h), undefined);
 			const judged = z.object({ config: z.record(z.string(), z.unknown()),
 				change: z.object({ commit_subjects: z.array(z.string()), files: z.array(z.object({ path: z.string(), status: z.string() })), patch_excerpts: z.array(z.object({ path: z.string(), patch: z.string() })) }).passthrough() })
@@ -410,7 +405,6 @@ describe("review on restart", () => {
 			await h.emit("session_start");
 			assert.ok(h.notes.some(note => note.includes("the dynaflows extension changed")), h.notes.join("; "));
 			assert.equal(await prompt(h, "work"), undefined);
-			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await h.call("bash", { command: "git switch -c agent/next" }), undefined, "no review holds Git writes");
 			h.setSession("again");
 			h.notes.length = 0;
@@ -466,7 +460,6 @@ describe("handoffs", () => {
 		const h = harness();
 		try {
 			if (name === "governed") h.govern(); else await h.onboard();
-			await h.read("skill://git-tool", mergeRecover);
 			await h.tool("handoff", { content: "state" });
 			await execute("git", ["add", "-f", "HANDOFF.md"], { cwd: h.root });
 			const refused = await h.call("bash", { command: "git commit -m x" });

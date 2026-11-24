@@ -4,8 +4,9 @@ import { dirname, join } from "node:path";
 import { describe, test } from "bun:test";
 import { lookup } from "@oh-my-pi/pi-coding-agent/config/registry";
 import { prMerge } from "../agent/extensions/dynaflows/lib/guards.ts";
+import { gitActions, loadMapping } from "../agent/extensions/dynaflows/lib/rails-runtime.ts";
 import {
-	harness, execute, reasonOf, isBlocked, ciHead, ciGate, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, railsConfig,
+	harness, execute, reasonOf, isBlocked, ciHead, ciGate, greenCi, mockPrCi, proveResult, structureResult, railsConfig, wrappedPublishing,
 } from "./dynaflows-guards-seams.test";
 
 type Harness = ReturnType<typeof harness>;
@@ -16,7 +17,6 @@ async function withHarness(governed: boolean, body: (h: Harness) => Promise<void
 	const h = harness();
 	try {
 		if (governed) h.govern();
-		await h.read("skill://git-tool", mergeRecover);
 		await body(h);
 	} finally { h.cleanup(); }
 }
@@ -189,7 +189,6 @@ describe("dynaflows closes routes around the bash rails", () => {
 
 	test("an owner's config change during a session takes effect on the next action, including its removal", () => withHarness(true, async h => {
 		await h.emit("session_start");
-		await h.read("skill://git-tool", mergeRecover);
 		await assertAllowed(h, "bash", { command: "git commit -m x" });
 		const saved = h.configText();
 		h.config({ commands: { commit: ["false"] } });
@@ -202,7 +201,6 @@ describe("dynaflows closes routes around the bash rails", () => {
 
 	test("an origin rewrite during a session refuses git actions", () => withHarness(true, async h => {
 		await h.emit("session_start");
-		await h.read("skill://git-tool", mergeRecover);
 		await execute("git", ["remote", "set-url", "origin", "https://github.com/owner/other.git"], { cwd: h.root });
 		await assertRefused(h, "bash", { command: "git commit -m x" }, "origin remote");
 	}));
@@ -238,7 +236,6 @@ describe("dynaflows closes routes around the bash rails", () => {
 			return exec(command, args, options);
 		};
 		await h.emit("session_start");
-		await h.read("skill://git-tool", mergeRecover);
 		await assertAllowed(h, "bash", { command: "git commit -m x" });
 		const budget = Number(lookup("extensionHandlers.toolCallTimeoutMs")?.get(h.api.pi.settings));
 		assert.ok(timeouts.length > 0 && timeouts.every(timeout => timeout !== undefined && timeout <= 600_000 && timeout < budget), JSON.stringify(timeouts));
@@ -249,3 +246,40 @@ describe("dynaflows closes routes around the bash rails", () => {
 		assert.equal(JSON.stringify(config).includes('"commit":{"enabled":false}'), true);
 	});
 });
+// rails.yml gitCommand: the Git and GitHub writes the rails check (extension review, unresolved origin, commit and publishing checks).
+test("the rails check every integration git command, and no inspection command or look-alike", async () => {
+	const h = harness();
+	try {
+		const gitWrite = RegExp(loadMapping(railsConfig).gitCommand);
+		const checked = async (command: string) => (await gitActions(command, h.root)).some(action => gitWrite.test(action.command));
+		for (const command of [
+			"git status && git diff", "git log --grep=commit", 'rg "git push"', 'echo "git commit"',
+			"echo 'git commits'", "npm run gh-pr-merge", "git switch existing", "git checkout existing",
+			"git -C /w status", "git -c color.ui=never log", "gh pr view", "git stash list", "git stash", "git fetch origin", "git fetch origin main",
+			"git fetch https://github.com/o/r main", "gh repo view", "gh issue list", "gh run list", "gh release view v1", "git config --get core.hooksPath",
+			"git tag", "git tag -l", "git tag --list 'v*'", "git tag -n5", "git tag --contains HEAD", "git branch", "git branch -a",
+			"git branch --list", "git worktree list", "gh api repos/o/r/pulls", "gh api -X GET repos/o/r", "gh api --method=HEAD x",
+			"gh pr checks 3", "gh pr diff 3",
+			"command -v git push", "sudo git status", "env -i git diff", 'sh -c "git log --grep=commit"',
+		]) assert.equal(await checked(command), false, command);
+		for (const command of [
+			"git commit -m 'feat: x'", "cd repo && git push -u origin agent/x", "gh pr merge 7 --rebase",
+			"git -C /w commit", "git -c user.name=x commit", "git --no-pager commit", "git status\ngit commit",
+			"FOO=1 git push", "git switch -c agent/x", "git switch -C agent/x", "git switch --create=agent/x",
+			"git checkout -b agent/x", "git checkout -B agent/x", "git worktree add /w",
+			'git -C "/some path" -c core.pager=cat --no-pager push',
+			"git status; git push", "true | git push", "(git push)",
+			"FOO=x BAR=y gh pr create",
+			"git status; git merge x", "false || git rebase x", "git cherry-pick abc", "git reset --hard HEAD~1", "git reset",
+			"git tag v1", "git tag -a v1 -m x", "git tag -d v1", "git branch -d old", "git branch -D old", "git branch --delete old",
+			"git branch -v -D old", "git worktree remove /w", "gh pr edit 3 --title x", "gh pr close 3",
+			'FOO="a b" git push', "FOO='x;y' BAR=z git commit", "git -C'/some path' push",
+			"git revert HEAD", "git am patch", "git pull", "git branch -f main HEAD", "git branch -m old new",
+			"git branch -M old new", "git stash drop", "git stash clear", "git stash pop", "git restore .", "git clean -fdx", "git fetch origin main:main",
+			"git fetch origin +refs/heads/main:refs/heads/main", "gh pr ready 3", "gh pr review 3 --approve", "gh pr comment 3 -b x", "gh pr reopen 3",
+			"gh release create v1", "gh workflow run ci.yml", "gh issue create -t x", "gh run rerun 5",
+			...wrappedPublishing,
+		]) assert.equal(await checked(command), true, command);
+	} finally { h.cleanup(); }
+});
+

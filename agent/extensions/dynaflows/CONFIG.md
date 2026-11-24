@@ -113,7 +113,7 @@ applies to:
 Reads, other commands, the `agentrails_config` tool and the `handoff` tool still run.
 
 While a repository is onboarding, edits, commits, pushes of non-default branches and
-`gh pr create` run under the fixed guards. Commit checks, path checks, reference reads and the
+`gh pr create` run under the fixed guards. Commit checks, path checks and the
 judged commit rails wait for the config. `gh pr merge` is refused (`onboarding-merge`): the
 owner merges the bootstrap PR. Agents never write `.git/info/exclude`: the extension excludes
 `/.agentrails/` and `/.proofs/`. An agent may set `core.hooksPath` only to a directory inside

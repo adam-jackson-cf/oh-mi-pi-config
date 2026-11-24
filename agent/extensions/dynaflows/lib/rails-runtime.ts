@@ -11,21 +11,7 @@ const stringList = z.array(z.string());
 const regexpSource = z.string().refine(value => {
 	try { return RegExp(value).source.length > 0; } catch { return false; }
 });
-// The skill reads each trigger needs: edits (firstEdit, newFile, testFile) and handoff (verification)
-// in governed repositories, git writes (git) everywhere.
-const REFERENCE_TRIGGERS = ["firstEdit", "newFile", "testFile", "verification", "git"];
-const referencesSchema = z.record(z.string(), stringList).superRefine((references, ctx) => {
-	for (const key of new Set([...REFERENCE_TRIGGERS, ...Object.keys(references)])) {
-		const urls = references[key];
-		if (!REFERENCE_TRIGGERS.includes(key) || !urls?.length || urls.some(url => !url.startsWith("skill://"))) {
-			ctx.addIssue({ code: "custom", message: `invalid references.${key}` });
-		}
-	}
-});
 const mappingSchema = z.object({
-	references: referencesSchema,
-	testGlobs: stringList,
-	codeGlobs: stringList,
 	editTools: stringList,
 	gitCommand: regexpSource,
 	askFirstCommand: regexpSource,
@@ -58,6 +44,7 @@ type GitAction = {
 	hookSkip?: string;
 };
 interface State {
+	// The skill:// reads seen this session; the agentrails_config writer requires them (onboarding.ts).
 	reads: Set<string>;
 	notes: Set<string>;
 	proposal: string[];
@@ -205,13 +192,6 @@ function recordRead(event: ToolEvent, state: State): void {
 }
 function matches(path: string, globs: string[]): boolean {
 	return globs.some(glob => new Bun.Glob(glob).match(path));
-}
-function missing(state: State, map: Mapping, triggers: string[]): string[] {
-	return [...new Set(triggers.flatMap(trigger => map.references[trigger] ?? []))]
-		.filter(url => !state.reads.has(url));
-}
-function readReason(urls: string[]): Refusal {
-	return refuse("read-gate", `Agent rails: read ${urls.join(" and ")}, then retry.`);
 }
 
 const WRAPPER_OPTIONS = new Map<string, string[]>(Object.entries({
@@ -943,7 +923,7 @@ function note(state: State, ctx: ExtensionContext, message: string): void {
 	ctx.ui.notify(message, "info");
 }
 export { codeRunsGit, mentionsGit, shellCommands, commitScopeArgument, INDEX_WRITES };
-export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, missing, readReason, gitActions, commitBypass, note };
+export { loadMapping, recordRead, SUBPROCESS_TIMEOUT_MS, mappingSchema, detailsSchema, policyEvent, absolute, canonicalPath, worktreeTarget, absentFile, repoRoot, pathArguments, paths, subagentPathReason, matches, gitActions, commitBypass, note };
 export { fileErrorSchema };
 export type { Mapping, GitAction, State, ToolEvent };
 export {

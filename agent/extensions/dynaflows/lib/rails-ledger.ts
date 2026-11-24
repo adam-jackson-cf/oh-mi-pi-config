@@ -15,8 +15,8 @@ export const RAIL_CODES = [
 	// The agent-rails config: one that cannot be resolved, a setup-section write the rails refused, a repository
 	// that needs onboarding (missing or invalid config) and a merge while the owner onboards it.
 	"config-unresolved", "agentrails-config-write", "onboarding-required", "config-invalid", "onboarding-merge",
-	// Reads, subagents and tools other than bash.
-	"read-gate", "subagent-path", "eval-git", "eval-refused", "github-tool-write", "judged-scope",
+	// Subagents and tools other than bash.
+	"subagent-path", "eval-git", "eval-refused", "github-tool-write", "judged-scope",
 	// The shell scan.
 	"shell-unparseable", "git-unseen", "script-unchecked", "http-github-write", "omp-in-bash", "git-retarget", "git-external-command",
 	"alias-depth", "cwd-unresolved", "unexpanded-shell",
@@ -36,7 +36,7 @@ export const RAIL_CODES = [
 	"merge-flag-unknown", "merge-args-ambiguous", "merge-head-format", "merge-method", "merge-head-stale", "merge-prove",
 	"merge-structure", "merge-evidence-untrusted", "merge-pr-unreadable", "merge-foreign-repo", "merge-ci", "judged-evidence",
 	// Edits and handoff.
-	"path-check", "handoff-path-check", "handoff-read",
+	"path-check", "handoff-path-check",
 ] as const;
 export type RailCode = typeof RAIL_CODES[number];
 

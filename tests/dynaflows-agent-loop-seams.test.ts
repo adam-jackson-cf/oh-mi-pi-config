@@ -15,8 +15,6 @@ const processTimeout = 60_000;
 const ompTimeout = 240_000;
 const runTimeout = ompTimeout + processTimeout;
 const head = "a".repeat(40);
-const gitTool = { name: "read", arguments: { path: "skill://git-tool" } };
-const mergeRecover = { name: "read", arguments: { path: "skill://git-tool/references/merge-and-recover.md" } };
 type ScriptedCall = { name: string; arguments: Record<string, string> };
 const bash = (command: string): ScriptedCall => ({ name: "bash", arguments: { command } });
 // The repo's agent-rails config: the S1a minimal fixture for owner/repo with every autonomy permission allowed and CI off.
@@ -167,11 +165,10 @@ function outcome(result: Run, index: number): ToolOutcome {
 describe("dynaflows in the omp agent loop", () => {
 	test("a clone with no config refuses commits, pushes, merges and edits until the owner onboards it", async () => {
 		const result = await agentRun(false, [
-			[gitTool, mergeRecover], [bash("git commit --allow-empty -m change")], [bash("git push origin agent/unit")],
+			[bash("git commit --allow-empty -m change")], [bash("git push origin agent/unit")],
 			[bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)], [{ name: "write", arguments: { path: "src/app.ts", content: "export const app = 1;\n" } }],
 		]);
-		assert.equal(outcome(result, 1).isError, false);
-		for (const index of [2, 3, 4, 5]) {
+		for (const index of [0, 1, 2, 3]) {
 			const refused = outcome(result, index);
 			assert.ok(refused.isError && refused.text.includes("owner/repo is not onboarded (missing)") && refused.text.includes("/agentrails onboard"), refused.text);
 		}
@@ -181,22 +178,20 @@ describe("dynaflows in the omp agent loop", () => {
 
 	test("a governed clone blocks a hook bypass and a default-branch push, and pushes the agent branch", async () => {
 		const result = await agentRun(true, [
-			[gitTool, mergeRecover], [bash("git commit --allow-empty --no-verify -m change")],
+			[bash("git commit --allow-empty --no-verify -m change")],
 			[bash("git push origin HEAD:main")], [bash("git push origin agent/unit")],
 		]);
-		assert.equal(outcome(result, 1).isError, false);
-		assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("drop --no-verify"), outcome(result, 2).text);
-		assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes("default branch main is blocked"), outcome(result, 3).text);
-		assert.equal(outcome(result, 4).isError, false, outcome(result, 4).text);
+		assert.ok(outcome(result, 0).isError && outcome(result, 0).text.includes("drop --no-verify"), outcome(result, 0).text);
+		assert.ok(outcome(result, 1).isError && outcome(result, 1).text.includes("default branch main is blocked"), outcome(result, 1).text);
+		assert.equal(outcome(result, 2).isError, false, outcome(result, 2).text);
 		assert.deepEqual(result.branches.toSorted(), ["agent/unit", "main"]);
 	}, runTimeout);
 
 	test("a governed clone blocks gh pr merge until prove() passes on the exact head", async () => {
 		const result = await agentRun(true, [
-			[gitTool, mergeRecover], [bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)],
+			[bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)],
 		]);
-		assert.equal(outcome(result, 1).isError, false);
-		const merge = outcome(result, 2);
+		const merge = outcome(result, 0);
 		assert.ok(merge.isError && merge.text.includes(`no prove() pass for ${head}`), merge.text);
 		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
 	}, runTimeout);
@@ -204,23 +199,22 @@ describe("dynaflows in the omp agent loop", () => {
 	test("eval cannot commit or push around the rails, whether or not the clone is onboarded", async () => {
 		for (const governed of [false, true]) {
 			const result = await agentRun(governed, [
-				[gitTool, mergeRecover], [{ name: "eval", arguments: { language: "js", code: "await (await commit.draft()).commit('change', { noVerify: true })" } }],
+				[{ name: "eval", arguments: { language: "js", code: "await (await commit.draft()).commit('change', { noVerify: true })" } }],
 				[{ name: "eval", arguments: { language: "py", code: "sh('git push origin HEAD:main')" } }],
 			]);
-			assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("eval commit namespace commits outside the rails"), outcome(result, 2).text);
-			assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes("eval may not run git"), outcome(result, 3).text);
+			assert.ok(outcome(result, 0).isError && outcome(result, 0).text.includes("eval commit namespace commits outside the rails"), outcome(result, 0).text);
+			assert.ok(outcome(result, 1).isError && outcome(result, 1).text.includes("eval may not run git"), outcome(result, 1).text);
 			assert.deepEqual(result.branches.toSorted(), ["main"]);
 		}
 	}, runTimeout * 2);
 
 	test("a governed clone refuses forged proof evidence and still finds no prove() pass", async () => {
 		const result = await agentRun(true, [
-			[gitTool, mergeRecover],
 			[{ name: "write", arguments: { path: `.git/omp-prove/${head}.result.json`, content: JSON.stringify({ head, status: "pass" }) } }],
 			[bash(`gh pr merge 1 --rebase --match-head-commit ${head}`)],
 		]);
-		assert.ok(outcome(result, 2).isError && outcome(result, 2).text.includes("inside Git's internal directory"), outcome(result, 2).text);
-		assert.ok(outcome(result, 3).isError && outcome(result, 3).text.includes(`no prove() pass for ${head}`), outcome(result, 3).text);
+		assert.ok(outcome(result, 0).isError && outcome(result, 0).text.includes("inside Git's internal directory"), outcome(result, 0).text);
+		assert.ok(outcome(result, 1).isError && outcome(result, 1).text.includes(`no prove() pass for ${head}`), outcome(result, 1).text);
 		assert.equal(result.ghCalled, true, "the merge policy comes from the PR's base and head");
 	}, runTimeout);
 });

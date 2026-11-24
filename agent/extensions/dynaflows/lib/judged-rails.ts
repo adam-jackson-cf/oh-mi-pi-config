@@ -400,9 +400,13 @@ export function judgedRails(pi: ExecApi & Pick<ExtensionAPI, "on">, deps: Judged
 		if ("failure" in verdict) return `Agent rails: ${verdict.failure}; retry the commit.`;
 		if (!enforced(verdict) || verdict.outcome === "no") return undefined;
 		if (verdict.outcome === "escalate") return `Agent rails: ${ownerReason(verdict, key, "whether this staged change may weaken how the repository verifies itself.")}`;
-		return `Agent rails: ${verdictText(verdict)}: the staged change weakens how the repository verifies its behaviour. ` +
-			"Restore the skipped, loosened, suppressed or bypassed checks (skill://structured-workflow/references/delivery-principles.md), " +
-			"or cite the owner's recorded approval in the commit message, then commit again.";
+		return `Agent rails: ${verdictText(verdict)}: the staged change weakens how the repository verifies its behaviour.\n` +
+			"Implementation integrity means:\n" +
+			"- no stub bodies, hardcoded values or stub implementations outside tests, and no mocks in product code;\n" +
+			"- no altering, disabling, suppressing, loosening or conditionally bypassing gates or tests (for example --no-verify);\n" +
+			"- no suppressing, defaulting or working around gate and test failures, errors or deprecations;\n" +
+			"- no fallback modes or temporary strategies to meet the task, and no changing or abandoning the task after a failure without the owner's permission.\n" +
+			"Restore the skipped, loosened, suppressed or bypassed checks, or cite the owner's recorded approval in the commit message, then commit again.";
 	}
 
 	async function impactDecided(ctx: ExtensionContext, input: ImpactInput): Promise<Verdict | Failure> {

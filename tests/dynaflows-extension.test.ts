@@ -5,12 +5,6 @@ import { join, resolve } from "node:path";
 import { test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
 
-const integrity = "skill://structured-workflow/references/delivery-principles.md";
-const structure = "skill://structured-workflow/references/structure-and-naming.md";
-const enforcement = "skill://structured-workflow/references/test-enforcement.md";
-const tiers = "skill://test-guidance/references/tiers.md";
-const verification = "skill://test-guidance/references/before-commit.md";
-const proofs = "skill://structured-workflow/references/proofs.md";
 const railsConfig = join(import.meta.dir, "../agent/extensions/dynaflows/rails.yml");
 const ciRunner = resolve(import.meta.dir, "../scripts/ci_runner.py");
 
@@ -23,18 +17,9 @@ test("ci-runner commands come from the extension's own location, never a host li
 	assert.equal(ciRunner, resolve(import.meta.dir, "..", "scripts", "ci_runner.py"));
 });
 
-test("delivery policy references use the targeted homes, and every native rule always loads", () => {
-	const config = z.object({
-		references: z.object({
-			firstEdit: z.array(z.string()), newFile: z.array(z.string()),
-			testFile: z.array(z.string()), verification: z.array(z.string()), git: z.array(z.string()),
-		}).strict(),
-	}).passthrough().parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
-	assert.deepEqual(config.references, {
-		firstEdit: [integrity], newFile: [structure],
-		testFile: [tiers, enforcement, proofs], verification: [verification],
-		git: ["skill://git-tool", "skill://git-tool/references/merge-and-recover.md"],
-	});
+test("rails.yml forces no skill reads, and every native rule always loads as self-contained guidance", () => {
+	const mapping = z.record(z.string(), z.unknown()).parse(Bun.YAML.parse(readFileSync(railsConfig, "utf8")));
+	for (const key of ["references", "testGlobs", "codeGlobs"]) assert.equal(key in mapping, false, `rails.yml has no ${key}`);
 	const directory = join(import.meta.dir, "../agent/extensions/dynaflows/rules");
 	const files = [...new Bun.Glob("*.md").scanSync(directory)].map(name => name.slice(0, -3));
 	assert.ok(files.length > 0);
@@ -43,10 +28,13 @@ test("delivery policy references use the targeted homes, and every native rule a
 		const frontmatter = /^---\n([\s\S]*?)\n---/.exec(text);
 		assert.ok(frontmatter);
 		const rule = z.object({
-			agents: z.array(z.string()), repeatMode: z.string(),
+			agents: z.array(z.string()), repeatMode: z.string(), question: z.string().min(1),
 		}).parse(Bun.YAML.parse(frontmatter[1] ?? ""));
 		assert.deepEqual(rule.agents, ["main", "task"]);
 		assert.equal(rule.repeatMode, "once");
+		const body = text.slice(frontmatter[0].length);
+		assert.equal(body.includes("skill://"), false, `${name} carries its guidance instead of pointing at a skill`);
+		assert.ok(body.split("\n").length <= 60, `${name} stays short`);
 	}
 });
 

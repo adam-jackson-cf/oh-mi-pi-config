@@ -55,8 +55,7 @@ The always-loaded dynaflows extension has one governed state. Its
 a repository with no GitHub origin gets the fixed guards only, and one with a missing or invalid
 config refuses edits, commits, pushes, PRs, merges and `askFirst` commands until the owner runs
 `/agentrails onboard`. The fixed guards
-require `skill://git-tool` and `skill://git-tool/references/merge-and-recover.md` before the Git
-and GitHub writes `rails.yml` `gitCommand` lists (commit,
+check the Git and GitHub writes `rails.yml` `gitCommand` lists (commit,
 push, merge, rebase, reset, cherry-pick, revert, am, pull, update-ref, clean, restore, tag creation,
 branch delete/force/move, stash drop, fetch into a local ref, worktree add/remove, `gh` PR, release,
 repo, workflow and issue writes, `gh api` writes), including commands with Git global options, shell
@@ -74,10 +73,9 @@ The repo config's [`autonomy`](agent/extensions/dynaflows/CONFIG.md#autonomy) se
 `gh pr create` and `gh pr merge` to `allowed` or `ask`; `ask` waits for the owner's
 `$approve autonomy:<action>:<subject>` line. A `git push` to the remote's default branch is always
 refused. While a repository onboards, `gh pr merge` is refused: the owner merges the bootstrap PR.
-In a governed repository, targeted integrity/new-code/test reads for the edited path's repo
-fire before edits. All-session handoff, including subagents, stays blocked until
-verification references are read after that session's code edits in a governed repo
-and failed harness `path-check` paths pass on retry. Rails run
+The rails force no skill reads: guidance reaches agents as the self-contained judged rules in
+`agent/extensions/dynaflows/rules/` and in refusal texts. All-session handoff, including subagents,
+stays blocked until failed harness `path-check` paths pass on retry. Rails run
 `guardrails path-check --repo <worktree>` from the harness.
 It covers edited paths plus prior failures that `git status` reports as changed or
 untracked, not every repository file.
@@ -378,7 +376,8 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
   rules.
 - `agent/extensions/dynaflows/lib/` — the mode guards, rails runtime, Git paths and the repo
   config resolver.
-- `agent/extensions/dynaflows/rails.yml` — required reads per mode and the judged rule names.
+- `agent/extensions/dynaflows/rails.yml` — the tool and command mappings the rails read: edit tools,
+  path fields and the Git-write and `askFirst` command patterns.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.

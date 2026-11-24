@@ -3,7 +3,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { harness, execute, reasonOf, isBlocked, askAutonomy, ciGate, harnessConfig, ciHead, greenCi, mockPrCi, mergeRecover, proveResult, structureResult, prBody } from "./dynaflows-guards-seams.test";
+import { harness, execute, reasonOf, isBlocked, askAutonomy, ciGate, harnessConfig, ciHead, greenCi, mockPrCi, proveResult, structureResult, prBody } from "./dynaflows-guards-seams.test";
 import { commitMessage, evidenceText, impactConfig, scopeState, sections } from "../agent/extensions/dynaflows/lib/judged-rails.ts";
 import { Approvals, clip, registryDecide } from "../agent/extensions/dynaflows/lib/judge.ts";
 import { storePath } from "../agent/extensions/dynaflows/lib/decision-store.ts";
@@ -25,7 +25,6 @@ describe("implementation-integrity at a governed commit", () => {
 		const h = harness({ registry: "banded" });
 		try {
 			h.govern();
-			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await h.call("bash", { command: "git commit --allow-empty -m empty" }), undefined, "nothing staged is not judged");
 			assert.equal(h.judged.calls.length, 0);
 			await staged(h, "skip.test.ts", "test.skip('slow', () => {});\n");
@@ -57,7 +56,6 @@ describe("implementation-integrity at a governed commit", () => {
 		const h = harness();
 		try {
 			h.govern();
-			await h.read("skill://git-tool", mergeRecover);
 			await h.tool("handoff", { content: "state" });
 			for (const command of [
 				"git commit -am x", "git commit -a -m x", "git commit --all -m x", "git commit -i existing.ts -m x", "git commit --only existing.ts -m x",
@@ -82,7 +80,6 @@ describe("implementation-integrity at a governed commit", () => {
 		const h = harness();
 		try {
 			h.govern();
-			await h.read("skill://git-tool", mergeRecover);
 			await staged(h, "a.ts", "export const a = 1;\n");
 			h.judged.failure = "offline";
 			assert.ok(reasonOf(await h.call("bash", { command: "git commit -m a" })).includes("implementation-integrity judgment could not run: offline"));
@@ -113,7 +110,6 @@ describe("implementation-integrity at a governed commit", () => {
 
 async function mergeable(h: Harness, view: Parameters<typeof mockPrCi>[2] = {}): Promise<string> {
 	h.govern();
-	await h.read("skill://git-tool", mergeRecover);
 	await proveResult(h);
 	await structureResult(h);
 	mockPrCi(h, greenCi, { head: ciHead, selector: "3", ...view });
@@ -139,7 +135,6 @@ describe("completion-evidence at a governed merge", () => {
 			h.setSession("other");
 			h.judged.scores["evidence_gap"] = 0.1;
 			mockPrCi(h, greenCi, { head: ciHead, selector: "3", body: `${prBody}\n- the smoke test passed too.` });
-			await h.read("skill://git-tool", mergeRecover);
 			assert.equal(await h.call("bash", { command }), undefined, "a no verdict merges");
 		} finally { h.cleanup(); }
 	});
@@ -324,7 +319,6 @@ describe("judged-rails helpers", () => {
 			const h = harness({ extra: { decideCommand: ["sh", "-c", script] } });
 			try {
 				h.govern();
-				await h.read("skill://git-tool", mergeRecover);
 				await staged(h, "a.ts", "export const a = 1;\n");
 				assert.ok(reasonOf(await h.call("bash", { command: "git commit -m a" })).includes(expected), expected);
 			} finally { h.cleanup(); }
@@ -374,7 +368,6 @@ describe("every shipped judgment acts or is in reviewable shadow", () => {
 		const h = harness();
 		try {
 			h.govern();
-			await h.read("skill://git-tool", mergeRecover);
 			h.judged.scores["weakens_verification"] = 0.79;
 			await staged(h, "below.test.ts", "test.skip('slow', () => {});\n");
 			assert.equal(await h.call("bash", { command: "git commit -m 'test: below'" }), undefined, "0.79 is below the 0.795 threshold");
@@ -417,7 +410,6 @@ describe("the repo config softens a judgment's global mode", () => {
 		const h = harness();
 		try {
 			h.govern();
-			await h.read("skill://git-tool", mergeRecover);
 			h.config({ judgments: { "implementation-integrity/weakens_verification": { enabled: false } } });
 			h.judged.scores["weakens_verification"] = 0.95;
 			await staged(h, "skip.test.ts", "test.skip('slow', () => {});\n");

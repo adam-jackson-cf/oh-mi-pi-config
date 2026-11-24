@@ -11,17 +11,17 @@ import type { LedgerKind } from "../agent/extensions/dynaflows/lib/rails-ledger.
 type Line = [day: string, repo: string | null, kind: LedgerKind, code: string, calls?: number, refusals?: number];
 
 const fixture: Line[] = [
-	["10", "owner/a", "block", "read-gate"],
-	["10", "owner/a", "block", "read-gate"],
-	["10", "owner/a", "resolved", "read-gate", 2, 2],
-	["11", "owner/a", "block", "read-gate"],
-	["11", "owner/a", "resolved", "read-gate", 1, 1],
+	["10", "owner/a", "block", "commit-scope"],
+	["10", "owner/a", "block", "commit-scope"],
+	["10", "owner/a", "resolved", "commit-scope", 2, 2],
+	["11", "owner/a", "block", "commit-scope"],
+	["11", "owner/a", "resolved", "commit-scope", 1, 1],
 	["12", "owner/b", "context", "path-check"],
 	["12", "owner/b", "resolved", "path-check", 5, 1],
 	["12", null, "block", "push-default-branch"],
 	["13", "owner/b", "block", "commit-checks"],
-	["13", "owner/b", "block", "read-gate"],
-	["13", "owner/b", "resolved", "read-gate", 4, 1],
+	["13", "owner/b", "block", "commit-scope"],
+	["13", "owner/b", "resolved", "commit-scope", 4, 1],
 ];
 
 // A decision store under a temporary agent dir, seeded with lines; removed after body.
@@ -46,7 +46,7 @@ test("the report counts refusals by code and by repository, with the satisfied s
 		const report = summarise(readLedger(path));
 		assert.deepEqual([report.refusals, report.blocks, report.postEdit, report.satisfied, report.medianCalls], [7, 6, 1, 5, 3]);
 		assert.deepEqual(report.codes, [
-			{ code: "read-gate", refusals: 4, blocks: 4, postEdit: 0, satisfied: 4, medianCalls: 2 },
+			{ code: "commit-scope", refusals: 4, blocks: 4, postEdit: 0, satisfied: 4, medianCalls: 2 },
 			{ code: "path-check", refusals: 1, blocks: 0, postEdit: 1, satisfied: 1, medianCalls: 5 },
 			{ code: "commit-checks", refusals: 1, blocks: 1, postEdit: 0, satisfied: 0, medianCalls: null },
 			{ code: "push-default-branch", refusals: 1, blocks: 1, postEdit: 0, satisfied: 0, medianCalls: null },
@@ -58,7 +58,7 @@ test("the report counts refusals by code and by repository, with the satisfied s
 		]);
 		const printed = formatReport(report, path);
 		assert.ok(printed.startsWith(`Rails ledger ${path}\n7 refusals (6 blocks, 1 post-edit), 5 later satisfied (71%), median 3 calls to resolve\n`), printed);
-		assert.match(printed, /^read-gate +4 +4 +0 +4 +100% +2$/m);
+		assert.match(printed, /^commit-scope +4 +4 +0 +4 +100% +2$/m);
 		assert.match(printed, /^commit-checks +1 +1 +0 +0 +0% +-$/m);
 		assert.match(printed, /^repo +refusals +satisfied +rate$/m, "the groups table has one row per repository, no mode column");
 		assert.match(printed, /^owner\/a +3 +3 +100%$/m);

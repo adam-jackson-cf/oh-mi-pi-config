@@ -1,4 +1,4 @@
-import { access, lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, readFile, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import {
 	z, type ExtensionAPI, type ExtensionContext,
@@ -10,7 +10,7 @@ import {
 } from "./lib/repo-config.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, loadMapping, detailsSchema, policyEvent, absolute, repoRoot,
-	paths, pathArguments, matches, missing, readReason, gitActions, note, fileErrorSchema,
+	paths, pathArguments, gitActions, note, fileErrorSchema,
 	codeRunsGit, INDEX_WRITES, commitScopeArgument,
 	recordRead, subagentPathReason, type GitAction, type Mapping, type State as SharedState, type ToolEvent,
 	blockLine, closeEpisodes, coded, insertEntries, openEpisode, RailError, refuse, resolvedLine, storePath as defaultStorePath,
@@ -107,7 +107,6 @@ type ExecApi = Pick<ExtensionAPI, "exec">;
 type DynaflowsApi = Pick<ExtensionAPI, "on" | "exec" | "registerCommand" | "registerTool" | "sendUserMessage"> & { pi: Pick<ExtensionAPI["pi"], "settings"> };
 const toolReply = (text: string) => ({ content: [{ type: "text" as const, text }], details: {} });
 interface State extends SharedState {
-	edits: Set<string>;
 	pathFailures: Map<string, string[]>;
 	// Tool calls seen this session and the open refusal episodes, for the rails ledger.
 	calls: number;
@@ -119,7 +118,7 @@ interface State extends SharedState {
 }
 function fresh(): State {
 	return {
-		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
+		reads: new Set(), notes: new Set(), pathFailures: new Map(),
 		proposal: [], calls: 0, episodes: [], autonomyUses: [], onboarding: new Set(),
 	};
 }
@@ -219,9 +218,9 @@ const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "pyth
 // The harness checks run only after commands.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the config has not given the step to it.
 const harnessOnlyNote =
-	"commands.commit passed. If a repo checker already enforces a failing step's rules, do not reshape repo " +
-	"code to the harness copy: report it to the owner, whose .agentrails/config.json can give the step to the repo " +
-	"checker (checkers.check.repo).";
+	"commands.commit passed. Checks come from .agentrails/config.json commands; the owner changes them through the " +
+	"setup-repo-proofs writer. If a repo checker already enforces a failing step's rules, do not reshape repo code to " +
+	"the harness copy: report it to the owner, who can give the step to the repo checker (checkers.check.repo).";
 
 async function gitValue(pi: ExecApi, cwd: string, args: string[]): Promise<string> {
 	const result = await pi.exec("git", args, { cwd, timeout: SUBPROCESS_TIMEOUT_MS });
@@ -363,12 +362,11 @@ function editedPaths(map: Mapping, event: ToolEvent, ctx: ExtensionContext, stat
 	const { applied, files } = event.details;
 	return applied === true && files ? files.flatMap(path => absolute(path, ctx.cwd) ?? []) : [];
 }
-async function groupByRoot(map: Mapping, changed: string[], state: State): Promise<Map<string, string[]>> {
+async function groupByRoot(changed: string[]): Promise<Map<string, string[]>> {
 	const groups = new Map<string, string[]>();
 	for (const path of changed) {
 		const root = await repoRoot(path);
 		if (!root) continue;
-		if (matches(relative(root, path), map.codeGlobs)) state.edits.add(root);
 		groups.set(root, [...(groups.get(root) ?? []), path]);
 	}
 	return groups;
@@ -778,7 +776,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	async function recordResult(event: ToolEvent, ctx: ExtensionContext, state: State, runCheck: boolean) {
 		recordRead(event, state);
 		if (event.isError || proposalOnly(map, event, ctx, state) || !map.editTools.includes(event.toolName)) return undefined;
-		const groups = await groupByRoot(map, editedPaths(map, event, ctx, state), state);
+		const groups = await groupByRoot(editedPaths(map, event, ctx, state));
 		const errors = runCheck ? await checkGroups(groups, ctx, state, event.toolName) : [];
 		return errors.length ? { additionalContext: errors.map(error => error.reason).join("\n") } : undefined;
 	}
@@ -859,8 +857,6 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		if (step.unresolved) return unresolvedRefusal(step.unresolved.message);
 		const scope: RailsScope = action.cwd ? await railsScope(ctx, action.cwd) : { kind: "outside" };
 		if (scope.kind === "unresolved") return unresolvedRefusal(scope.reason);
-		const urls = missing(state, map, ["git"]);
-		if (urls.length) return readReason(urls);
 		return coded("extension-review", await sessionRail.gitWriteReason(action, ctx)) ?? gitWriteKindReason(step, scope, state, ctx, call);
 	}
 	async function gitWriteKindReason(step: Step, scope: RailsScope, state: State, ctx: ExtensionContext, call: BashCall): Promise<Refusal | undefined> {
@@ -901,30 +897,10 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 			await actionsReason(actions, state, ctx, { depth: 0, call: { actions, executables: scan.executables }, staged: false, unresolved: drift.unresolved }),
 			drift.unresolved, state, ctx);
 	}
-	async function pathTriggers(path: string, ctx: ExtensionContext, state: State): Promise<string[]> {
-		const root = await repoRoot(path);
-		if (!root || (await notedScope(ctx, root)).kind !== "governed") return [];
-		const rel = relative(root, path);
-		const code = matches(rel, map.codeGlobs);
-		const triggers: string[] = [];
-		if (!state.edits.has(root) && code) triggers.push("firstEdit");
-		if (code && !(await access(path).then(() => true, () => false))) triggers.push("newFile");
-		if (matches(rel, map.testGlobs)) triggers.push("testFile");
-		return triggers;
-	}
-	async function editReadsReason(event: ToolEvent, ctx: ExtensionContext, state: State): Promise<Refusal | undefined> {
-		if (!map.editTools.includes(event.toolName)) return undefined;
-		const targets = event.input.path === map.resolveDevice ? state.proposal : paths(event, map, ctx.cwd);
-		const required = new Set<string>();
-		for (const path of targets) {
-			for (const url of missing(state, map, await pathTriggers(path, ctx, state))) required.add(url);
-		}
-		return required.size ? readReason([...required]) : undefined;
-	}
 	async function callReason(event: ToolEvent, scope: ScopeInput, ctx: ExtensionContext, state: State): Promise<Refusal | undefined> {
 		return (await bashReason(event, ctx, state)) ?? (await evalToolReason(trust, event, ctx.cwd)) ??
 			protectedEditReason(map, trust.protection, event, ctx.cwd, state) ?? (await subagentReason(map, event, ctx, state)) ??
-			(await onboardingEditReason(event, ctx, state)) ?? (await editReadsReason(event, ctx, state)) ?? (await onboardingAskFirstReason(event, ctx)) ??
+			(await onboardingEditReason(event, ctx, state)) ?? (await onboardingAskFirstReason(event, ctx)) ??
 			coded("judged-scope", await sessionRail.judged.scopeReason(event, scope, ctx));
 	}
 	pi.on("tool_call", async (runtimeEvent, ctx) => {
@@ -962,12 +938,10 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	});
 	async function handoffReasons(ctx: ExtensionContext, state: State): Promise<Refusal[]> {
 		const reasons: Refusal[] = [];
-		let editedGoverned = false;
-		for (const root of new Set([...state.edits, ...state.pathFailures.keys()])) {
+		for (const root of state.pathFailures.keys()) {
 			const scope = await railsScope(ctx, root);
 			if (scope.kind === "unresolved") reasons.push(unresolvedRefusal(scope.reason));
 			if (scope.kind !== "governed") continue;
-			if (state.edits.has(root)) editedGoverned = true;
 			if (!scope.config.gates.pathCheck) state.pathFailures.delete(root);
 			const failedPaths = state.pathFailures.get(root);
 			const error = failedPaths
@@ -975,8 +949,6 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 				: undefined;
 			if (error) reasons.push(error);
 		}
-		const urls = editedGoverned ? missing(state, map, ["verification"]) : [];
-		if (urls.length) reasons.push(refuse("handoff-read", `read ${urls.join(" and ")}`));
 		return reasons;
 	}
 	pi.on("session_stop", async (_event, ctx) => {
