@@ -12,8 +12,8 @@ structure = await structure_review(repo, parent, head, target_ref=target_ref)
 
 Main calls this after prove on the same exact head and merge-base range. Every proposer runs
 isolated Python (`-I -S`) from the harness reference, reads Git objects only and never imports or
-executes target-repository code. `structure-state --repo R --base SHA --head SHA` records the
-affected units (`{unit_path: unit_state}`) with their digests; no question judges a whole unit.
+executes target-repository code. No question judges a whole folder: each asks about one proposed
+file or one proposed pair of names.
 
 The frozen questions and per-question thresholds live in
 `judgments/structure-naming/{questions,thresholds}.json`. Prefix clusters are a deterministic
@@ -49,7 +49,8 @@ as a `decisions` row (trigger `pr`, the file or pair as the item, its combined s
 calibrated confidence: raw probabilities are not confidence.
 
 The JSON result at `<git-common-dir>/omp-structure/<head>.json` contains `head`, `status`,
-unit-state digests, per-file and per-pair scores and outcomes (`yes`, `no`), findings,
+per-file and per-pair state digests, scores and outcomes (`pairs`, `kind_files`, `consumers`), findings
+(each naming its file or pair as `item`),
 full thresholds and version key, `halt`, and infrastructure `errors`.
 One marked PR comment is updated across reruns/heads. A finding is a `yes` outcome (score at or
 above the decision's `threshold`) and carries its decision's `mode`. No prove file or proof status

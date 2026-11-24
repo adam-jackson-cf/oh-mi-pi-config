@@ -83,13 +83,6 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         prints_data=True,
         record_optional=True,
     ),
-    "structure-state": Subcommand(
-        ("guardrails.commands.structure.state",),
-        "bounded structure/naming unit-state JSON for --base SHA --head SHA",
-        needs_profile=False,
-        prints_data=True,
-        record_optional=True,
-    ),
     "naming": Subcommand(
         ("guardrails.commands.structure.naming",),
         "NAME.conventions and NAME.test-files",

@@ -1,12 +1,12 @@
 # Structure and naming label guide
 
-Version `@6`. Each unit case is one unit that a pull request introduced, extracted exactly as
-`structure_review()` extracts it (`structure-state`, `judgment_unit`). A labeller sees the case's
-`unit_state`, the questions it is labelled for and this guide; never Jev's scores, the sampling
-stratum or another labeller's label. For each question give 1 when the violation the question asks
-about is present, else 0, the rule ID that decided it and a one-sentence reason that cites the
-state. Each `same_thing` case is one code-proposed name pair (`structure_review()` runs
-`name-pairs`); its labeller reads the source at the pair's commit.
+Version `@6`. Each case is one code-proposed file or name pair, built exactly as
+`structure_review()` builds it: `kind-candidates` and `consumer-candidates` propose files and
+`name-pairs` proposes pairs. A labeller sees the case's state, the questions it is labelled for and
+this guide; never Jev's scores, the sampling stratum or another labeller's label. For each question
+give 1 when the violation the question asks about is present, else 0, the rule ID that decided it
+and a one-sentence reason that cites the state. A `same_thing` labeller reads the source at the
+pair's commit.
 `abstain` with a reason is allowed when the state cannot decide; it never counts.
 
 ## Rules per question

@@ -421,66 +421,6 @@ class ProveScopeTests(NamingScopeCase):
         )
         assert not any("legacyUtils" in message for message in result["blocking"])
 
-    def test_structure_judgment_payload_marks_introductions_and_keeps_legacy_as_context(
-        self,
-    ) -> None:
-        from guardrails.commands.structure import state
-
-        self.write("legacyUtils/reader.py")
-        self.write("legacyUtils/shipping/writer.py")
-        self.commit()
-        head = self.git("rev-parse", "HEAD").strip()
-        units = state.extract(self.repo, self.base, head, self.profile)
-        legacy = units["legacyUtils"]
-        assert legacy["introduced_paths"] == [
-            "legacyUtils/reader.py",
-            "legacyUtils/shipping/writer.py",
-        ]
-        assert legacy["introduced_directories"] == ["legacyUtils/shipping"]
-        assert legacy["files"] == legacy["introduced_paths"]
-        assert any(
-            "legacyUtils/misc.py" in context["files"]
-            for context in legacy["related_context"]
-        )
-        assert "technical_kind_grouping" not in legacy["judgment_questions"]
-        assert "sibling_naming_pattern" not in legacy["judgment_questions"]
-        assert "overlapping_responsibilities" not in legacy["judgment_questions"]
-        assert units["legacyUtils/shipping"]["judgment_questions"] == []
-        assert "legacyUtils/misc.py" not in legacy["introduced_paths"]
-        assert units["legacyUtils/shipping"]["introduced_paths"] == [
-            "legacyUtils/shipping/writer.py"
-        ]
-
-    def test_structure_dispatch_judges_new_ancestor_directories_but_not_legacy_parents(
-        self,
-    ) -> None:
-        from guardrails.commands.structure import state
-
-        self.write("catalogue/shipping/parcel/reader.py")
-        self.commit()
-        head = self.git("rev-parse", "HEAD").strip()
-        units = state.extract(self.repo, self.base, head, self.profile)
-        assert set(units) == {"catalogue/shipping", "catalogue/shipping/parcel"}
-        for unit in units.values():
-            assert unit["judgment_questions"] == []
-            assert "catalogue" not in unit["introduced_directories"]
-
-    def test_structure_dispatch_does_not_require_legacy_prefix_members_to_move(
-        self,
-    ) -> None:
-        from guardrails.commands.structure import state
-
-        self.write("catalogue/audit_reader.py")
-        self.commit()
-        base = self.git("rev-parse", "HEAD").strip()
-        self.write("catalogue/audit_writer.py")
-        self.commit()
-        head = self.git("rev-parse", "HEAD").strip()
-        unit = state.extract(self.repo, base, head, self.profile)["catalogue"]
-        assert unit["files"] == ["catalogue/audit_writer.py"]
-        assert "prefix_should_be_folder" not in unit["judgment_questions"]
-        assert unit["cluster"] == []
-
     def test_named_directory_expands_only_its_introduced_files(self) -> None:
         self.write("catalogue/reader.py", "VALUE = 2\n")
         self.write("catalogue/misc.py")

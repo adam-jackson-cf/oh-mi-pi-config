@@ -1779,7 +1779,6 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             self.judgment.questions,
             self.judgment.thresholds,
         )
-        self.states = workflow._structure_states(self.repo, self.parent, self.head)
         self.calls: list[Any] = []
         agent = tempfile.TemporaryDirectory(prefix="omp-structure-agent-")
         self.addCleanup(agent.cleanup)
@@ -1854,7 +1853,6 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
                 workflow, "_configured_judge_model", return_value=self.judge_role
             ),
             patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.agent)}),
-            patch.object(workflow, "_structure_states", return_value=self.states),
             patch.object(workflow, "_kind_candidates", return_value=self.kinds),
             patch.object(workflow, "_name_pairs", return_value=self.pairs),
             patch.object(workflow, "_consumer_candidates", return_value=self.consumers),
@@ -1913,7 +1911,8 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             (workflow.PAIR_QUESTION, "enforced"),
             (workflow.CONSUMER_QUESTION, "shadow"),
         }
-        assert len(result["units"]["src/orders"]["digest"]) == 64
+        assert len(result["pairs"][PAIR_ID]["digest"]) == 64
+        assert "units" not in result
         assert signal.read_text() == '{"status":"pass"}'
         assert result["thresholds"] == self.thresholds
         comment = workflow._structure_comment(result)
@@ -2005,7 +2004,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         result = await self.review(score=1.0)
         assert (result["halt"], result["status"]) == (True, "blocked")
         assert {
-            "unit": PAIR_ID,
+            "item": PAIR_ID,
             "question": workflow.PAIR_QUESTION,
             "mode": "enforced",
             "score": 0.051143,
@@ -2045,18 +2044,15 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert self.calls.count("closed") == 4
         assert set(self.calls[2][0]) == {PAIR_ID + "##ab", PAIR_ID + "##ba"}
 
-    def test_extractor_uses_isolated_harness_cli_and_exact_commit_range(self) -> None:
+    def test_proposers_use_isolated_harness_cli_and_exact_commit_range(self) -> None:
         with patch.object(
-            workflow, "run_check", return_value=(True, json.dumps(self.states))
+            workflow, "run_check", return_value=(True, json.dumps({"pairs": []}))
         ) as run:
-            assert (
-                workflow._structure_states(self.repo, self.parent, self.head)
-                == self.states
-            )
+            assert workflow._name_pairs(self.repo, self.parent, self.head) == []
         argv = run.call_args.args[0]
         assert argv[:3] == [sys.executable, "-I", "-S"]
-        assert argv[-7:] == [
-            "structure-state",
+        assert "name-pairs" in argv
+        assert argv[-6:] == [
             "--repo",
             str(self.repo),
             "--base",
@@ -2066,23 +2062,18 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         ]
         assert run.call_args.kwargs["stdout_only"]
 
-    def test_extractor_parses_real_structure_state_stdout_without_status_line(
-        self,
-    ) -> None:
-        source = self.repo / "src/orders/api.py"
+    def test_proposers_parse_real_stdout_without_status_line(self) -> None:
+        source = self.repo / "src/models/order.py"
         source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_text('"""Order API."""\nORDER_LIMIT = 10\n')
+        source.write_text('class Order:\n    """A customer order."""\n')
         git(self.repo, "add", ".")
-        git(self.repo, "commit", "-qm", "add order unit")
+        git(self.repo, "commit", "-qm", "add order model")
         head = git(self.repo, "rev-parse", "HEAD")
 
-        states = workflow._structure_states(self.repo, self.parent, head)
+        found = workflow._kind_candidates(self.repo, self.parent, head)
 
-        assert set(states) == {"src/orders"}
-        assert states["src/orders"]["folder_path"] == "src/orders"
-        assert states["src/orders"]["files"] == ["src/orders/api.py"]
-        assert states["src/orders"]["evidence_limits"]["base"] == self.parent
-        assert states["src/orders"]["evidence_limits"]["head"] == head
+        assert [item["path"] for item in found] == ["src/models/order.py"]
+        assert found[0]["state"]["folder"] == "src/models"
 
     def test_comment_updates_existing_marker_instead_of_posting_again(
         self,

@@ -767,21 +767,21 @@ test("dynaflows merge requires a valid exact-head structure result and blocks ev
 			JSON.stringify({ head: "b".repeat(40), halt: false, status: "pass", findings: [] }),
 			JSON.stringify({ head: ciHead, halt: "false", status: "pass", findings: [] }),
 			JSON.stringify({ head: ciHead, halt: false, status: "shadow", findings: [] }),
-			JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [{ unit: "u", question: "q", mode: "enforced", status: "ready", score: 0.9, threshold: 0.7 }] }),
-			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [{ unit: "u", question: "q", mode: "enforced", score: 0.9, threshold: 0.7 }] }),
-			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [{ unit: "u", question: "q", score: 0.9, threshold: 0.7 }] }),
-			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [{ unit: "u", question: "q", mode: "advisory", score: 0.9, threshold: 0.7 }] }),
+			JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [{ item: "u", question: "q", mode: "enforced", status: "ready", score: 0.9, threshold: 0.7 }] }),
+			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [{ item: "u", question: "q", mode: "enforced", score: 0.9, threshold: 0.7 }] }),
+			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [{ item: "u", question: "q", score: 0.9, threshold: 0.7 }] }),
+			JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [{ item: "u", question: "q", mode: "advisory", score: 0.9, threshold: 0.7 }] }),
 			JSON.stringify({ head: ciHead, halt: false, status: "blocked", findings: [] }),
 		]) {
 			await watched(content);
 			assert.equal((await h.call("bash", { command }))?.block, true);
 		}
-		const finding = { unit: "src/orders", question: "consumer_placement", mode: "enforced", score: 0.9, threshold: 0.7 };
-		const shadow = { unit: "src/orders", question: "technical_kind_grouping", mode: "shadow", score: 0.95, threshold: 0.7 };
+		const finding = { item: "src/orders/report.py", question: "consumer_placement", mode: "enforced", score: 0.9, threshold: 0.7 };
+		const shadow = { item: "src/orders/models/order.py", question: "technical_kind_grouping", mode: "shadow", score: 0.95, threshold: 0.7 };
 		await watched(JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [finding, shadow] }));
 		const blocked = await h.call("bash", { command });
 		assert.equal(isBlocked(blocked), true);
-		assert.ok(reasonOf(blocked).includes("src/orders: consumer_placement"));
+		assert.ok(reasonOf(blocked).includes("src/orders/report.py: consumer_placement"));
 		assert.ok(!reasonOf(blocked).includes("technical_kind_grouping"), "a shadow finding is never a merge block");
 		assert.ok(reasonOf(blocked).includes("fix them and rerun prove() and structure_review() on the new head"));
 		h.mode("minimal");
@@ -792,6 +792,10 @@ test("dynaflows merge requires a valid exact-head structure result and blocks ev
 		assert.ok(reasonOf(await h.call("bash", { command })).includes("is incomplete (judge offline)"), "an incomplete review never admits a merge");
 		await watched(JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [shadow] }));
 		assert.equal(await h.call("bash", { command }), undefined, "shadow findings alone admit the merge");
+		const scored = { probability: 0.1, score: 0.1, outcome: "no", digest: "d" };
+		await watched(JSON.stringify({ head: ciHead, halt: false, status: "pass", findings: [],
+			pairs: { "a.py::x<>b.py::y": scored }, kind_files: { "app/models/a.py": scored }, consumers: {} }));
+		assert.equal(await h.call("bash", { command }), undefined, "a result carrying its scored pairs and files admits the merge");
 		await structureResult(h);
 		assert.equal(await h.call("bash", { command }), undefined);
 	} finally { h.cleanup(); }

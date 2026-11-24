@@ -1333,7 +1333,7 @@ class StructureProposalTests(unittest.TestCase):
         assert list(questions) == [workflow.PAIR_QUESTION]
         assert self.result["findings"] == [
             {
-                "unit": "a.py::x<>b.py::y",
+                "item": "a.py::x<>b.py::y",
                 "question": workflow.PAIR_QUESTION,
                 "mode": "enforced",
                 "score": 0.06,

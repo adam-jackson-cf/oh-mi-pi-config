@@ -3301,26 +3301,6 @@
       ]
     },
     {
-      "id": "STRUCTURE.state",
-      "kind": "bespoke",
-      "applicability": "always",
-      "contract": {
-        "base_and_head_required": true,
-        "unreadable_commits_are_a_finding": true
-      },
-      "summary": "Report unreadable base or head commits when extracting structure state.",
-      "remediation": {
-        "root_cause": "Structure state extraction received commits it cannot read, so it has no base and head to compare.",
-        "fix": "Pass readable base and head commits of this repository, fetching them first when the clone lacks them."
-      },
-      "reference": [
-        {
-          "subcommand": "structure-state",
-          "module": "guardrails.commands.structure.state"
-        }
-      ]
-    },
-    {
       "id": "STRUCTURE.kind-candidates",
       "kind": "bespoke",
       "applicability": "always",

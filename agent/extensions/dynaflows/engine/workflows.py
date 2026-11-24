@@ -2979,52 +2979,17 @@ STRUCTURE_QUESTIONS = frozenset({KIND_QUESTION, PAIR_QUESTION, CONSUMER_QUESTION
 
 
 def _structure_config() -> Judgment:
-    """The structure-naming judgment: one bool question per structure-state question."""
+    """The structure-naming judgment: its proposal questions, consumer_placement a Choice and the rest bool."""
     judgment = load_judgment(STRUCTURE_JUDGMENT)
     if set(judgment.questions) != STRUCTURE_QUESTIONS or any(
         q.get("type") != ("choice" if ident == CONSUMER_QUESTION else "bool")
         for ident, q in judgment.questions.items()
     ):
         raise WorkflowError(
-            "structure questions must be exactly the bool questions: "
-            + ", ".join(sorted(STRUCTURE_QUESTIONS))
+            "structure questions must be exactly these, consumer_placement a choice "
+            "and the rest bool: " + ", ".join(sorted(STRUCTURE_QUESTIONS))
         )
     return judgment
-
-
-def _structure_states(
-    repo: StrPath, parent: str, head: str
-) -> dict[str, dict[str, Any]]:
-    # Only the harness reference is importable; never import or execute repository code.
-    ok, output = run_check(
-        [
-            sys.executable,
-            "-I",
-            "-S",
-            "-c",
-            "import sys; sys.path.insert(0, sys.argv.pop(1)); "
-            "from guardrails.commands.cli import main; raise SystemExit(main())",
-            str(_harness_root() / GUARDRAILS_REFERENCE),
-            "structure-state",
-            "--repo",
-            str(repo),
-            "--base",
-            parent,
-            "--head",
-            head,
-        ],
-        repo,
-        timeout=HARNESS_CHECK_TIMEOUT,
-        stdout_only=True,
-    )
-    if not ok:
-        raise WorkflowError(f"structure-state failed: {output}")
-    states = json.loads(output)
-    if not isinstance(states, dict) or any(
-        not isinstance(v, dict) for v in states.values()
-    ):
-        raise WorkflowError("structure-state must emit {unit_path: unit_state}")
-    return states
 
 
 def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
@@ -3111,7 +3076,7 @@ def _structure_comment(result: dict[str, Any]) -> str:
     for item in result["findings"]:
         shadow = " (shadow, not blocking)" if item["mode"] == "shadow" else ""
         lines.append(
-            f"- `{item['unit']}` · `{item['question']}`: raw {item['score']:.3f} "
+            f"- `{item['item']}` · `{item['question']}`: raw {item['score']:.3f} "
             f"≥ {item['threshold']:.3f}{shadow}"
         )
     if not result["findings"]:
@@ -3178,7 +3143,6 @@ async def structure_review(
         "parent": None,
         "status": "incomplete",
         "halt": False,
-        "units": {},
         "pairs": {},
         "kind_files": {},
         "consumers": {},
@@ -3206,12 +3170,7 @@ async def structure_review(
         )
         require_direct_judge_route()
         require_judge_model(judgment)
-        groups = _structure_units(
-            _structure_states(repo, parent, head), judgment.questions, result
-        )
         review = StructureJudgment(judgment, result, _github_repo(repo))
-        for eligible, group in groups.items():
-            await review.judge_group(eligible, group)
         await review.judge_kind_files(_kind_candidates(repo, parent, head))
         await review.judge_pairs(_name_pairs(repo, parent, head))
         await review.judge_consumers(_consumer_candidates(repo, parent, head))
@@ -3243,119 +3202,14 @@ def _structure_status(result: dict[str, Any]) -> str:
     return "incomplete" if result["errors"] else "pass"
 
 
-def _structure_units(
-    states: dict[str, dict[str, Any]], questions: dict[str, Any], result: dict[str, Any]
-) -> dict[tuple[str, ...], dict[str, dict[str, Any]]]:
-    """Record each unit in `result` and group the units to judge by their eligible questions."""
-    groups: dict[tuple[str, ...], dict[str, dict[str, Any]]] = {}
-    for unit, state in sorted(states.items()):
-        eligible = state.get("judgment_questions")
-        if not isinstance(eligible, list) or any(
-            ident not in questions for ident in eligible
-        ):
-            raise WorkflowError(f"{unit}: invalid deterministic judgment scope")
-        result["units"][unit] = {
-            "digest": _judgment_digest(state),
-            "judgment_digest": _judgment_digest(state),
-            "judged_paths": state["introduced_paths"],
-            "judged_directories": state["introduced_directories"],
-            "questions": eligible,
-            "scores": {},
-        }
-        if eligible:
-            groups.setdefault(tuple(eligible), {})[unit] = {"unit_state": state}
-    return groups
-
-
 class StructureJudgment:
-    """Judge structure units through the eval kernel and record scores and findings in the result."""
+    """Judge code-proposed files and pairs through the eval kernel; record scores and findings."""
 
     def __init__(self, judgment: Judgment, result: dict[str, Any], repo: str) -> None:
         self.judgment = judgment
         self.questions = judgment.questions
         self.result = result
         self.repo = repo
-
-    def context(self, unit: str) -> Any:
-        """The decision store context of one unit's judgment at this PR head."""
-        return _store().DecisionContext(
-            "pr",
-            repo=self.repo,
-            commit=self.result["head"],
-            item_kind="unit",
-            item=unit,
-        )
-
-    def record(
-        self, unit: str, state: object, answers: object, selected: dict[str, Any]
-    ) -> None:
-        logged = judgment_record(
-            self.judgment, state, answers, self.context(unit), selected
-        )
-        self.result["units"][unit]["scores"] = logged["probabilities"]
-        self.result["units"][unit]["outcomes"] = logged["outcomes"]
-        for ident, verdict in logged["outcomes"].items():
-            decision = self.judgment.decisions[ident]
-            if verdict == "yes":
-                finding = {
-                    "unit": unit,
-                    "question": ident,
-                    "mode": decision["mode"],
-                    "score": logged["probabilities"][ident],
-                    "threshold": decision.get(
-                        "threshold", decision.get("yes_at_least")
-                    ),
-                }
-                self.result["findings"].append(finding)
-            elif verdict == "escalate":
-                self.result["errors"].append(
-                    f"{unit}: {ident} escalated to {decision['fallback']}, "
-                    "which structure_review() does not run"
-                )
-
-    async def judge_group(
-        self, eligible: tuple[str, ...], group: dict[str, dict[str, Any]]
-    ) -> None:
-        """One judge() call for a single unit, else one judge_batch() over units sharing questions."""
-        selected = {ident: self.questions[ident] for ident in eligible}
-        if len(group) == 1:
-            unit, state = next(iter(group.items()))
-            try:
-                answers = await _kernel("judge")(state, selected)
-            except INFRASTRUCTURE_ERRORS as exc:
-                self.failed(unit, state, str(exc), selected)
-                return
-            self.answered(unit, state, answers, selected)
-            return
-        batch = _kernel("judge_batch")(
-            group, selected, intent="Structure/naming review"
-        )
-        try:
-            async for unit, item in batch.drain_iter():
-                if item.ok:
-                    self.answered(unit, group[unit], item.answers, selected)
-                else:
-                    self.failed(unit, group[unit], str(item.error), selected)
-        finally:
-            batch.close()
-
-    def answered(
-        self, unit: str, state: object, answers: object, selected: dict[str, Any]
-    ) -> None:
-        try:
-            self.record(unit, state, answers, selected)
-        except INFRASTRUCTURE_ERRORS as exc:
-            self.result["errors"].append(f"{unit}: judgment: {exc}")
-
-    def failed(
-        self, unit: str, state: object, error: str, selected: dict[str, Any]
-    ) -> None:
-        """A unit whose judge call returned no answers: a review error and its decision store rows."""
-        self.result["errors"].append(f"{unit}: judgment: {error}")
-        try:
-            judgment_error(self.judgment, state, error, self.context(unit), selected)
-        except WorkflowError as exc:
-            self.result["errors"].append(f"{unit}: {exc}")
 
     async def ask(
         self,
@@ -3446,7 +3300,7 @@ class StructureJudgment:
             )
         elif verdict == "yes":
             self.result["findings"].append({
-                "unit": item_id,
+                "item": item_id,
                 "question": ident,
                 "mode": decision["mode"],
                 "score": score,

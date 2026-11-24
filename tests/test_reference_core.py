@@ -46,7 +46,6 @@ CONTRACT_SUBCOMMANDS = {
     "responsibility-overlap",
     "prefix-candidates",
     "prefix-folder",
-    "structure-state",
     "name-pairs",
     "consumer-candidates",
     "kind-candidates",
