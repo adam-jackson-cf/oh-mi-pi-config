@@ -327,11 +327,11 @@ describe("judged-rails helpers", () => {
 });
 
 const shippedJudgments = join(import.meta.dir, "../agent/extensions/dynaflows/judgments");
-const decisionSchema = z.object({ threshold: z.number().min(0).max(1).optional(), round_up_floor: z.number().optional(), mode: z.enum(["enforced", "shadow"]) }).passthrough();
+const decisionSchema = z.object({ threshold: z.number().min(0).max(1).optional(), round_up_floor: z.number().optional(), mode: z.enum(["enforced", "shadow"]), shadow_exit: z.object({ labelled_flags: z.number().int().min(1) }).optional() }).passthrough();
 const thresholdsSchema = z.object({ decisions: z.record(z.string(), decisionSchema) }).passthrough();
 
-describe("every shipped judgment is enforced", () => {
-	test("no shipped judgment has a status, a band or a shadow decision: each bool decision is one enforced threshold", () => {
+describe("every shipped judgment acts or is in reviewable shadow", () => {
+	test("no shipped judgment has a status or a band: each decision is one threshold, enforced or a shadow with an exit", () => {
 		const names = readdirSync(shippedJudgments);
 		assert.ok(names.length >= 6, names.join(", "));
 		for (const name of names) {
@@ -340,7 +340,10 @@ describe("every shipped judgment is enforced", () => {
 			for (const [ident, decision] of Object.entries(thresholds.decisions)) {
 				assert.equal("status" in decision, false, `${name}/${ident}`);
 				assert.equal("no_at_most" in decision || "yes_at_least" in decision, false, `${name}/${ident} has a band`);
-				assert.equal(decision.mode, "enforced", `${name}/${ident}`);
+				if (decision.mode === "shadow") {
+					assert.notEqual(decision.threshold, undefined, `${name}/${ident} shadow needs a single threshold`);
+					assert.notEqual(decision.shadow_exit, undefined, `${name}/${ident} shadow needs shadow_exit`);
+				}
 				assert.ok(decision.threshold !== undefined || decision.round_up_floor !== undefined, `${name}/${ident}`);
 			}
 		}

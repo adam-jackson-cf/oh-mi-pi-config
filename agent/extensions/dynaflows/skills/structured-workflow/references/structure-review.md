@@ -10,23 +10,45 @@ structure = await structure_review(repo, parent, head, target_ref=target_ref)
 # Rails require both exact-head files before git-tool's merge contract.
 ```
 
-Main calls this after prove on the same exact head and merge-base range. The extractor runs
-isolated Python (`-I -S`) from the harness reference:
-`structure-state --repo R --base SHA --head SHA`. It reads Git objects only, never imports
-or executes target-repository code, and emits `{unit_path: unit_state}` for affected units.
+Main calls this after prove on the same exact head and merge-base range. Every proposer runs
+isolated Python (`-I -S`) from the harness reference, reads Git objects only and never imports or
+executes target-repository code. `structure-state --repo R --base SHA --head SHA` records the
+affected units (`{unit_path: unit_state}`) with their digests; no question judges a whole unit.
 
 The frozen questions and per-question thresholds live in
-`judgments/structure-naming/{questions,thresholds}.json`. Ask all seven general questions
-for every affected unit and `prefix_should_be_folder` only with eligible clusters. Independent
-questions share a request; multiple units sharing those questions use eval `judge_batch`.
+`judgments/structure-naming/{questions,thresholds}.json`. Prefix clusters are a deterministic
+prove() check (STRUCT.prefix-folder), not a question.
+
+Grouping by technical kind is judged per file and runs in shadow mode: its flags are logged for
+review and never block. `kind-candidates` (same launch and record) proposes every `.py` file with a
+top-level definition in a technical-kind folder (`models`, `utils`, `services` and the like),
+added, modified or renamed in the range, and drops files a record exception with rule
+`structure-naming/technical_kind_grouping` covers. Each file asks the `technical_kind_grouping`
+question (sent as `own_capability`) once; its score is the probability, compared with the
+decision's threshold.
+
+One name per concept is judged per name pair. `name-pairs --repo R [--record D] --base SHA
+--head SHA` (same isolated launch) proposes pairs by code (alias, head noun, synonym, constant
+value, clone) where at least one name is defined in an added, modified or renamed file, and drops
+pairs a record `guardrails.exceptions` entry with rule `structure-naming/same_thing` covers on
+either name's file. Each pair asks `same_thing` in both orders (first and second swapped) in one
+`judge_batch`; its score is the pair's `det_score` times the mean probability, compared with the
+`same_thing` threshold.
+
+A finished-product consumer placed inside its package is judged per runnable file.
+`consumer-candidates` (same launch and record) proposes package files with a run marker that no
+other file imports, added, modified or renamed in the range, and drops files a record exception
+with rule `structure-naming/consumer_placement` covers. Each file asks the `consumer_placement`
+question (sent as the `kind` Choice) in both option orders; its score is the mean probability of
+`finished_tool`, compared with the decision's threshold.
 The questions load through the [judgment registry](judgments.md): stale version keys, a judge role
 other than the tuned model, or `TYPESAFE_BASE_URL` set (the Jev Inspector route) are
-infrastructure errors, not a clean review. Every unit's answers are written to the decision store
-as `decisions` rows (trigger `pr`, the unit as the item). Never claim calibrated confidence: raw
-probabilities are not confidence.
+infrastructure errors, not a clean review. Every proposal's answer is written to the decision store
+as a `decisions` row (trigger `pr`, the file or pair as the item, its combined score). Never claim
+calibrated confidence: raw probabilities are not confidence.
 
 The JSON result at `<git-common-dir>/omp-structure/<head>.json` contains `head`, `status`,
-unit-state digests, raw scores, per-question outcomes (`yes`, `no`), findings,
+unit-state digests, per-file and per-pair scores and outcomes (`yes`, `no`), findings,
 full thresholds and version key, `halt`, and infrastructure `errors`.
 One marked PR comment is updated across reruns/heads. A finding is a `yes` outcome (score at or
 above the decision's `threshold`) and carries its decision's `mode`. No prove file or proof status

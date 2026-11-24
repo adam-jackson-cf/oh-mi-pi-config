@@ -66,6 +66,27 @@ class CheckerCase(unittest.TestCase):
             timeout=60,
         )
 
+    def commit_all(self, message: str) -> None:
+        run_attached(["git", "-C", str(self.repo), "add", "."], check=True, timeout=60)
+        run_attached(
+            [
+                "git",
+                "-C",
+                str(self.repo),
+                "-c",
+                "user.name=Fixture",
+                "-c",
+                "user.email=fixture@example.invalid",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-qm",
+                message,
+            ],
+            check=True,
+            timeout=60,
+        )
+
     def write(self, path: str, text: str = "") -> None:
         target = self.repo / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -245,6 +266,45 @@ class CheckerTests(CheckerCase):
             ("STRUCT.folder-placement", "../outside.py"),
             ("STRUCT.folder-placement", "/etc/hosts"),
         }
+
+    def package_placement(
+        self, module: ModuleType, argv: list[str] | None = None
+    ) -> set[tuple[str, str]]:
+        rules = {"STRUCT.runtime-data-placement", "STRUCT.entry-point-placement"}
+        return {item for item in self.findings(module, argv) if item[0] in rules}
+
+    def test_runtime_data_and_deep_entry_modules_in_a_package_are_reported(
+        self,
+    ) -> None:
+        self.write("src/orders/engine/pricing.yaml")
+        self.write("src/orders/engine/stages/__init__.py")
+        self.write("src/orders/engine/stages/__main__.py")
+        self.write("src/orders/__main__.py")
+        self.write("src/orders/cli/cli.py")
+        self.write("lab/workflows/team/nightly/settings.json")
+        self.write("tests/fixtures/orders.json")
+        data = ("STRUCT.runtime-data-placement", "src/orders/engine/pricing.yaml")
+        entry = ("STRUCT.entry-point-placement", "src/orders/engine/stages/__main__.py")
+        for module in (layout, paths):
+            assert self.package_placement(module) == {data, entry}
+        self.profile["guardrails"]["exceptions"] = [
+            {
+                "rule": "STRUCT.entry-point-placement",
+                "path": "src/orders/engine/stages",
+                "reason": "internal tool the engine runs; no user invokes it",
+            }
+        ]
+        for module in (layout, paths):
+            assert self.package_placement(module) == {data}
+
+    def test_package_placement_judges_only_added_paths(self) -> None:
+        self.write("src/orders/engine/legacy.yaml")
+        self.commit_all("legacy data")
+        self.write("src/orders/engine/added.yaml")
+        for module in (layout, paths):
+            assert self.package_placement(
+                module, ["--event", "edit", "src/orders/engine"]
+            ) == {("STRUCT.runtime-data-placement", "src/orders/engine/added.yaml")}
 
     def test_record_exceptions_suppress_only_their_rule_and_path(self) -> None:
         self.write("src/orders/engine/utils.py")

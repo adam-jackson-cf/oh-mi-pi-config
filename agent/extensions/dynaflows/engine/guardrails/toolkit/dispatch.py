@@ -19,6 +19,7 @@ class Subcommand:
     needs_profile: bool = True
     prints_data: bool = False
     honours_exclusions: bool = False
+    record_optional: bool = False
 
 
 SUBCOMMANDS: dict[str, Subcommand] = {
@@ -53,11 +54,41 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "PREFIX.candidates JSON for --base SHA --head SHA owner judgment",
         prints_data=True,
     ),
+    "prefix-folder": Subcommand(
+        ("guardrails.commands.structure.prefix_folder",),
+        "STRUCT.prefix-folder over --base SHA --head SHA at PR time",
+    ),
+    "responsibility-overlap": Subcommand(
+        ("guardrails.commands.structure.responsibility_overlap",),
+        "STRUCT.overlapping-responsibilities over --base SHA --head SHA at PR time",
+    ),
+    "name-pairs": Subcommand(
+        ("guardrails.commands.structure.name_pairs",),
+        "structure-naming name-pair candidates JSON for --base SHA --head SHA",
+        needs_profile=False,
+        prints_data=True,
+        record_optional=True,
+    ),
+    "kind-candidates": Subcommand(
+        ("guardrails.commands.structure.kind_candidates",),
+        "structure-naming kind-folder file candidates JSON for --base SHA --head SHA",
+        needs_profile=False,
+        prints_data=True,
+        record_optional=True,
+    ),
+    "consumer-candidates": Subcommand(
+        ("guardrails.commands.structure.consumer_candidates",),
+        "structure-naming consumer-file candidates JSON for --base SHA --head SHA",
+        needs_profile=False,
+        prints_data=True,
+        record_optional=True,
+    ),
     "structure-state": Subcommand(
         ("guardrails.commands.structure.state",),
         "bounded structure/naming unit-state JSON for --base SHA --head SHA",
         needs_profile=False,
         prints_data=True,
+        record_optional=True,
     ),
     "naming": Subcommand(
         ("guardrails.commands.structure.naming",),

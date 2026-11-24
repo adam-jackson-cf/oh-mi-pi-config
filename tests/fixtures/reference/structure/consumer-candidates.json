@@ -1,0 +1,65 @@
+{
+  "about": "In-memory trees for the structure-naming consumer-file proposer: each case lists the files changed in the reviewed change, an optional profile, and the candidate paths expected.",
+  "tree": {
+    "pkg/__init__.py": "\"\"\"Runs pricing experiments.\"\"\"\n",
+    "pkg/core.py": "def run_experiment(name):\n    return name\n",
+    "pkg/dashboard.py": "import streamlit as st\n\nfrom pkg import core\n\nst.title(core.run_experiment(\"latest\"))\n",
+    "pkg/cli.py": "import argparse\n\n\ndef main():\n    parser = argparse.ArgumentParser()\n    parser.parse_args()\n",
+    "pkg/__main__.py": "from pkg.cli import main\n\nif __name__ == \"__main__\":\n    main()\n",
+    "pkg/report.py": "from pkg import core\n\nif __name__ == \"__main__\":\n    print(core.run_experiment(\"report\"))\n",
+    "pkg/skill/SKILL.md": "# Skill\n",
+    "pkg/skill/view.py": "if __name__ == \"__main__\":\n    print(\"view\")\n",
+    "scripts/export.py": "if __name__ == \"__main__\":\n    print(\"export\")\n",
+    "tools/report.py": "if __name__ == \"__main__\":\n    print(\"tool\")\n"
+  },
+  "cases": [
+    {
+      "name": "runnable package files no file imports",
+      "changed": [
+        "pkg/__init__.py",
+        "pkg/core.py",
+        "pkg/dashboard.py",
+        "pkg/cli.py",
+        "pkg/__main__.py",
+        "pkg/report.py",
+        "pkg/skill/SKILL.md",
+        "pkg/skill/view.py",
+        "scripts/export.py",
+        "tools/report.py"
+      ],
+      "candidates": ["pkg/__main__.py", "pkg/dashboard.py", "pkg/report.py"]
+    },
+    {
+      "name": "only changed files are candidates",
+      "changed": ["pkg/dashboard.py", "pkg/core.py"],
+      "candidates": ["pkg/dashboard.py"]
+    },
+    {
+      "name": "imported, non-package, root-script and skill files are never candidates",
+      "changed": [
+        "pkg/cli.py",
+        "scripts/export.py",
+        "tools/report.py",
+        "pkg/skill/view.py",
+        "pkg/core.py"
+      ],
+      "candidates": []
+    },
+    {
+      "name": "an owner exception drops the file",
+      "changed": ["pkg/dashboard.py", "pkg/report.py"],
+      "profile": {
+        "guardrails": {
+          "exceptions": [
+            {
+              "rule": "structure-naming/consumer_placement",
+              "path": "pkg/dashboard.py",
+              "reason": "the dashboard ships inside the package until the operator console splits out"
+            }
+          ]
+        }
+      },
+      "candidates": ["pkg/report.py"]
+    }
+  ]
+}

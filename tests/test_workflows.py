@@ -498,6 +498,8 @@ class HarnessCheckLogTests(unittest.TestCase):
                 "src/a.py: GATE.path-check: bad name; rename it\ndecision store: locked\n",
             ),
             (True, "structure: ok\ndecision store: cannot open the decision store\n"),
+            (True, "responsibility-overlap: ok\n"),
+            (True, "prefix-folder: ok\n"),
         ])
         with patch.object(
             workflow, "run_check", side_effect=lambda *a, **k: next(outputs)
@@ -510,9 +512,18 @@ class HarnessCheckLogTests(unittest.TestCase):
             "path-check: decision store: locked",
             "structure: decision store: cannot open the decision store",
         ]
+        checkers = []
         for call in run.call_args_list:
             argv = call.args[0]
             assert argv[argv.index("--log-decisions") + 1] == "prove"
+            checkers.append(argv[argv.index("--repo") - 1])
+        assert checkers == [
+            "rename-residue",
+            "path-check",
+            "structure",
+            "responsibility-overlap",
+            "prefix-folder",
+        ]
 
 
 class SeverityRubricTests(unittest.TestCase):
@@ -717,6 +728,9 @@ def write_judgment(
 
 class JudgmentRegistryTests(unittest.TestCase):
     def setUp(self) -> None:
+        # Load the store from the real harness before _harness_root moves to the temp copy: a worker
+        # that already imported guardrails from the repository would otherwise refuse the copy.
+        workflow._store()
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name) / "harness"
@@ -1226,6 +1240,197 @@ class ShippedJudgmentTests(unittest.TestCase):
                     )
                     assert row["label"] in ("0", "1")
                     assert 0 <= float(row["score"]) <= 1
+
+
+class StructureProposalTests(unittest.TestCase):
+    """structure_review()'s code-proposed pairs and files: scores, modes and decision store rows."""
+
+    def setUp(self) -> None:
+        agent = tempfile.TemporaryDirectory(prefix="omp-proposal-agent-")
+        self.addCleanup(agent.cleanup)
+        environment = patch.dict(os.environ, {"PI_CODING_AGENT_DIR": agent.name})
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.store = Path(agent.name) / "dynaflows/dynaflows.db"
+        self.judgment = workflow.load_judgment("structure-naming")
+        self.result: dict[str, Any] = {
+            "head": "h" * 40,
+            "pairs": {},
+            "kind_files": {},
+            "consumers": {},
+            "findings": [],
+            "errors": [],
+        }
+        self.asked: list[Any] = []
+
+    def batches(self, answer: Any) -> Any:
+        from types import SimpleNamespace
+
+        asked = self.asked
+
+        def judge_batch(states: Any, questions: Any, **kwargs: Any) -> Any:
+            asked.append((states, questions))
+
+            class Batch:
+                async def drain_iter(self) -> Any:
+                    for key in states:
+                        value = answer(key, questions)
+                        yield (
+                            key,
+                            SimpleNamespace(
+                                ok=value is not None, error="offline", answers=value
+                            ),
+                        )
+
+                def close(self) -> None:
+                    asked.append("closed")
+
+            return Batch()
+
+        return patch.object(workflow, "judge_batch", judge_batch, create=True)
+
+    def review(self) -> Any:
+        return workflow.StructureJudgment(self.judgment, self.result, "owner/repo")
+
+    def rows(self) -> list[dict[str, Any]]:
+        import sqlite3
+
+        with sqlite3.connect(self.store) as connection:
+            connection.row_factory = sqlite3.Row
+            return [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT * FROM decisions WHERE source = 'jev' ORDER BY item"
+                )
+            ]
+
+    def pair(self, ab: float | None, ba: float | None) -> None:
+        values = {"x##ab": ab, "x##ba": ba}
+
+        def answer(key: str, questions: Any) -> Any:
+            value = values[key.replace("a.py::x<>b.py::y", "x")]
+            return None if value is None else {"same_thing": {"bool": value}}
+
+        pairs = [
+            {
+                "id": "a.py::x<>b.py::y",
+                "det_score": 0.2,
+                "state": {"first": {"name": "x"}, "second": {"name": "y"}},
+            }
+        ]
+        with self.batches(answer):
+            asyncio.run(self.review().judge_pairs(pairs))
+
+    def test_a_pair_is_asked_in_both_orders_and_logged_with_its_combined_score(
+        self,
+    ) -> None:
+        self.pair(0.4, 0.2)
+        states, questions = self.asked[0]
+        assert states["a.py::x<>b.py::y##ba"] == {
+            "first": {"name": "y"},
+            "second": {"name": "x"},
+        }
+        assert list(questions) == [workflow.PAIR_QUESTION]
+        assert self.result["findings"] == [
+            {
+                "unit": "a.py::x<>b.py::y",
+                "question": workflow.PAIR_QUESTION,
+                "mode": "enforced",
+                "score": 0.06,
+                "threshold": 0.051143,
+            }
+        ]
+        (row,) = self.rows()
+        assert (row["outcome"], row["item_kind"], row["trigger"]) == (
+            "flag",
+            "pair",
+            "pr",
+        )
+        assert (row["proposer_score"], row["combined_score"]) == (0.2, 0.06)
+        assert row["probability"] == pytest.approx(0.3)
+
+    def test_a_pair_answered_in_one_order_only_is_logged_as_an_error_not_an_outcome(
+        self,
+    ) -> None:
+        self.pair(0.9, None)
+        assert self.result["findings"] == []
+        assert self.result["errors"] == ["a.py::x<>b.py::y: judgment: offline"]
+        (row,) = self.rows()
+        assert (row["status"], row["error"], row["outcome"]) == (
+            "error",
+            "offline",
+            None,
+        )
+
+    def consumer(self, o1: float | None, o2: float | None) -> None:
+        def answer(key: str, questions: Any) -> Any:
+            value = o1 if key.endswith("##o1") else o2
+            if value is None:
+                return None
+            options = list(questions["kind"]["criteria"])
+            rest = (1 - value) / (len(options) - 1)
+            return {
+                "kind": {
+                    "probabilities": {
+                        option: value if option == "finished_tool" else rest
+                        for option in options
+                    }
+                }
+            }
+
+        candidates = [{"path": "pkg/dash.py", "state": {"file": {}, "package": {}}}]
+        with self.batches(answer):
+            asyncio.run(self.review().judge_consumers(candidates))
+
+    def test_a_file_is_asked_in_both_option_orders_and_scored_on_the_mean(self) -> None:
+        self.consumer(0.9, 0.7)
+        first, second = self.asked[0], self.asked[2]
+        criteria = list(self.judgment.questions[workflow.CONSUMER_QUESTION]["criteria"])
+        assert list(first[1]["kind"]["criteria"]) == criteria
+        assert list(second[1]["kind"]["criteria"]) == list(reversed(criteria))
+        assert self.result["findings"][0]["score"] == 0.8
+        assert self.result["findings"][0]["mode"] == "enforced"
+        (row,) = self.rows()
+        assert (row["outcome"], row["item"]) == ("flag", "pkg/dash.py")
+
+    def test_a_file_below_the_threshold_or_judged_once_is_no_finding(self) -> None:
+        self.consumer(0.9, 0.6)
+        assert self.result["findings"] == []
+        assert self.result["consumers"]["pkg/dash.py"]["outcome"] == "no"
+        self.consumer(0.95, None)
+        assert self.result["errors"] == ["pkg/dash.py: judgment: offline"]
+
+    def test_a_kind_folder_file_is_a_shadow_finding_that_never_halts(self) -> None:
+        def answer(key: str, questions: Any) -> Any:
+            return {"own_capability": {"bool": 0.85}}
+
+        candidates = [
+            {
+                "path": "app/models/invoice.py",
+                "state": {"file": {}, "folder": "app/models", "importers": []},
+            }
+        ]
+        with self.batches(answer):
+            asyncio.run(self.review().judge_kind_files(candidates))
+        assert list(self.asked[0][1]) == ["own_capability"]
+        (finding,) = self.result["findings"]
+        assert (finding["question"], finding["mode"]) == (
+            workflow.KIND_QUESTION,
+            "shadow",
+        )
+        workflow._finish_structure(Path("."), "h" * 40, None, self.result)
+        assert not self.result["halt"]
+        (row,) = self.rows()
+        assert (row["mode"], row["outcome"]) == ("shadow", "flag")
+
+    def test_a_choice_decision_names_one_of_its_options(self) -> None:
+        question = self.judgment.questions[workflow.CONSUMER_QUESTION]
+        decision = self.judgment.decisions[workflow.CONSUMER_QUESTION]
+        workflow._check_decision("j", "q", question, decision)
+        with pytest.raises(workflow.WorkflowError, match="option of the question"):
+            workflow._check_decision(
+                "j", "q", question, {**decision, "option": "dashboard"}
+            )
 
 
 MALICIOUS = (

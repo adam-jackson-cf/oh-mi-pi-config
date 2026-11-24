@@ -776,13 +776,13 @@ test("dynaflows merge requires a valid exact-head structure result and blocks ev
 			await watched(content);
 			assert.equal((await h.call("bash", { command }))?.block, true);
 		}
-		const finding = { unit: "src/orders", question: "folder_name_coverage", mode: "enforced", score: 0.9, threshold: 0.7 };
-		const shadow = { unit: "src/orders", question: "one_name_per_concept", mode: "shadow", score: 0.95, threshold: 0.7 };
+		const finding = { unit: "src/orders", question: "consumer_placement", mode: "enforced", score: 0.9, threshold: 0.7 };
+		const shadow = { unit: "src/orders", question: "technical_kind_grouping", mode: "shadow", score: 0.95, threshold: 0.7 };
 		await watched(JSON.stringify({ head: ciHead, halt: true, status: "blocked", findings: [finding, shadow] }));
 		const blocked = await h.call("bash", { command });
 		assert.equal(isBlocked(blocked), true);
-		assert.ok(reasonOf(blocked).includes("src/orders: folder_name_coverage"));
-		assert.ok(!reasonOf(blocked).includes("one_name_per_concept"), "a shadow finding is never a merge block");
+		assert.ok(reasonOf(blocked).includes("src/orders: consumer_placement"));
+		assert.ok(!reasonOf(blocked).includes("technical_kind_grouping"), "a shadow finding is never a merge block");
 		assert.ok(reasonOf(blocked).includes("fix them and rerun prove() and structure_review() on the new head"));
 		h.mode("minimal");
 		assert.ok(reasonOf(await h.call("bash", { command })).includes("blocked in dynaflows minimal mode"), "minimal mode blocks the merge before halt is read");
