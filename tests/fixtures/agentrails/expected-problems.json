@@ -5,7 +5,7 @@
   "ask-first-listed.json": [
     "judgments.in-scope/ask_first: is not configurable: the ask-first rail is always on and enforced"
   ],
-  "audit-command-without-gate.json": [
+  "audit-command-with-audit-gate-off.json": [
     "gates.audit: must be true exactly when commands.audit is present"
   ],
   "audit-gate-without-command.json": [

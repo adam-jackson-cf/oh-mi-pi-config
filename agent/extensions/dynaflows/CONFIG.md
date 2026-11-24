@@ -1,0 +1,245 @@
+# Agent-rails config contract
+
+Each repository's rails settings live in one file in its main checkout:
+`.agentrails/config.json`. The repository never commits it, and it names no omp path.
+[repo_config.py](engine/guardrails/context/config/repo_config.py) is the only validator;
+`guardrails config-check` runs it, and the TypeScript rails call that command.
+
+- Every object is strict: an unknown key at any depth is refused.
+- Malformed JSON, a duplicate key or a missing section is refused. There are no defaults
+  for required keys and no older shapes.
+- `repo.slug` must equal the lowercase `owner/name` of the clone's GitHub origin.
+- A missing or refused file sends the repository to onboarding.
+
+## Sections and writers
+
+Each section has exactly one writer. Agent tools never write the file: the rails refuse every
+edit, write, eval or shell write to a path with a `.agentrails` segment.
+
+```mermaid
+flowchart LR
+  onboard["/agentrails onboard"] --> repo & onboarding
+  qa["Q&A: onboard or configure"] --> autonomy & ci & gates & judgments & mergePolicies & afterMerge
+  proofs["agentrails_config tool
+  after skill://setup-repo-proofs"] --> commands & checkers & structure & houseStyle
+  tg["agentrails_config tool
+  after skill://test-guidance"] --> tests
+  owner["owner $approve / $revoke lines"] --> exceptions & approvals
+  file["/agentrails import, cutover script"] --> whole["whole file"]
+```
+
+| Section | Writer | Holds |
+| --- | --- | --- |
+| `schemaVersion` | Every writer | `1` |
+| `repo` | `/agentrails onboard` | `slug`, `defaultBranch` |
+| `onboarding` | `/agentrails onboard` | Origin, completion time, Q&A version, skill stamps |
+| `autonomy` | Q&A | `branch`, `pr`, `merge`: `allowed` or `ask` |
+| `ci` | Q&A | Whether merges need CI; runner role and required context |
+| `gates` | Q&A | Which deterministic gates run; code rules switched off |
+| `judgments` | Q&A | Per-question overrides of the global judgment mode |
+| `mergePolicies` | Q&A | Merge method and proof per base and head prefix |
+| `afterMerge` | Q&A | Optional command required after a merge |
+| `commands` | Setup tool | Repo commands as argv arrays |
+| `checkers` | Setup tool | One settings object per engine checker |
+| `structure` | Setup tool | Owners, tiers, import direction, ownership areas |
+| `houseStyle` | Setup tool | The engine house-style `version` |
+| `tests` | Test tool | The test profile: tiers, adapters, budgets, coverage and more |
+| `exceptions` | Owner lines | Approved rule suppressions by path |
+| `approvals` | Owner lines | Approved budgets, ratchets, skips and exemptions |
+
+Writer rules:
+
+1. The Q&A runs only in an owner slash command with an interactive UI.
+2. The setup tool records a section only after this session read the named skill. It merges into
+   the onboarding draft; on an onboarded repository it needs the owner's confirmation.
+3. The tool carries skill stamps in the draft; only `/agentrails onboard` writes `onboarding`.
+4. `$approve` and `$revoke` lines count only in a prompt the owner typed in the main session.
+   Injected prompts and subagent prompts never write the config.
+5. Every write validates the whole file first and replaces it atomically.
+
+[config-template.json](engine/guardrails/data/config-template.json) is the template for the
+setup and test sections.
+
+## Commands
+
+`commands.commit` is required; `ci`, `audit` and `format` are optional.
+Every command is an argv array of non-blank strings, never a shell string, and names the
+repository's own tools. `commit` runs the static checks, all T1 tests and the affected T2 tests.
+`ci` runs the full T1 and T2 suite. `format` is the formatter `freeze()` runs before hashing.
+`audit` is the dependency audit.
+
+## Autonomy
+
+| Key | Action | `ask` means |
+| --- | --- | --- |
+| `branch` | Push a non-default branch | Refused until `$approve autonomy:branch:<branch>` |
+| `pr` | `gh pr create` | Refused until `$approve autonomy:pr:<branch>` |
+| `merge` | `gh pr merge` | Refused until `$approve autonomy:merge:<pr number>` |
+
+An approval line grants one use in the session. Local branches and worktrees are always allowed.
+A push to the default branch is always refused.
+
+## CI
+
+`ci.enabled: false` means a merge needs no CI status; prove and structure review still apply
+as `gates` say. `ci.enabled: true` needs `runner` and `requiredContext`: that context must be
+`success` on the PR's exact head, as a commit status or check run, whoever posts it.
+
+The runner is a role, not a host. Each device's `~/.omp/ci-runners.json` maps the role to
+submit, wait, status and logs commands, and `scripts/ci_runner.py` runs them.
+
+| Runner | Who runs `commands.ci` | Needs |
+| --- | --- | --- |
+| `github-actions` | An Actions job named for the context, on every push | The repo workflow |
+| `ci-gate` | `scripts/ci_gate.py` on the NUC, on the exact SHA | `commands.ci`, allowlist entry |
+
+A `ci-gate` repository is listed in `scripts/ci-gate-repos.json` and has a
+`.devcontainer/devcontainer.json` with `build.dockerfile` or `image`. The NUC reads its own copy
+of the config (see [Export and import](#export-and-import)). It refuses a config whose `ci` is
+not enabled with runner `ci-gate`.
+
+## Gates
+
+| Gate | When on |
+| --- | --- |
+| `commitChecks` | Before `git commit`: `commands.commit`, then `guardrails check` |
+| `pathCheck` | Path-check after edits, on the staged paths at commit, and at handoff |
+| `prove` | A merge needs a watched `prove()` pass, when the merge policy's `proof` is true |
+| `structureReview` | A merge needs a watched `structure_review()`, when `proof` is true |
+| `audit` | `ci_gate.py` runs `commands.audit` with network before the offline gate |
+| `rules` | `{<rule id>: false}` drops that code rule's findings; a missing rule is on |
+
+`gates.audit` is true exactly when `commands.audit` exists. Dependency triage of the
+audit lines in `commands.commit` output runs whatever `gates.audit` says.
+Commit scope, commit-alone and hook-bypass refusals are fixed and cannot be turned off.
+
+## Merge policies
+
+Each entry is `{base, headPrefix, method, proof}`. The rails use the first entry whose `base`
+equals the PR's base branch and whose `headPrefix` starts its head branch.
+
+| Field | Values |
+| --- | --- |
+| `base` | Base branch name |
+| `headPrefix` | Head branch prefix; `""` matches every head |
+| `method` | `rebase` or `merge`: the one `gh pr merge` flag accepted |
+| `proof` | `true` asks for prove and structure review, as `gates` allow |
+
+The list may be empty. No match means `{method: "rebase", proof: true}`. The rails always
+refuse `--admin`, and no policy waives CI.
+
+## After merge
+
+`afterMerge.argv` is a repo command the rails require after a merge. With `paths` (globs), only a
+merge whose PR files match one glob requires it. Until a run exits 0, the session's turn-end
+obligations name it.
+
+## Judgments
+
+`judgments` lists overrides only, keyed `<judgment>/<question>`. A missing key follows the
+global mode in `judgments/<judgment>/thresholds.json`.
+
+- The effective mode is the lower of the global mode and the override, with
+  off < shadow < enforced. An off question makes no judge call and writes no row.
+- `enforced` is refused when the global mode is `shadow`: only measurement promotes.
+- `shadow` is refused for a question that cannot run in shadow.
+- `in-scope/ask_first` and `dependency-severity/impact` cannot be configured.
+
+## Tests
+
+`tests` is the test profile. Its keys are `tiers`, `adapters`, `public_entry_points`,
+`run_events`, `fast_tier_budget`, `coverage`, `guards`, `environments`,
+`verification_surface`, `identity_artefacts`, `layout` and `command_notes`.
+
+- `tiers.<tier>` holds only the `command` that runs every framework in the tier.
+- `adapters` has one entry per test framework (`pytest`, `vitest`, `bun_test`, `go`). Each
+  gives a native `selector` and `location` for every tier it takes part in.
+- `fast_tier_budget.machines[]` entries are keyed by the `id` the budget probe reports.
+- `tiers.t3`, `verification_surface`, `identity_artefacts` and
+  `run_events.nightly_scheduler` may be `{"none": true}`. Each such exemption needs an
+  `exemption` approval; an exempt T3 has no adapter tier.
+- Approval text never sits in `tests`: it lives in `approvals`.
+
+## Checkers
+
+`checkers.<checker>` holds one engine checker's settings, for example `checkers.check`,
+`checkers.naming` and `checkers.python`. Each checker module's docstring lists its settings and
+defaults; defaults grant nothing.
+
+- `checkers.check.run` selects whole-repo steps by name; an unknown name is refused.
+- `checkers.check.exclude` lists generated, vendored and fixture paths.
+- Ratchet approvals and test skips are refused here; they live in `approvals`.
+
+## Exceptions
+
+Each entry is `{rule, path, check?, reason, approvedBy, approvedAt}`, unique on
+`(rule, path, check)`.
+
+- `rule` is a catalogue rule id, or a `structure-naming/<question>` judgment rule.
+- `path` is a glob matched with `fnmatchcase`. A plain path matches itself and its descendants.
+- `check` limits the suppression to one sub-check of the rule, such as
+  `child-repeats-parent` in `NAME.conventions`. Without it the whole rule is suppressed there.
+- The owner writes an entry with
+  `$approve exception <RULE> <path-glob> [check=<check>] -- <reason>` and removes it with
+  `$revoke exception <RULE> <path-glob> [check=<check>]`.
+
+## Approvals
+
+Each entry is `{kind, target, reason, approvedBy, approvedAt}`, unique on `(kind, target)`.
+Every entry must point at something that exists.
+
+| Kind | Target |
+| --- | --- |
+| `budget` | A `tests.fast_tier_budget.machines[].id`; every machine needs one |
+| `ratchet` | A coverage-ratchet path |
+| `skip` | A skipped test id |
+| `exemption` | One of the four exemptable `tests` fields set to `{"none": true}` |
+
+The owner writes them with `$approve approval <kind> <target> -- <reason>` and removes them
+with `$revoke approval <kind> <target>`. `approvedBy` is the owner's GitHub login.
+
+## Worktrees and exclusion
+
+The file lives in the main checkout: the parent of the Git common directory. A linked worktree
+reads its main checkout's file, so every worktree of a repository shares one config. A bare
+repository or a separate git dir has no main checkout and cannot be configured.
+
+The extension keeps the folder out of git through `<git-common-dir>/info/exclude`, which every
+worktree reads. It adds `/.agentrails/` on every write, and `/.proofs/` for the proof
+workflow. The engine never scans `.agentrails/` or `.proofs/`.
+
+## Export and import
+
+| Command | Does |
+| --- | --- |
+| `/agentrails export <file>` | Writes the validated config to a file outside every Git work tree |
+| `/agentrails import <file>` | Validates the file against the origin, then writes it |
+| `ci_gate.py config-import <file>` | Installs an exported file on the NUC |
+
+`/agentrails import` asks the owner before it replaces an existing config.
+`ci_gate.py config-import` validates the file, checks that `repo.slug` is in
+`scripts/ci-gate-repos.json` and writes it atomically to
+`<XDG_DATA_HOME or ~/.local/share>/ci-gate/configs/<owner>/<name>/config.json`.
+Run it on the NUC after every change to a `ci-gate` repository's config.
+
+## oh-mi-pi-config example
+
+This repository's config routes CI to the NUC and merges NUC syncs without proof:
+
+```json
+{
+  "ci": { "enabled": true, "runner": "ci-gate", "requiredContext": "gate" },
+  "mergePolicies": [
+    { "base": "nuc-config", "headPrefix": "agent/nuc-sync-", "method": "merge", "proof": false }
+  ]
+}
+```
+
+| Fact | Enforced by |
+| --- | --- |
+| `nuc-config` sync: PR from `agent/nuc-sync-<date>`, `--merge`, no proof | `mergePolicies` |
+| Every other PR rebases with proof | Default policy |
+| `gate` must be green on the exact head | `ci` |
+| `ci-gate` is `scripts/ci_gate.py` on the NUC | `~/.omp/ci-runners.json` |
+| A missing `scripts/ci-gate-repos.json` entry needs a setup PR, never a CI waiver | Not enforced |
+| A passing `ci-quality-gates.yml` run never replaces a missing `gate` | Not enforced |

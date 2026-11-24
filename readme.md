@@ -67,10 +67,10 @@ repository). Shell `-c`, `eval` and existing shell scripts are inspected recursi
 bounds; `cd` and `pushd` select the destination repository's policy, and pipeline segments keep
 their own cwd. Unresolved directories fail closed for publishing. Quoted `echo` and search
 arguments do not trigger the check.
-Record `gate.json` policies with `agentMerge: "disabled"` require owner
-approval for `git push`, `gh pr create` and `gh pr merge`; invalid policies fail
-closed for those actions. The record is harness config that git-tool may read for
-`agentMerge` and `ci` in both modes. In minimal mode (unlisted repos included), sessions get plain
+The repo config's [`autonomy`](agent/extensions/dynaflows/CONFIG.md#autonomy) sets `git push`,
+`gh pr create` and `gh pr merge` to `allowed` or `ask`; `ask` waits for the owner's
+`$approve autonomy:<action>:<subject>` line. The rails read `autonomy` and `ci` in both modes.
+In minimal mode (unlisted repos included), sessions get plain
 omp + git-tool + the fixed Git guards: `gh pr merge` and `git push` to the remote's default
 branch are refused, while pushes to other branches and `gh pr create` pass. Minimal mode has no
 edit read gates, path checks or verification handoff reads.
@@ -80,7 +80,7 @@ for the edited path's repo targeted integrity/new-code/test reads
 fire before edits. All-session handoff, including subagents, stays blocked until
 verification references are read after that session's code edits in a structured-mode repo
 and failed harness `path-check` paths pass on retry. Rails run
-`guardrails path-check --repo <worktree> --record <record dir>` from the harness.
+`guardrails path-check --repo <worktree>` from the harness.
 It covers edited paths plus prior failures that `git status` reports as changed or
 untracked, not every repository file.
 Deleted, ignored, unchanged/restored and Git-directory paths are dropped; a failed
@@ -92,10 +92,10 @@ must say `status: pass` for that head. Rails also require
 `<git-common-dir>/omp-structure/<head>.json` with that head, `halt: false` and no errors; structure
 findings and incomplete reviews block. Rails accept
 either file only when this omp process watched the `prove()` or `structure_review()` cell write it.
-Missing or invalid files block. The repo's
-record `gate.json` is the policy authority: when it declares `ci`,
+Missing or invalid files block. The repo
+config is the policy authority: when `ci.enabled` is true,
 `ci.requiredContext` must be `SUCCESS` on the exact head as a commit status or
-check run, whoever posts it, with no failing or pending entry of that name. The record's
+check run, whoever posts it, with no failing or pending entry of that name. The config's
 `mergePolicies` choose the merge method and whether proof is needed per base and head prefix;
 rails refuse `--admin`.
 
@@ -116,23 +116,23 @@ result and rail refusal lands in one SQLite decision store, `~/.omp/agent/dynafl
 [Rail judgments](agent/extensions/dynaflows/skills/structured-workflow/references/judgments.md#rail-judgments)
 lists each rail, its outcomes and the owner's `$approve` line.
 
-Repository checks follow the test tiers. The record's `gate.json` (schema version 2) declares
-`checks.commit` (static checks, all T1 tests and T2 seams only for affected code) and
-`checks.ci` (the full T1 and T2 suite), each naming the repo's own command. In
-structured mode, each agent commit runs harness `guardrails path-check` with repo and record arguments,
-then `checks.commit`, and then `guardrails check`, also run from this checkout with
-`--repo <worktree> --record <record dir>`, over the whole repo. Any finding blocks the commit;
-there are no baselines and no diff scoping, and scope exclusions come from the record.
+Repository checks follow the test tiers. The repo config declares
+`commands.commit` (static checks, all T1 tests and T2 seams only for affected code) and
+`commands.ci` (the full T1 and T2 suite), each naming the repo's own command. In
+structured mode, each agent commit runs harness `guardrails path-check --repo <worktree>`,
+then `commands.commit`, and then `guardrails check --repo <worktree>`, also run from this
+checkout, over the whole repo. Any finding blocks the commit;
+there are no baselines and no diff scoping, and scope exclusions come from the config.
 The CI runner named by `ci.runner` runs
-`checks.ci` for every push and merge. Optional `checks.format` is the formatter `freeze()` runs
-before hashing. Pulling existing commits into a branch (merge, rebase, cherry-pick, revert,
+`commands.ci` for every push and merge. Optional `commands.format` is the formatter `freeze()`
+runs before hashing. Pulling existing commits into a branch (merge, rebase, cherry-pick, revert,
 pull) runs no harness check: those commits were checked when they were made, and CI checks the
 result. Rails block hook bypass flags/settings (`--no-verify`, `-n`, `core.hooksPath`) on Git
 commands. Standalone executable-shell assignment, `export`/`declare`, `unset` and `env -u` of
 hook-skip variables are blocked even without a Git action. Quoted messages are not assignments;
 inherited external shell state is not a sandbox guarantee.
 
-This repository's hook is `.githooks/pre-commit`, which runs exactly the record's `checks.commit`
+This repository's hook is `.githooks/pre-commit`, which runs exactly the config's `commands.commit`
 (`bash scripts/run-ci-quality-gates.sh --tier commit`). Set up every clone with
 `bash scripts/install-quality-gates.sh`: it installs the locked Bun and uv dependencies and sets
 `core.hooksPath` to `.githooks`. The devcontainer's `postCreateCommand` and the GitHub Actions
@@ -146,7 +146,7 @@ bundled workflow guidance and judged rules. Its [workflow
 skill](agent/extensions/dynaflows/skills/structured-workflow/SKILL.md) is available as
 `skill://structured-workflow`; its preflight step defines how the owner switches a repository
 between minimal and structured mode in the main chat (for example a standalone `$dynaflows structured`
-or `$dynaflows minimal` line) and how the mode, record and playbook resolve. In structured mode, rails
+or `$dynaflows minimal` line) and how the mode, config and playbook resolve. In structured mode, rails
 inject the workflow pointer and guard `gh pr merge` as above.
 Subagent edit paths must be absolute and cannot escape enclosing Git roots through symlinks, and
 `git worktree add` targets must sit at `<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides
@@ -169,16 +169,13 @@ beside tracked files. Treat only the explicitly reopened paths as
 repository-owned configuration; do not mistake local runtime assets for tracked
 source.
 
-## Per-repo records
+## Per-repo config
 
-A repo never depends on, contains or mentions omp or dynaflows. Its harness settings live in a
-gitignored **record**, `repos/<owner>/<name>/` under this checkout's root, named by the clone's
-`origin` remote. [The record contract](agent/extensions/dynaflows/record/README.md) defines its
-`gate.json` and `profile.md`, strict loading and write authority; records are never committed,
-because they mean nothing to anyone else who takes this config. `scripts/device_rollout.py`
-copies them to devices. Dynaflows
-[harness setup](agent/extensions/dynaflows/skills/structured-workflow/references/harness-setup.md)
-adds record configuration to the generic `skill://setup-repo-proofs` workflow. When dynaflows
+A repo never depends on or mentions omp or dynaflows in tracked files. Its rails settings live
+in `.agentrails/config.json` in its main checkout, kept out of git through
+`<git-common-dir>/info/exclude`; linked worktrees read the main checkout's file.
+[The config contract](agent/extensions/dynaflows/CONFIG.md) defines its sections, their writers,
+strict validation and export and import. Agent tools never write it. When dynaflows
 resolves to minimal mode, rails say why once at session start and at every commit, naming the slug
 (or `none`) and the reason; `workflows.py` uses the same words when it refuses. Rails and
 `workflows.py` strip the harness's `AGENT` variable from every repo command they run.
@@ -202,9 +199,6 @@ Run `python3 scripts/device_rollout.py` from this Mac to fetch and report local
 clean remote `~/.agents` checkouts, and start the NUC OMP deployment service.
 It also writes each device's untracked `~/.omp/ci-runners.json` from the runner
 role definitions in `scripts/device-rollout-hosts.json`.
-It copies the ignored `repos/` records one way from this device into the `repos/`
-folder of every target device that runs omp (a registry entry with an `omp` path),
-and refuses to overwrite a target record that is newer, naming it.
 On each reachable device it also streams the judge key (`TYPESAFE_API_KEY`, for omp's
 direct `typesafe` provider behind the `judge` role) from Infisical into
 `omp auth import -` over stdin, and runs an `omp find` canary whose coverage fills
@@ -212,7 +206,7 @@ the `find` column. Each device that runs omp gets an `omp-version` row: `omp --v
 must equal the `@oh-my-pi/pi-coding-agent` pin in `package.json`, else the row is
 `version-mismatch` and names the device's version (in both modes). Untracked remote files are
 preserved; tracked changes block pulls. Use `--check` to fetch and report only, without pulls,
-service starts, key provisioning, or record copies. The table exits nonzero for stale, failed,
+service starts or key provisioning. The table exits nonzero for stale, failed,
 unreachable, dirty-blocked, or behind-`main` deployments, and for `find-blocked`
 devices whose canary coverage is not `complete` (including `key-failed` when key provisioning fails).
 Hosts, paths, the `infisical` project and environment (shared by the judge key
@@ -223,9 +217,9 @@ Local rows use the registry's `local` mapping for the lowercase short hostname
 
 The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in its
-`~/.omp`. The only files it writes there are untracked: `ci-runners.json` and the
-gitignored `repos/` records. If `nuc-config` lacks `main`, sync it (see the
-[record docs](agent/extensions/dynaflows/record/README.md#oh-mi-pi-config-example)),
+`~/.omp`. The only file it writes there is the untracked `ci-runners.json`. If `nuc-config`
+lacks `main`, sync it (see the
+[config contract](agent/extensions/dynaflows/CONFIG.md#oh-mi-pi-config-example)),
 then rerun the command.
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
 only its `~/.agents` checkout is a rollout target, so judge-key provisioning and
@@ -233,8 +227,8 @@ the find canary run only on devices that run omp.
 
 ## CI runners
 
-The record's `gate.json` declares what must pass, not where it runs:
-`"ci": {"requiredContext": "gate", "runner": "ci-gate"}`. Rails and `prove()`
+The repo config's `ci` section declares what must pass, not where it runs:
+`"ci": {"enabled": true, "runner": "ci-gate", "requiredContext": "gate"}`. Rails and `prove()`
 check only that the required context is green on the exact head, whoever posts
 it. The runner is a role name. Each device's untracked `~/.omp/ci-runners.json`,
 written by `scripts/device_rollout.py`, maps roles to submit, wait, status and logs
@@ -253,17 +247,21 @@ needs `--context` set to the gate's `ci.requiredContext`; its timeout exits 124.
 The `github-actions` role starts on push, so `submit` only reports that. A
 missing role exits 2 and names the device_rollout.py command to run. This
 repository's runner facts live in the
-[record docs](agent/extensions/dynaflows/record/README.md#oh-mi-pi-config-example).
+[config contract](agent/extensions/dynaflows/CONFIG.md#oh-mi-pi-config-example).
 
 ### ci-gate service
 
 The `ci-gate` role is `scripts/ci_gate.py` on the owner's Linux NUC, running
 exact-SHA gates in rootless Podman with gVisor. Only repositories in
 `scripts/ci-gate-repos.json` can run, and any of them may declare runner
-`ci-gate`. It posts the GitHub commit status context named by the repository's
-record `gate.json` `ci.requiredContext`, recorded in the job's `job.json`. A repository
-without a valid `ci.requiredContext` gets an `error` result with a
-`publicationError` and no status, so rails never sees a guessed context.
+`ci-gate`. The NUC reads its own copy of each repository's config, which
+`ci_gate.py config-import <file>` validates and installs under
+`${XDG_DATA_HOME:-~/.local/share}/ci-gate/configs/<owner>/<name>/config.json`
+([export and import](agent/extensions/dynaflows/CONFIG.md#export-and-import)).
+It posts the GitHub commit status context named by the config's `ci.requiredContext`,
+recorded in the job's `job.json`. A missing or invalid config, or one that does not route
+CI to `ci-gate`, gets an `error` result with a `publicationError` and no status, so rails
+never sees a guessed context.
 
 Resubmitting a running SHA does not launch another job. Successful and failed
 gate results stay cached; an infrastructure `error` is retried on resubmission.
@@ -272,9 +270,9 @@ for success, 1 for gate failure/error or status-publication failure, and 2 when 
 wait expires. Publication failures preserve the gate outcome in `result.json`,
 add a `publicationError`, and print the publication error to stderr.
 The runner uses two containers on the same checkout. The first has network: it runs the
-devcontainer's `postCreateCommand`, then the record's required `checks.audit` dependency audit.
-The second runs `checks.ci` with `--network=none`. A failed audit is a cached `failure`
-and skips `checks.ci`. Bootstrap or install failures before `checks.audit` starts are
+devcontainer's `postCreateCommand`, then the config's `commands.audit` dependency audit when
+`gates.audit` is true. The second runs `commands.ci` with `--network=none`. A failed audit is
+a cached `failure` and skips `commands.ci`. Bootstrap or install failures before the audit are
 infrastructure `error` results, so normal resubmission recreates the checkout and retries
 them. A phase marker outside the checkout distinguishes them from a nonzero audit result.
 When the image's `USER` is a numeric non-root user, both containers map the checkout owner
@@ -380,13 +378,12 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
   (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.
-- `agent/extensions/dynaflows/record/` — per-repo harness configuration documentation, schema
-  and examples.
-- `agent/extensions/dynaflows/lib/` — the mode guards, rails runtime and the origin-to-record
-  resolver for Python (`repo_record.py`) and TypeScript (`repo-record.ts`) callers.
+- `agent/extensions/dynaflows/CONFIG.md` — the per-repo config contract: sections, writers and
+  rules.
+- `agent/extensions/dynaflows/lib/` — the mode guards, rails runtime, Git paths and the repo
+  config resolver.
 - `agent/extensions/dynaflows/rails.yml` — required reads per mode and the judged rule names.
 - `agent/extensions/dynaflows/modes.json` — the per-repo mode; unlisted repositories run minimal.
-- `repos/<owner>/<name>/` — personal per-repo records; gitignored, never committed.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.
 - `agent/lsp.json` — LSP configuration.

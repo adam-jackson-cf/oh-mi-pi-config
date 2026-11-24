@@ -6,9 +6,9 @@ Confirm the repo is in dynaflows structured mode, resolve its record and select 
 
 ## Required actions
 
-1. Apply this skill only in structured mode. The repo's settings live in its record,
-   `repos/<owner>/<name>/` under the oh-mi-pi-config root, named by the clone's lowercase `origin` remote;
-   worktrees resolve like their main checkout. [The record contract](../../../record/README.md) owns its files.
+1. Apply this skill only in structured mode. The repo's settings live in its config,
+   `.agentrails/config.json` in its main checkout, kept out of git;
+   worktrees read their main checkout's file. [The config contract](../../../CONFIG.md) owns it.
    The repo itself holds nothing about omp or dynaflows.
 2. The extension's `modes.json` selects the mode, keyed by the lowercase `origin` owner/name. An unlisted repo,
    no `origin` remote or, for structured mode, no valid record means minimal mode.

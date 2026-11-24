@@ -11,7 +11,7 @@ import { SUBPROCESS_TIMEOUT_MS, shellCommands, type GitAction, type ToolEvent } 
 import { approvalLine, clip, digest, enforced, jsonText, verdictText, type Decide, type DecisionSubject, type JudgeState, type RailJudgment, type Approvals, type Verdict } from "./judge.ts";
 import type { Obligation, ObligationStatus } from "./obligations.ts";
 import type { AgentRailsConfig } from "./repo-config.ts";
-import { parseOrigin } from "./repo-record.ts";
+import { parseOrigin } from "./git-paths.ts";
 
 type ExecApi = Pick<ExtensionAPI, "exec">;
 type Run = { code: number; killed: boolean; stdout: string; stderr: string };

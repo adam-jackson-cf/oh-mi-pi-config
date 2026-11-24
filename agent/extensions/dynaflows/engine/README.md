@@ -48,7 +48,7 @@ one, and two parts of one layer never import each other.
 | Layer | Holds |
 | --- | --- |
 | `foundation` | findings, repository path matching, child-process environments, language packs |
-| `context` | the record's configuration, Git diff ranges and path selection |
+| `context` | the repo config, Git diff ranges and path selection |
 | `toolkit` | test reports, growth snapshots, Python path rules and subcommand dispatch |
 | `commands` | the CLI, `check`, `init`, every checker and the test-framework adapters |
 
@@ -57,7 +57,7 @@ one, and two parts of one layer never import each other.
 
 ## Adapters
 
-An adapter belongs to a test framework, not to a tier. The record's `adapters`
+An adapter belongs to a test framework, not to a tier. The config's `tests.adapters`
 list holds one entry per framework the repository uses, and every tier may hold
 tests from several frameworks:
 
@@ -75,7 +75,7 @@ its adapters' locations, and `tiers.<tier>.command` runs the whole tier.
 step runs every declared adapter's `lint`. Give each adapter its own
 `tiers --out` directory and pass every list to `collection-check`, one
 `--tier <tier>=<list>` per adapter. `report-check` and `budget-check` need
-`--dialect <name>` when the record declares more than one adapter.
+`--dialect <name>` when the config declares more than one adapter.
 
 pytest also collects `unittest.TestCase` classes whatever their name, so a
 repository's unittest suites run unchanged; a marker selector reaches them
@@ -104,7 +104,7 @@ missing dependencies fail rather than silently skipping a case.
 Vitest mutation evidence uses `@stryker-mutator/core@9.4.0` JSON reports.
 `adapter vitest mutation-report --input <stryker.json> --out <external report>` converts
 them to the shared schema. The input defaults to `reports/mutation/mutation.json`
-and can be recorded in `guardrails.adapter_vitest.mutation_report`.
+and can be set in `checkers.adapter_vitest.mutation_report`.
 Unknown Stryker statuses and malformed locations fail; ignored, pending and
 tool-error mutants remain incomplete, never counted as killed.
 
@@ -171,6 +171,7 @@ Owner exceptions and approvals live in its `exceptions` and `approvals`
 sections. `guardrails config-check` validates the file
 ([repo_config.py](guardrails/context/config/repo_config.py) is the validator); the
 section template is [config-template.json](guardrails/data/config-template.json).
+The [config contract](../CONFIG.md) defines every section, its writer and its rules.
 
 Each checker module's docstring lists its settings and defaults. Defaults grant
 nothing: an unset allowlist approves no path, and an unset rule scope covers
@@ -211,7 +212,7 @@ one adapter per framework it uses, so one stack can use several adapters.
 | Fixed names | python, tooling | typescript, tooling        | go, tooling  | tooling              |
 
 1. gofmt and goimports are golangci-lint formatters; `standard` linters include govet.
-2. Plus `.importlinter` once the record names `structure.tiers`; shell `rc` is `.shellcheckrc`.
+2. Plus `.importlinter` once the config names `structure.tiers`; shell `rc` is `.shellcheckrc`.
 3. An existing file is kept; init reports each `TSC.*` or `SHFMT.*` value it lacks.
 4. shellcheck and shfmt have no repo-native version pin file.
 5. The Go guards patch the toolchain's `syscall` package through `go test -overlay`. An

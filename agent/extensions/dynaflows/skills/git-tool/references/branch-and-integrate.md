@@ -1,6 +1,6 @@
 # Branch and integrate
 
-One unit = one `agent/<slug>` branch = one PR. Units target the resolved default unless the record's
+One unit = one `agent/<slug>` branch = one PR. Units target the resolved default unless the config's
 `mergePolicies` name another base and method for the head prefix.
 Authority and safety belong to [authority-and-safety](authority-and-safety.md).
 This runbook applies in both dynaflows modes; steps marked **Structured mode only** apply only in structured mode.
@@ -13,8 +13,8 @@ This runbook applies in both dynaflows modes; steps marked **Structured mode onl
 3. Resolve the default once with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`,
    or the primary remote's symbolic HEAD (for origin, `git symbolic-ref refs/remotes/origin/HEAD`).
    Record `<remote>` and `<default>`; never assume `main`. Use this resolution for comparisons, PR targets and recovery.
-4. Read the repo's record `gate.json` when present ([record contract](../../../record/README.md)).
-   Invalid declared policy fails closed; an absent record does not require setup.
+4. Read the repo's config when present ([config contract](../../../CONFIG.md)).
+   Invalid declared policy fails closed; an absent config does not require setup.
 5. Fetch the primary remote before creating the dedicated worktree/branch from `<remote>/<default>` (not stale local default).
    Create it at `<worktree.base>/<repo>/<slug>` (`~/worktrees/<repo>/<slug>`), where `<repo>` is the
    `origin` remote's repo name in lowercase and `<slug>` is the branch slug from `agent/<slug>`; rails refuse any other `git worktree add` target.
@@ -31,7 +31,7 @@ The assigned writer performs these steps:
    Run the configured harness commit checks when applicable.
    Never disable the repo's own hooks with flags, configuration or hook-skip environment variables.
    Use the [commit vocabulary and safety rules](authority-and-safety.md#git-safety).
-   CI uses `checks.ci` when declared; do not add pre-push or handoff suite runs.
+   CI uses `commands.ci` when declared; do not add pre-push or handoff suite runs.
 2. Push the branch to the resolved GitHub primary remote, adding upstream tracking when needed.
    No routine rebase is needed; in structured mode [merge-and-recover](merge-and-recover.md) owns rebase conditions.
 3. Read [PR description](pr-description.md) and write the complete body. Use existing reported evidence only;

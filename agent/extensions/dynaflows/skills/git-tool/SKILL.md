@@ -14,7 +14,7 @@ The mode is the repo's dynaflows `mode`, `minimal` or `structured`. In minimal m
 
 ## Authority and safety
 
-- **Purpose**: Apply the repo record, the owner's grant and the Git safety rules that bind every Git action.
+- **Purpose**: Apply the repo config, the owner's grant and the Git safety rules that bind every Git action.
 - **When**: Read before any Git action.
 - **STOP**: Gates owner approval before history rewrites, deleting branches the agent did not create, another remote or a non-GitHub push.
 - Where this skill is silent, use judgement: keep existing content, make no irreversible write,

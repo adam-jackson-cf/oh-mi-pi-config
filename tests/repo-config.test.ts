@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, test } from "bun:test";
 import { RailError } from "../agent/extensions/dynaflows/lib/rails-ledger.ts";
-import { commonDir, mainCheckout, originSlug, OutsideRepository, type ExecApi } from "../agent/extensions/dynaflows/lib/git-paths.ts";
+import { commonDir, configRoot, mainCheckout, originSlug, OutsideRepository, parseOrigin, type ExecApi } from "../agent/extensions/dynaflows/lib/git-paths.ts";
 import { CONFIG_DIR, CONFIG_EXCLUDE, configPathFor, resolveConfig } from "../agent/extensions/dynaflows/lib/repo-config.ts";
 
 type Reply = { code: number; stdout?: string; stderr?: string; killed?: boolean };
@@ -56,6 +56,29 @@ describe("git paths", () => {
 		assert.equal(await originSlug(execDouble({ [ORIGIN]: { code: 0, stdout: "https://gitlab.com/owner/name.git\n" } }), root), null);
 		assert.equal(await originSlug(execDouble({ [ORIGIN]: { code: 2, stderr: "error: No such remote 'origin'\n" } }), root), null);
 		await assert.rejects(originSlug(execDouble({ [ORIGIN]: { code: 128, stderr: "fatal: bad config" } }), root), /get-url origin/);
+	});
+
+	test("parseOrigin maps each GitHub form to lowercase owner/name", () => {
+		const origins = {
+			"https://github.com/Owner-1/Repo.Name": "owner-1/repo.name",
+			"https://github.com/Owner-1/Repo.Name.git": "owner-1/repo.name",
+			"git@github.com:Owner-1/Repo_Name": "owner-1/repo_name",
+			"git@github.com:Owner-1/Repo_Name.git": "owner-1/repo_name",
+			"ssh://git@github.com/Owner-1/repo-name": "owner-1/repo-name",
+			"ssh://git@github.com/Owner-1/repo-name.git\n": "owner-1/repo-name",
+		} satisfies Record<string, string>;
+		for (const [url, slug] of Object.entries(origins)) assert.equal(parseOrigin(url), slug, url);
+	});
+
+	test("parseOrigin gives no slug for non-GitHub or malformed origins", () => {
+		for (const url of [
+			"https://gitlab.com/owner/name.git", "https://github.com/owner", "https://github.com/owner/name/extra",
+			"https://github.com/../name", "git@github.com:owner/..", "file:///tmp/owner/name", "",
+		]) assert.equal(parseOrigin(url), null, url);
+	});
+
+	test("configRoot is the checkout holding the extension", () => {
+		assert.equal(resolve(configRoot()), root);
 	});
 });
 

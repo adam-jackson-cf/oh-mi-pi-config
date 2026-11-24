@@ -6,10 +6,10 @@ Maintain a per-repository table of each correction rule, its enforcer, and histo
 
 ## Guidance
 
-Use the repository's existing rule registry when it has one; otherwise maintain `rules.md` in the
-repo's record (`<harness>/repos/<owner>/<name>/`, see the
-[record contract](../../../record/README.md)), never in the target repository. Do not put
-repository-specific entries in this shared reference or add fields to the record's `gate.json`.
+Use the repository's existing rule registry when it has one; otherwise maintain `rules.md` beside the
+repo config, in its main checkout's `.agentrails/` folder (see the
+[config contract](../../../CONFIG.md)), never in tracked repository files. Do not put
+repository-specific entries in this shared reference or add sections to the repo config.
 
 ### Format
 

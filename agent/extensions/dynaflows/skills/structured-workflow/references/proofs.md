@@ -12,9 +12,9 @@
   owner-approved prerequisite PR completes. Rejection leaves it blocked. A valid surface exemption
   does not trigger setup.
 - The profile's JSON front matter is authoritative for `freeze()` and `guardrails profile-check`
-  (`PROFILE.complete`); keep prose in step. Agents write records at any time, with approval fields only
-  as the owner stated in chat. Git-tool's
-  [record authority](skill://git-tool/references/authority-and-safety.md#who-writes-records)
+  (`PROFILE.complete`); keep prose in step. Agents never write the repo config; approvals come only from
+  the owner's lines. Git-tool's
+  [config authority](skill://git-tool/references/authority-and-safety.md#who-writes-the-config)
   applies independently of dynaflows.
 - The template's `structure` supplies capability owners, tiers and import direction;
   `house_style` supplies the installed version; `guardrails` supplies per-checker settings

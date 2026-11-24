@@ -6,7 +6,7 @@ import { dirname, join, relative, resolve } from "node:path";
 import { test } from "bun:test";
 import { Settings, z, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import dynaflowsExtension from "../agent/extensions/dynaflows/index";
-import { parseOrigin } from "../agent/extensions/dynaflows/lib/repo-record.ts";
+import { parseOrigin } from "../agent/extensions/dynaflows/lib/git-paths.ts";
 import type { AfterMerge, AgentRailsConfig, Autonomy, Ci, Commands, Gates, MergePolicy } from "../agent/extensions/dynaflows/lib/repo-config.ts";
 
 const integrity = "skill://structured-workflow/references/delivery-principles.md";

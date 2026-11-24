@@ -16,14 +16,14 @@ Save the approved record, hand each step to its owner and prove the commit, CI a
    Repo changes land through a normal PR.
 5. Save the confirmed record as `repos/<owner>/<name>/` under the oh-mi-pi-config root. Write the live record yourself;
    never ask the owner to save a file. Never commit, stage or copy a record into the target.
-6. The live `profile.md` starts from [the record profile template](../../../record/profile.md) with its front
+6. The live `profile.md` starts from [the config template](../../../engine/guardrails/data/config-template.json) with its front
    matter and prose filled. Run `guardrails init --repo <worktree> --record <draft dir>` from the harness, write the
    confirmed values into the draft, and compare it with the approved matrix before saving. Preserve existing profile
    values when extending it. `guardrails profile-check` must pass (`PROFILE.complete`).
 7. The `dynaflows` tool or directive sets the repo's mode in `modes.json` when the owner asks.
    Write approval fields only as the owner stated them in the chat; the Step 5 STOP stays the boundary before applying repo fixes.
 8. Pin tools the repo runs through the target's package manager. Keep repo commit and CI commands unchanged.
-9. Execution events follow [the record contract](../../../record/README.md#process-mode-and-events).
+9. Execution events follow [the config contract](../../../CONFIG.md#gates).
    Any commit finding blocks, including drift from contributors who do not use omp. Merge needs `ci.requiredContext`
    green on the exact head and, in structured mode, a `prove()` pass on that head. T3 runs on a schedule, outside the
    record's checks.
@@ -43,7 +43,7 @@ Save the approved record, hand each step to its owner and prove the commit, CI a
 3. Prove the test-evidence wiring: the harness runs the budget checker at the agent's commit and blocks on its failure,
    and `checks.ci` never runs it. Prove machine selection against the approved limits; an unapproved machine prompts for
    a baseline and reports timing only.
-4. Parse the record's `gate.json` against [the gate schema](../../../record/README.md#gate-schema); optional fields stay
+4. Validate the config against [the config contract](../../../CONFIG.md) with `guardrails config-check`; optional fields stay
    optional to the format validator. In an isolated checkout, a passing `checks.commit` with zero harness findings permits
    an agent commit, and a failing one blocks it.
 5. Confirm `git status` in the target shows no record, proposal, JUnit or other harness output, and that

@@ -6,7 +6,7 @@ import {
 } from "@oh-my-pi/pi-coding-agent";
 import {
 	configRoot as defaultConfigRoot, minimalText, OriginError, originUrl, parseOrigin, repoSlug, unresolvedText,
-} from "./lib/repo-record.ts";
+} from "./lib/git-paths.ts";
 import { commonDir, resolveConfig, type AgentRailsConfig, type Ci, type ConfigState } from "./lib/repo-config.ts";
 import { defaultModesPath, MODES, type Mode, repoMode, writeMode } from "./lib/modes.ts";
 import {

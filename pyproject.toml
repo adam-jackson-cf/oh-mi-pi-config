@@ -147,7 +147,7 @@ ignore = ["E501", "B006", "B008", "A005"]
 "**/tests/**" = ["S101", "PLR2004"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["guardrails", "workflows", "repo_record"]
+known-first-party = ["guardrails", "workflows"]
 force-single-line = false
 combine-as-imports = true
 split-on-trailing-comma = true

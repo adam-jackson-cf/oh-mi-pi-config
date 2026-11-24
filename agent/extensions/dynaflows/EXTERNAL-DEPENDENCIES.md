@@ -26,7 +26,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Bun runtime | omp core | `Bun.YAML` reads `rails.yml`; `Bun.Glob` matches globs; `bun:sqlite` |
 | Folder rules | `agent/extensions/AGENTS.md` | No `node_modules` imports; zod from omp |
 | Health marker | `agent/extensions/extension-health.ts` | Expects dynaflows to register |
-| Config root | Repo root | Records and scripts resolve by position |
+| Config root | Repo root | Scripts resolve by position |
 | `AGENT` env var | omp runtime | Stripped from every repo command |
 | `OMP_WORKTREE_DIR` | omp runtime | Overrides `worktree.base` in the guard |
 | `OMP_CI_RUNNERS` | omp runtime | Overrides the `ci-runners.json` path for `ci_runner.py` |
@@ -49,16 +49,16 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Anti-slop plugin | `tools/oxlint/anti-slop` | Custom oxlint rules for extension TS |
 | Markdown lint | `.markdownlint-cli2.jsonc` | 160-column limit for `skills/**` |
 | Prettier | `.prettierrc.json` | Engine rule YAML parsed as JSON |
-| Git allowlist | `.gitignore` | Tracks extension and tests; ignores `/repos/` |
+| Git allowlist | `.gitignore` | Tracks extension and tests |
 
 ## Scripts and CI
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
 | CI runner | `scripts/ci_runner.py` | Merge block names its `submit`/`wait` command |
-| NUC CI gate | `scripts/ci_gate.py` | `ci-gate` role; imports `lib/repo_record.py` |
+| NUC CI gate | `scripts/ci_gate.py` | `ci-gate` role; validates configs with the engine |
 | Gate allowlist | `scripts/ci-gate-repos.json` | Repos `ci_gate.py` accepts |
-| Device rollout | `scripts/device_rollout.py` | Runner list, records, omp pin; meets rollout |
+| Device rollout | `scripts/device_rollout.py` | Runner list, omp pin; meets rollout |
 | Device registry | `scripts/device-rollout-hosts.json` | Hosts, runner roles, judge key |
 | Quality gates | `scripts/run-ci-quality-gates.sh` | Lint, type, test, coverage gates |
 | Test tiers | `scripts/run-test-tier.sh` | Loads engine bun preload, pytest plugin |
@@ -76,8 +76,9 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
 | Rails tests | `tests/dynaflows-*.test.ts` | Entry point, guards, agent loop |
-| Record tests | `tests/repo-record*.test.ts` | `lib/repo-record.ts` |
-| Record tests | `tests/test_repo_record*.py` | `lib/repo_record.py` |
+| Config tests | `tests/repo-config*.test.ts` | `lib/repo-config.ts`, `lib/git-paths.ts` |
+| Config tests | `tests/test_repo_config*.py` | Engine `repo_config.py` |
+| Config fixtures | `tests/fixtures/agentrails` | Valid and invalid repo configs |
 | Engine tests | `tests/test_reference_*.py` | Checkers, adapters, `init` |
 | Workflow tests | `tests/test_workflows*.py` | `engine/workflows.py` |
 | Judgment tests | `tests/test_*judgment*.py` | `judgments/` data and version keys |
@@ -90,7 +91,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Test policy | `tests/test_test_enforcement.py` | Test enforcement docs |
 | Reporter test | `tests/vitest-reporter.test.ts` | Engine vitest reporter |
 | Health test | `tests/extension-health.test.ts` | Registration marker |
-| CI gate test | `tests/test_ci_gate.py` | Copies `lib/repo_record.py` |
+| CI gate test | `tests/test_ci_gate.py` | Configs from `tests/test_agentrails_fixture.py` |
 | Script tests | `tests/test_ci_runner.py` | Use `guardrails.host.process` |
 | Fixtures | `tests/fixtures/reference` | Engine test inputs |
 
@@ -101,13 +102,14 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | Judgment skill | `agent/skills/jev-actions` | `skill://jev-actions` calibration |
 | `tune_threshold.py` | `agent/skills/jev-actions/scripts` | Retunes judgment thresholds |
 | Config skill | `agent/skills/omp-config-optimise` | Defers merges to `git-tool` |
-| Readme | `readme.md` | Layout, modes, record contract |
+| Readme | `readme.md` | Layout, modes, CI runners |
 
-## Machine state and records
+## Machine state and repo configs
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
-| Records | `~/.omp/repos/<owner>/<name>/` | `gate.json` and `profile.md`; agents write any time |
+| Repo config | `<main checkout>/.agentrails/` | `config.json` per `CONFIG.md`; agents never write |
+| NUC configs | `~/.local/share/ci-gate/configs/` | `ci_gate.py config-import` writes them |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
 | Review state | `~/.omp/agent/dynaflows-reviews.json` | Acknowledged revision; agents never write |
 | Handoff | `<worktree>/HANDOFF.md` | Excluded in `info/exclude`; never committed |
@@ -126,8 +128,8 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | --- | --- | --- |
 | Required status | GitHub | `ci.requiredContext` passes on the head |
 | PR state | GitHub | Head SHA and check rollup gate merges |
-| Branch rules | GitHub | `guardrails init` fills `gate.json` |
-| Actions runner | GitHub | `github-actions` role runs `checks.ci` |
+| Branch rules | GitHub | `guardrails init` reads required checks |
+| Actions runner | GitHub | `github-actions` role runs `commands.ci` |
 | Advisories | OSV, GHSA | Dependency triage records |
 | TypeSafe API | Network | Answers `judge()` for the typesafe provider |
 
@@ -143,7 +145,7 @@ unless they start with `~` or `<`; `tests/dynaflows-extension.test.ts` checks th
 | `env` | PATH | Runs repo commands without `AGENT` |
 | `python3` | PATH | Runs `ci_runner.py` |
 | `ssh` | PATH | `shadow-review --machine nuc`: BatchMode, read-only store copy |
-| Repo commands | Record | `checks.commit` before commits |
+| Repo commands | Repo config | `commands.commit` before commits |
 | `go`, `node`, `bun` | PATH | Engine adapter test runs |
 | LSP servers | PATH | `pyright-langserver`, TS server for `init` |
 | Python packages | PyPI | `ast-grep-py`, `pytest`, `mutmut` |

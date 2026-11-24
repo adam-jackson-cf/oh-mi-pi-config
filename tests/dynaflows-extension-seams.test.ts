@@ -1179,52 +1179,6 @@ test("linked worktrees resolve the main checkout's config", async () => {
 	} finally { h.cleanup(); rmSync(linked, { recursive: true, force: true }); }
 });
 
-test("the Python record twin and repo-record.ts accept the same gate fixtures", async () => {
-	const record = { checks: { commit: ["true"] } };
-	const cases: object[] = [
-		{ schemaVersion: 2 }, { schemaVersion: 2, checks: {} }, { schemaVersion: 2, checks: undefined },
-		{ schemaVersion: 2, checks: { commit: ["bun", "check"], ci: ["ci"], format: ["fmt"], profile: ["profile"] }, agentMerge: "allowed", ci: { requiredContext: "gate", runner: "ci-gate" } },
-		{ schemaVersion: 2, ci: { requiredContext: "build", runner: "github-actions" } },
-		{ schemaVersion: 2, unknownField: 3 }, { schemaVersion: 2, extraField: 1000 }, { schemaVersion: 2, checks: { commit: ["c"], lint: ["l"] } },
-		{ schemaVersion: 2, otherField: "github" }, { schemaVersion: 2, otherField: null },
-		{ schemaVersion: 2, ci: null }, { schemaVersion: 2, ci: {} }, { schemaVersion: 2, ci: { requiredContext: " ", runner: "ci-gate" } },
-		{ schemaVersion: 2, ci: { requiredContext: "gate" } }, { schemaVersion: 2, ci: { requiredContext: "gate", runner: 1 } },
-		{ schemaVersion: 2, checks: { format: [] } }, { schemaVersion: 2, checks: { profile: [" "] } }, { schemaVersion: 2, checks: { format: "fmt" } },
-		{ schemaVersion: 2, checks: null }, { schemaVersion: 2, checks: { commit: null } },
-		{ schemaVersion: 2, checks: { ci: [] } },
-		{ schemaVersion: 2, agentMerge: "maybe" },
-		{ schemaVersion: true }, { schemaVersion: 3 },
-		{ schemaVersion: 2, dynaflows: { mode: "structured" } }, { schemaVersion: 2, dynaflows: { mode: "minimal" } },
-		{ schemaVersion: 2, afterMerge: { argv: ["make", "sync"] } }, { schemaVersion: 2, afterMerge: { argv: ["make"], paths: ["agent/**"] } },
-		{ schemaVersion: 2, afterMerge: { argv: [] } }, { schemaVersion: 2, afterMerge: { argv: ["make"], paths: [] } },
-		{ schemaVersion: 2, afterMerge: { argv: ["make"], paths: [" "] } }, { schemaVersion: 2, afterMerge: { argv: ["make"], other: 1 } },
-		{ schemaVersion: 2, afterMerge: "make" },
-		{ schemaVersion: 2, mergePolicies: [{ base: "nuc-config", headPrefix: "agent/nuc-sync-", method: "merge", proof: false }] },
-		{ schemaVersion: 2, mergePolicies: [{ base: "main", headPrefix: "", method: "rebase", proof: true }] },
-		{ schemaVersion: 2, mergePolicies: [] }, { schemaVersion: 2, mergePolicies: [{ base: "main", headPrefix: "", method: "squash", proof: true }] },
-		{ schemaVersion: 2, mergePolicies: [{ base: " ", headPrefix: "", method: "merge", proof: true }] },
-		{ schemaVersion: 2, mergePolicies: [{ base: "main", headPrefix: "", method: "merge", proof: "no" }] },
-		{ schemaVersion: 2, mergePolicies: [{ base: "main", headPrefix: "", method: "merge" }] },
-		{ schemaVersion: 2, mergePolicies: [{ base: "main", headPrefix: "", method: "merge", proof: true, admin: true }] },
-		{ schemaVersion: 2, ownerOnlyPaths: [] }, { schemaVersion: 2, ownerOnlyPaths: ["scripts/checks/exceptions.json"] },
-	].map(value => ({ ...record, ...value }));
-	const dir = realpathSync(mkdtempSync(join(tmpdir(), "dynaflows-gate-twin-")));
-	const { loadGate } = await import("../agent/extensions/dynaflows/lib/repo-record.ts");
-	try {
-		const rails: boolean[] = [];
-		for (const value of cases) {
-			writeFileSync(join(dir, "gate.json"), JSON.stringify(value));
-			rails.push(await loadGate(dir).then(() => true, () => false));
-		}
-		// The rails read .agentrails/config.json now; until S1f deletes both, lib/repo-record.ts and
-		// lib/repo_record.py stay twins and must accept exactly the same gates.
-		const modulePath = join(import.meta.dir, "../agent/extensions/dynaflows/lib/repo_record.py");
-		const script = "import importlib.util,json,sys; spec=importlib.util.spec_from_file_location('repo_record',sys.argv[1]); module=importlib.util.module_from_spec(spec); sys.modules['repo_record']=module; spec.loader.exec_module(module); print(json.dumps([module.gate_reason(v) is None for v in json.loads(sys.argv[2])]))";
-		const result = await execute("python3", ["-c", script, modulePath, JSON.stringify(cases)]);
-		assert.deepEqual(JSON.parse(result.stdout), rails);
-	} finally { rmSync(dir, { recursive: true, force: true }); }
-});
-
 test("mise commits run the record's checks in a real repository", async () => {
 	const h = harness();
 	try {

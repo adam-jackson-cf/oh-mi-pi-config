@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { type ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
-import { parseOrigin } from "./repo-record.ts";
+import { parseOrigin } from "./git-paths.ts";
 import type { Mode } from "./modes.ts";
 import type { AgentRailsConfig, MergePolicy } from "./repo-config.ts";
 import {

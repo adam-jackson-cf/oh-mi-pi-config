@@ -2,7 +2,7 @@
 // restart and handoffs between sessions. index.ts wires them into the Git rails and the dynaflows tool.
 import { z, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { gitActions, matches, policyEvent, repoRoot, SUBPROCESS_TIMEOUT_MS, type GitAction, type ToolEvent } from "./rails-runtime.ts";
-import { OriginError, repoSlug, unresolvedText } from "./repo-record.ts";
+import { OriginError, repoSlug, unresolvedText } from "./git-paths.ts";
 import type { Mode } from "./modes.ts";
 import { ObligationBook, ranCommand, shellJoin, type Obligation, type ObligationSource, type ObligationStatus, type Step } from "./obligations.ts";
 import { consumeHandoff, readHandoff, stagedHandoffReason, writeHandoff } from "./handoff.ts";

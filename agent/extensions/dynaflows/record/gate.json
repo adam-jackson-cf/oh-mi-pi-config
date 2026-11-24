@@ -1,9 +1,0 @@
-{
-  "schemaVersion": 2,
-  "checks": {
-    "commit": ["make", "gate-commit"],
-    "ci": ["make", "gate-ci"]
-  },
-  "ci": { "requiredContext": "gate", "runner": "github-actions" },
-  "agentMerge": "allowed"
-}

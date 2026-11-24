@@ -2,10 +2,6 @@
 # Add an explicit exception when taking ownership of a new file or directory.
 *
 
-# Per-repo records (repos/<owner>/<name>/) are personal and never committed: they mean nothing
-# to anyone else who takes this config. The device rollout copies them between devices.
-/repos/
-
 !.gitignore
 !readme.md
 !package.json
@@ -107,7 +103,6 @@ tests/*
 !tests/dynaflows-judged-rails-seams.test.ts
 !tests/dynaflows-judgment-calls-seams.test.ts
 !tests/dynaflows-bypass-seams.test.ts
-!tests/repo-record-seams.test.ts
 !tests/dynaflows-extension.test.ts
 !tests/dynaflows-ledger-report.test.ts
 !tests/analyse.test.ts
@@ -139,12 +134,10 @@ tests/fixtures/*
 !tests/fixtures/agentrails/
 !tests/fixtures/agentrails/**
 !tests/test_device_rollout.py
-!tests/test_repo_record.py
 !tests/test_repo_config.py
 !tests/test_repo_config_seams.py
 !tests/test_cutover_agent_rails.py
 !tests/test_cutover_agent_rails_seams.py
-!tests/repo-record.test.ts
 !tests/repo-config.test.ts
 !tests/repo-config-seams.test.ts
 !tests/test_skill_references.py
@@ -156,7 +149,6 @@ tests/fixtures/*
 !tests/test_orca_install_seams.py
 !tests/test_workflows_seams.py
 !tests/test_device_rollout_seams.py
-!tests/test_repo_record_seams.py
 !tests/test_skill_references_seams.py
 !tests/test_in_scope_judgment.py
 !tests/test_judgment_*.py

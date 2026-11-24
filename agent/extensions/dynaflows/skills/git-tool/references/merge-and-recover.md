@@ -3,7 +3,7 @@
 **Structured mode only.** Read this runbook only when the repo's dynaflows `mode` is `structured`.
 
 Units target the default resolved in [branch-and-integrate](branch-and-integrate.md) and use rebase-merge,
-never squash or merge commits, unless the record's `mergePolicies` entry for the base and head prefix names another
+never squash or merge commits, unless the config's `mergePolicies` entry for the base and head prefix names another
 method; the merge rail enforces it.
 Authority and approval boundaries remain in [authority-and-safety](authority-and-safety.md).
 
@@ -11,19 +11,19 @@ Authority and approval boundaries remain in [authority-and-safety](authority-and
 
 - The orchestrating (main) agent owns each change from branch to merge: it checks exact-head CI, coordinates fixes
   and merges; independent units merge independently. The assigned writer waits for exact-head green CI before handing off.
-- Granted in every repository unless its record's `gate.json` has `"agentMerge": "disabled"`: merge `agent/*` PRs
+- Granted in every repository, subject to its config's `autonomy.merge`: merge `agent/*` PRs
   once required CI is green on the exact head. This grant overrides recommend-before-acting for merging only.
-- `agentMerge: disabled` requires owner approval to merge; an absent field defaults to allowed, never permission to skip CI.
+- `autonomy.merge: ask` waits for the owner's `$approve autonomy:merge:<pr number>` line; it never permits skipping CI.
 
 ## Merge one pull request
 
-1. Main re-reads the repo's record `gate.json` when present; invalid declared policy fails closed.
+1. Main re-reads the repo's config when present; invalid declared policy fails closed.
 2. Confirm the actual PR target, the current exact head and required CI green on it under the table below.
 3. Inspect `mergeStateStatus` and protection's up-to-date requirement. Rebase only for conflicts (`DIRTY`),
    or `BEHIND` when protection requires up-to-date. The assigned writer fetches the target, rebases,
    then pushes self-created `agent/*` history with `git push --force-with-lease`.
    Rewriting other history requires owner approval. A rebased head needs exact-head CI again.
-4. Merge with `gh pr merge <number> --rebase --match-head-commit <head-sha>`, or the method the record's
+4. Merge with `gh pr merge <number> --rebase --match-head-commit <head-sha>`, or the method the config's
    `mergePolicies` entry for the PR's base and head names; add `--auto` when required protection supports it. Rails
    refuse `--admin` and any other method.
 5. After every attempt, including errors or auto-merge requests, run `gh pr view <number> --json state,mergeCommit`.
@@ -36,7 +36,7 @@ Authority and approval boundaries remain in [authority-and-safety](authority-and
 
 The writer submits and waits for PR-head CI. Every dispatch, status and log refers to an exact SHA; a run for an old
 head cannot approve a new one. With `ci` declared, the required context decides; otherwise inspect all reported/required
-GitHub checks. Missing protection or a protection API error never waives an existing gate. Use `checks.ci` when declared.
+GitHub checks. Missing protection or a protection API error never waives an existing gate. Use `commands.ci` when declared.
 
 | Observed state on the PR head | Action |
 | --- | --- |
@@ -48,7 +48,7 @@ GitHub checks. Missing protection or a protection API error never waives an exis
 | Genuine failed/cancelled CI | Return logs to the assigned writer for repair |
 | Missing / unknown required state | Stop and resolve/escalate |
 
-Provider unavailable: read annotations once (e.g. `gh api repos/<owner>/<repo>/check-runs/<id>/annotations`); never rerun jobs as a probe.
+Provider unavailable: read annotations once (e.g. `gh api repos/{owner}/{repo}/check-runs/<id>/annotations`); never rerun jobs as a probe.
 Escalate once to the owner, keep PRs open and stop opening further dependent PRs.
 Use a fallback only when the repository documents one (see [Fallback and no-CI boundary](#fallback-and-no-ci-boundary)).
 
@@ -56,7 +56,7 @@ Infrastructure failures are not failed CI assertion evidence. Never waive a requ
 
 ### Declared CI contract
 
-The record's [`gate.json` CI policy](../../../record/README.md#merge-and-ci-policy) declares
+The config's [`ci` policy](../../../CONFIG.md#ci) declares
 `requiredContext` (the commit-status context or check-run name that must be `success`
 on the exact head, whoever posts it) and `runner` (a role name). The machine config `ci-runners.json` in the omp base
 directory maps each role to its submit, wait, status and logs commands; `scripts/device_rollout.py` writes it per device.
@@ -85,10 +85,10 @@ establish SHA identity).
 
 A repository-specific documented fallback is autonomous merge authority only if its exact `run.headSha` is validated
 and it publishes every required status. Otherwise stop/escalate the incident for owner decision; generic Actions success
-alone is insufficient. Repository-specific fallbacks live in the record docs ([record README](../../../record/README.md)).
+alone is insufficient. Repository-specific fallbacks live in the [config contract](../../../CONFIG.md#oh-mi-pi-config-example).
 
-Repositories whose record declares `ci` never qualify for the no-CI exception. Otherwise, only when host queries establish
-**no checks at all** and the repository has **no CI workflow** may exact-head local `checks.ci` replace CI.
+Repositories whose config enables `ci` never qualify for the no-CI exception. Otherwise, only when host queries establish
+**no checks at all** and the repository has **no CI workflow** may exact-head local `commands.ci` replace CI.
 Record commands, outputs, SHA, host-query evidence and `no CI / no protection` in a PR comment.
 Without a declared local CI command, or with unknown host state, stop and resolve/escalate.
 
@@ -98,6 +98,6 @@ Without a declared local CI command, or with unknown host state, stop and resolv
 2. Delegate a revert to an implementation task on a fresh `agent/revert-<slug>` branch from the fetched current target.
    Revert the landed range; never reset or rewrite default. Unsafe attribution or dependent changes require owner
    escalation with evidence.
-3. The revert is an ordinary PR requiring exact-head CI green. `agentMerge: disabled` still applies.
+3. The revert is an ordinary PR requiring exact-head CI green. `autonomy.merge: ask` still applies.
 4. Implement the durable fix as a separate PR with regression coverage. Use `skill://codify-omp-workflow-corrections`
    when the incident exposes a repeated class. Owner authority never permits unrelated changes or check bypasses.

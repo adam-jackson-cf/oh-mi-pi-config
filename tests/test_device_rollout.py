@@ -3,8 +3,6 @@
 import importlib.util
 import io
 import json
-import os
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -54,7 +52,6 @@ class Runner:
     find_output: str | None = None
     runners: str = "current"
     version: str = f"omp/{PIN}"
-    records: dict[str, list[object]] = field(default_factory=dict)
     commands: list[list[str]] = field(default_factory=list)
 
     def __call__(self, argv: list[str]) -> subprocess.CompletedProcess[str]:
@@ -71,11 +68,9 @@ class Runner:
         )
 
     def reads(self, text: str) -> tuple[int, str] | None:
-        """Answers for the records lister, the runners writer and the find canary."""
+        """Answers for the omp version, the runners writer and the find canary."""
         if "omp --version" in text:
             return 0, self.version + "\n"
-        if "omp-records-list" in text:
-            return 0, json.dumps(self.records)
         if "ci-runners.json" in text:
             return 0, self.runners + "\n"
         if "omp find" in text:
@@ -183,6 +178,12 @@ class DeviceRolloutTests(unittest.TestCase):
         )
         assert "device" in deployment.report()
         assert not any(row[:2] == ("mac-cf2", "omp") for row in deployment.rows)
+
+    def test_rollout_copies_nothing_from_repos(self) -> None:
+        runner = Runner()
+        deployment, _ = execute(runner, check=False)
+        assert not any(item[1] == "records" for item in deployment.rows)
+        assert not any("repos" in " ".join(argv) for argv in runner.commands)
 
     def test_local_label_resolves_normalized_hostname(self) -> None:
         deployment, code = execute(Runner(), hostname="CDHVC2HW3L.example.test")
@@ -566,151 +567,6 @@ class RunnerConfigTests(unittest.TestCase):
         assert {item[5] for item in deployment.rows if item[1] == "ci-runners"} == {
             "failed"
         }
-
-
-class RecordRolloutCase(unittest.TestCase):
-    def setUp(self) -> None:
-        scratch = tempfile.TemporaryDirectory(prefix="records-rollout-test-")
-        self.addCleanup(scratch.cleanup)
-        self.scratch = Path(scratch.name)
-        self.base = self.scratch / "source"
-        self.write(
-            self.base,
-            "example-owner/example-repo/gate.json",
-            '{"schemaVersion": 2}\n',
-            1_000,
-        )
-        self.write(
-            self.base, "example-owner/example-repo/profile.md", "---\n{}\n---\n", 1_000
-        )
-        self.source = rollout.record_files(self.base / "repos")
-
-    @staticmethod
-    def write(base: Path, relative: str, text: str, mtime_s: int) -> Path:
-        path = base / "repos" / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
-        os.utime(path, (mtime_s, mtime_s))
-        return path
-
-    def execute(
-        self, runner: Runner, *, check: bool = True, pipeline: Pipeline | None = None
-    ) -> tuple[Any, int]:
-        return execute(runner, check=check, pipeline=pipeline, base=self.base)
-
-    def target(self, **changes: list[object]) -> dict[str, list[object]]:
-        listing: dict[str, list[object]] = {
-            relative: list(value) for relative, value in self.source.items()
-        }
-        listing.update(changes)
-        return listing
-
-
-class RecordRolloutTests(RecordRolloutCase):
-    def test_records_go_only_to_devices_that_run_omp(self) -> None:
-        deployment, code = self.execute(Runner(records=self.target()))
-        assert code == 0
-        assert [item[:2] for item in deployment.rows if item[1] == "records"] == [
-            ["codex-omarchy-nuc", "records"]
-        ]
-        assert row(deployment, "codex-omarchy-nuc", "records")[5] == "current"
-
-    def test_check_reports_missing_records_without_copying(self) -> None:
-        pipeline = Pipeline()
-        deployment, code = self.execute(Runner(records={}), pipeline=pipeline)
-        assert code == 1
-        assert row(deployment, "codex-omarchy-nuc", "records")[5] == "stale"
-        assert pipeline.calls == []
-        assert "codex-omarchy-nuc: 2 record file(s) to copy" in deployment.report()
-
-    def test_apply_streams_changed_files_to_the_target_base(self) -> None:
-        pipeline = Pipeline()
-        older = [1, "0" * 64]
-        deployment, code = self.execute(
-            Runner(
-                records=self.target(**{"example-owner/example-repo/gate.json": older})
-            ),
-            check=False,
-            pipeline=pipeline,
-        )
-        assert code == 0
-        assert row(deployment, "codex-omarchy-nuc", "records")[5] == "current"
-        copies = [
-            call
-            for call in pipeline.calls
-            if call[0][1:3] == ["-c", rollout.RECORDS_BUNDLER]
-        ]
-        assert len(copies) == 1
-        producer, consumer = copies[0]
-        assert producer[3:] == [
-            str(self.base / "repos"),
-            "example-owner/example-repo/gate.json",
-        ]
-        assert consumer[:5] == ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"]
-        assert consumer[5] == "codex-omarchy-nuc"
-        assert "omp-records-write" in consumer[6]
-        assert shlex.split(shlex.split(consumer[6])[-1])[-2:] == [
-            "~/.omp",
-            json.dumps({"example-owner/example-repo/gate.json": older}),
-        ], "the writer receives the base and the target state the plan saw"
-
-    def test_newer_target_record_is_refused_and_reported(self) -> None:
-        pipeline = Pipeline()
-        newer = [self.source["example-owner/example-repo/gate.json"][0] + 1, "f" * 64]
-        runner = Runner(
-            records=self.target(**{
-                "example-owner/example-repo/gate.json": newer,
-                "example-owner/example-repo/profile.md": [1, "0" * 64],
-            })
-        )
-        deployment, code = self.execute(runner, check=False, pipeline=pipeline)
-        assert code == 1
-        assert row(deployment, "codex-omarchy-nuc", "records")[5] == "record-newer"
-        assert not any(
-            call[0][1:3] == ["-c", rollout.RECORDS_BUNDLER] for call in pipeline.calls
-        ), "no file of a newer target record may be overwritten"
-        assert (
-            "codex-omarchy-nuc: record example-owner/example-repo is newer on the target; not overwritten"
-            in deployment.report()
-        )
-
-    def test_unreachable_target_records_row(self) -> None:
-        deployment, code = self.execute(Runner(unreachable=True))
-        assert code == 1
-        assert row(deployment, "codex-omarchy-nuc", "records")[5] == "unreachable"
-
-    def test_no_source_records_adds_no_row(self) -> None:
-        self.base = self.scratch / "empty"
-        deployment, code = self.execute(Runner())
-        assert code == 0
-        assert not any(item[1] == "records" for item in deployment.rows)
-
-    def test_plan_copies_missing_and_older_and_leaves_target_only_files(self) -> None:
-        gate, profile = "o/n/gate.json", "o/n/profile.md"
-        source = {gate: (10, "a"), profile: (10, "b"), "o/other/gate.json": (10, "c")}
-        target = {
-            gate: (10, "a"),
-            profile: (5, "old"),
-            "o/n/extra.md": (99, "x"),
-            "o/other/gate.json": (11, "edited"),
-        }
-        assert rollout.record_plan(source, target) == ([profile], ["o/other"])
-        assert rollout.record_plan(source, {}) == (sorted(source), [])
-
-    def test_apply_reports_files_the_writer_refused(self) -> None:
-        older = [1, "0" * 64]
-        runner = Runner(
-            records=self.target(**{"example-owner/example-repo/gate.json": older})
-        )
-        deployment, code = self.execute(
-            runner, check=False, pipeline=Pipeline(codes=(0, 5))
-        )
-        assert code == 1
-        assert row(deployment, "codex-omarchy-nuc", "records")[5] == "record-newer"
-        assert (
-            "codex-omarchy-nuc: record file example-owner/example-repo/gate.json changed on the target "
-            "after inventory; not overwritten" in deployment.report()
-        )
 
 
 class OmpVersionTests(unittest.TestCase):
