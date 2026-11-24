@@ -237,8 +237,26 @@ class Sections(unittest.TestCase):
         assert repo_config.validate_section("tests", []) == ["tests: must be an object"]
 
     def test_sections_outside_the_checked_set_are_refused(self) -> None:
-        with pytest.raises(ValueError, match="'approvals' is not a section"):
-            repo_config.validate_section("approvals", [])
+        with pytest.raises(ValueError, match="'repo' is not a section"):
+            repo_config.validate_section("repo", {})
+
+    def test_owner_sections_check_their_entries_alone(self) -> None:
+        approval = fixture("minimal.json")["approvals"][0]
+        assert repo_config.validate_section("approvals", [approval]) == []
+        assert repo_config.validate_section("approvals", [approval, approval]) == [
+            "approvals[1]: repeats an earlier (kind, target)"
+        ]
+        exception = {
+            "rule": "NOT.a-rule",
+            "path": "src/**",
+            "reason": "r",
+            "approvedBy": "o",
+            "approvedAt": "2026-11-24T09:00:00Z",
+        }
+        assert repo_config.validate_section("exceptions", [exception]) == [
+            'exceptions[0].rule: "NOT.a-rule" is not a rule id in the guardrail '
+            "catalogue or a judgment question"
+        ]
 
 
 class Constants(unittest.TestCase):
@@ -350,12 +368,36 @@ class Command(unittest.TestCase):
             ["commands.commit: must be a non-empty argv array of non-blank strings"],
         )
 
+    def test_list_rules_names_every_switchable_code_rule_once(self) -> None:
+        code, result = run_cli("--list-rules")
+        ids = [rule["id"] for rule in result["rules"]]
+        assert code == 0
+        assert ids == sorted(repo_config.code_check_rules())
+        assert all(rule["summary"] for rule in result["rules"])
+
+    def test_list_questions_names_the_offered_questions_with_their_modes(
+        self,
+    ) -> None:
+        code, result = run_cli("--list-questions")
+        keys = [question["key"] for question in result["questions"]]
+        assert code == 0
+        assert keys == sorted(repo_config.offered_questions())
+        assert not repo_config.NOT_CONFIGURABLE & set(keys)
+        assert {
+            "key": "structure-naming/consumer_placement",
+            "mode": "shadow",
+            "shadowable": True,
+        } in result["questions"]
+
     def test_misused_options_are_usage_errors(self) -> None:
         cases: tuple[list[str], ...] = (
             ["--repo", ".", "--slug", "a/b"],
             ["--file", "x.json", "--section", "tests", "--slug", "a/b"],
             ["--file", "x.json", "--slug", "A/B"],
-            ["--file", "x.json", "--section", "approvals"],
+            ["--file", "x.json", "--section", "repo"],
+            ["--list-rules", "--slug", "a/b"],
+            ["--list-questions", "--section", "tests"],
+            ["--list-rules", "--list-questions"],
             [],
         )
         for args in cases:

@@ -5,9 +5,9 @@ import {
 	type SessionStartEvent, type SessionSwitchEvent, type SessionBranchEvent, type SessionTreeEvent,
 } from "@oh-my-pi/pi-coding-agent";
 import {
-	configRoot as defaultConfigRoot, minimalText, OriginError, originUrl, parseOrigin, repoSlug, unresolvedText,
-} from "./lib/git-paths.ts";
-import { commonDir, resolveConfig, type AgentRailsConfig, type Ci, type ConfigState } from "./lib/repo-config.ts";
+	commonDir, configRoot as defaultConfigRoot, minimalText, OriginError, originUrl, parseOrigin, repoSlug, resolveConfig, unresolvedText,
+	type AgentRailsConfig, type Ci, type ConfigState,
+} from "./lib/repo-config.ts";
 import { defaultModesPath, MODES, type Mode, repoMode, writeMode } from "./lib/modes.ts";
 import {
 	SUBPROCESS_TIMEOUT_MS, stringList, loadMapping, detailsSchema, policyEvent, absolute, repoRoot,
@@ -25,6 +25,7 @@ import {
 	Approvals, defaultReviewsPath, ompJudge, registryDecide, scopeInputSchema, sessionRails, type JudgeTransport, type ObligationSource,
 	type PrStatus,
 } from "./lib/session-rails.ts";
+import { registerOwnerSurface } from "./lib/onboarding.ts";
 import {
 	COMMIT_CHECKS_TIMEOUT_MS, Evidence, Snapshot, evalReason, fileState, pinSettings, protectedPathReason, setting as ompSetting, shellStateReason,
 	type Protection,
@@ -104,7 +105,7 @@ function headFormatReason(head: string | undefined): Refusal | undefined {
 	return undefined;
 }
 type ExecApi = Pick<ExtensionAPI, "exec">;
-type DynaflowsApi = Pick<ExtensionAPI, "on" | "exec" | "registerCommand" | "registerTool"> & { pi: Pick<ExtensionAPI["pi"], "settings"> };
+type DynaflowsApi = Pick<ExtensionAPI, "on" | "exec" | "registerCommand" | "registerTool" | "sendUserMessage"> & { pi: Pick<ExtensionAPI["pi"], "settings"> };
 type Applied = { notice: string; content?: string | undefined };
 // The directive's outcome for a repository whose agent-rails config is missing or cannot be resolved.
 function unconfiguredOutcome(notify: (notice: string, level?: "info" | "error") => string, slug: string, state: ConfigState, mode: Mode): Applied {
@@ -141,18 +142,23 @@ interface State extends SharedState {
 	episodes: Episode[];
 	// The owner's one-use autonomy approvals the current tool call relies on; consumed only when the call is allowed.
 	autonomyUses: string[];
+	// Main checkouts whose onboarding the owner started in this session (/agentrails onboard).
+	onboarding: Set<string>;
 }
 function fresh(): State {
 	return {
 		reads: new Set(), notes: new Set(), edits: new Set(), pathFailures: new Map(),
-		pointed: false, proposal: [], ownerAsked: false, calls: 0, episodes: [], autonomyUses: [],
+		pointed: false, proposal: [], ownerAsked: false, calls: 0, episodes: [], autonomyUses: [], onboarding: new Set(),
 	};
 }
-// A rebuilt session state keeps the pointer, path failures, call count and open ledger episodes.
+// A rebuilt session state keeps the pointer, path failures, call count, open ledger episodes and onboarding.
 function carried(previous: State | undefined): State {
 	const state = fresh();
 	if (!previous) return state;
-	return { ...state, pointed: previous.pointed, pathFailures: previous.pathFailures, calls: previous.calls, episodes: previous.episodes };
+	return {
+		...state, pointed: previous.pointed, pathFailures: previous.pathFailures, calls: previous.calls, episodes: previous.episodes,
+		onboarding: previous.onboarding,
+	};
 }
 type PathOrigin = { code: "path-check" | "handoff-path-check"; tool: string };
 // The subject of a Git action for matching a refusal to a later passing call: `git <verb>` or `gh <group> <verb>`.
@@ -645,7 +651,7 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 	} catch (error) {
 		loadError = `Agent rails: cannot load rails.yml: ${String(error)}`;
 	}
-	const stateFor = (ctx: ExtensionContext) => {
+	const stateFor = (ctx: Pick<ExtensionContext, "sessionManager">) => {
 		const id = ctx.sessionManager.getSessionId();
 		let state = states.get(id);
 		if (!state) {
@@ -674,6 +680,10 @@ export default function dynaflows(pi: DynaflowsApi, options: Partial<DynaflowsOp
 		repoRun: (argv, cwd, timeout) => repoExec(pi, argv, cwd, timeout),
 		checks: { config: guardrailsConfigCheckCommand, check: guardrailsCommand },
 		loadError: () => loadError,
+	});
+	// The owner's surface for the repo config: /agentrails, the agentrails_config tool and the $approve/$revoke lines.
+	registerOwnerSurface(pi, {
+		check: { argv: defaultConfigCheckCommand }, engineDir: guardrailsProject, skillsDir: join(import.meta.dir, "skills"), session: stateFor,
 	});
 	async function prCi(cwd: string | undefined, selector: string | undefined): Promise<PrCi> {
 		if (!cwd) throw new Error("cannot resolve PR action cwd");

@@ -52,6 +52,8 @@ CHECKED_SECTIONS = (
     "judgments",
     "mergePolicies",
     "afterMerge",
+    "exceptions",
+    "approvals",
 )
 PERMISSIONS = ("allowed", "ask")
 AUTONOMY_ACTIONS = ("branch", "pr", "merge")

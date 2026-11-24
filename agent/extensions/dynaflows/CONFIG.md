@@ -60,6 +60,40 @@ Writer rules:
 [config-template.json](engine/guardrails/data/config-template.json) is the template for the
 setup and test sections.
 
+## Onboarding and the owner commands
+
+`/agentrails` is an owner slash command; agents cannot run it. Subcommands that prompt need an
+interactive omp session.
+
+| Subcommand | Does |
+| --- | --- |
+| `onboard` | Starts onboarding, or runs the Q&A once the draft holds every setup section |
+| `configure` | Re-runs the Q&A on a valid config and rewrites only the Q&A sections |
+| `export <file>` | Writes the valid config to a new file outside every Git work tree |
+| `import <file>` | Validates the file against the origin, then writes it |
+| `status` | Shows the config state, its problems, the onboarding state and the draft |
+
+Onboarding runs in three steps:
+
+1. `/agentrails onboard` excludes `/.agentrails/` and `/.proofs/`, marks the repository as
+   onboarding for the session and sends the agent a fixed instruction. The agent runs
+   skill://setup-repo-proofs and skill://test-guidance.
+2. The agent records each setup section with the `agentrails_config` tool. A section is refused
+   until the session read its skill, and the engine checks it with `config-check --section`.
+   The draft at `<git common dir>/agentrails/draft.json` holds the sections and each skill's
+   stamp: a sha256 of the bundled skill folder, the run time and the scope.
+3. The second `/agentrails onboard` runs the Q&A, writes the whole config and deletes the draft.
+   When the repository ships `.githooks/`, it asks the owner to set `core.hooksPath`.
+
+The Q&A is fixed in [questionnaire.ts](lib/questionnaire.ts), version 1. It never offers
+`in-scope/ask_first` or `dependency-severity/impact`, and it does not ask for `gates.audit`.
+`config-check --list-rules` and `--list-questions` give the rule and judgment choices.
+`/agentrails configure` also repairs a config refused only for an older questionnaire version.
+
+While a repository is onboarding, `$approve` and `$revoke` lines write the draft's
+`exceptions` and `approvals`, so budgets and exemptions can be approved before the config exists.
+`approvedBy` is the login `gh api user` returns, read once per session.
+
 ## Commands
 
 `commands.commit` is required; `ci`, `audit` and `format` are optional.

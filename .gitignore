@@ -140,6 +140,8 @@ tests/fixtures/*
 !tests/test_cutover_agent_rails_seams.py
 !tests/repo-config.test.ts
 !tests/repo-config-seams.test.ts
+!tests/agentrails-onboarding-seams.test.ts
+!tests/agentrails-owner-approvals-seams.test.ts
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py

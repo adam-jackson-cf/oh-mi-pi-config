@@ -7,6 +7,7 @@ from typing import Any
 
 from guardrails.context.config import repo_config
 from guardrails.context.config.repo_config import ConfigError
+from guardrails.foundation.findings import catalogue_rules
 
 # Every problem config-check reports belongs to this rule's problem class.
 RULE = "PROFILE.complete"
@@ -17,9 +18,12 @@ Each problem is a PROFILE.complete problem: a value missing, malformed or not ow
   --repo DIR                     the main checkout's config, checked against DIR's origin
   --file PATH [--slug OWNER/NAME]  any config file; --slug checks repo.slug against it
   --section NAME --file PATH     one section value
+  --list-rules                   the code-check rule ids gates.rules may switch off
+  --list-questions               the judgment questions the judgments section may override
 
-Prints one JSON line {ok, kind, path, problems}; exits 0 when ok and 1 otherwise.
-kind is ok, missing, invalid, unresolved or outside.
+A check prints one JSON line {ok, kind, path, problems}; it exits 0 when ok and 1 otherwise.
+kind is ok, missing, invalid, unresolved or outside. A list prints one JSON line,
+{rules: [{id, summary}]} or {questions: [{key, mode, shadowable}]}, and exits 0.
 """
 
 
@@ -32,6 +36,14 @@ def parser() -> argparse.ArgumentParser:
     target = root.add_mutually_exclusive_group(required=True)
     target.add_argument("--repo", type=Path, help="a directory in the repository")
     target.add_argument("--file", type=Path, help="a config or section file")
+    target.add_argument(
+        "--list-rules", action="store_true", help="list the switchable code rules"
+    )
+    target.add_argument(
+        "--list-questions",
+        action="store_true",
+        help="list the configurable judgment questions",
+    )
     root.add_argument("--slug", help="the lowercase GitHub owner/name of the origin")
     root.add_argument("--section", choices=repo_config.CHECKED_SECTIONS)
     return root
@@ -56,6 +68,25 @@ def checked_file(path: Path, slug: str | None, section: str | None) -> dict[str,
     return outcome("invalid" if problems else "ok", path, problems)
 
 
+def listed_rules() -> dict[str, Any]:
+    summaries = {rule["id"]: rule.get("summary", "") for rule in catalogue_rules()}
+    return {
+        "rules": [
+            {"id": ident, "summary": summaries[ident]}
+            for ident in sorted(repo_config.code_check_rules())
+        ]
+    }
+
+
+def listed_questions() -> dict[str, Any]:
+    return {
+        "questions": [
+            {"key": key, "mode": question.mode, "shadowable": question.shadowable}
+            for key, question in sorted(repo_config.offered_questions().items())
+        ]
+    }
+
+
 def checked(args: argparse.Namespace) -> dict[str, Any]:
     try:
         if args.repo is not None:
@@ -69,6 +100,12 @@ def checked(args: argparse.Namespace) -> dict[str, Any]:
 def main(argv: list[str]) -> int:
     root = parser()
     args = root.parse_args(argv)
+    listing = args.list_rules or args.list_questions
+    if listing and (args.slug is not None or args.section is not None):
+        root.error("--list-rules and --list-questions take no other option")
+    if listing:
+        print(json.dumps(listed_rules() if args.list_rules else listed_questions()))
+        return 0
     if args.repo is not None and (args.slug is not None or args.section is not None):
         root.error("--slug and --section go with --file, not --repo")
     if args.slug is not None and args.section is not None:

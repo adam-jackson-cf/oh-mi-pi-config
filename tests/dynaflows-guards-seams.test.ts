@@ -216,6 +216,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		},
 		registerCommand() {},
 		registerTool(tool: Tool) { tools.set(tool.name, tool); },
+		async sendUserMessage() {},
 		async exec(command: string, args: string[], options: { cwd: string; timeout?: number }) {
 			const [name, paths] = repoCommand(command, args);
 			if (name === "path-check") {

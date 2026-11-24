@@ -13,6 +13,8 @@ export const RAIL_CODES = [
 	// The rails themselves: rails.yml, an evaluation error, the origin remote and rail state.
 	"rails-config", "policy-error", "post-edit-error", "handoff-error", "mode-unresolved", "rail-state-drift", "rail-state-write",
 	"protected-path", "extension-review", "github-token", "config-unresolved",
+	// The agent-rails config: a setup-section write the rails refused, and a repository that needs onboarding.
+	"agentrails-config-write", "onboarding-required",
 	// Reads, subagents and tools other than bash.
 	"read-gate", "subagent-path", "eval-git", "eval-refused", "github-tool-write", "judged-scope",
 	// The shell scan.
