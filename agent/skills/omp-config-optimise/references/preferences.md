@@ -16,10 +16,10 @@ recommendation, not a silent edit.
   reasoning ≤ medium.
 - Design (`designer`): Claude Sonnet (current: Sonnet 5.5 `medium`, owner decision 2026-09-30);
   reasoning ≤ medium.
-- Bundled `reviewer`: Sonnet 5.5 `medium` for open-ended contextual eval judging, not the
-  dynaflows proof; preserve independent cross-family sessions.
-- Implementation with a fixed plan or todo list (`task`): Gemini 4 Carbon `medium` through
-  `agy` (owner decision 2026-11-21).
+- Bundled `reviewer`: GPT-6.1 Sol `medium` (owner decision 2026-11-22: no measured detection
+  difference from Gemini 4 Neon on real defects; prefer a native provider over `agy`).
+- Implementation with a fixed plan or todo list (`task`): Claude Haiku 5.5 `high` (owner decision
+  2026-11-22).
 - Image reading (`vision`): GPT Terra (current: GPT-6.1 Terra `low`, owner decision 2026-10-27).
 - Browser/computer use (`operator`): GPT-6.1 Terra `off` (owner decision 2026-11-03);
   operator-task performance remains untested here.
@@ -30,8 +30,8 @@ recommendation, not a silent edit.
   before a spike, not a risk review.
 - Codex `priority` service tier applies to exactly `task`, `kiss` and `sonic`
   (owner decision 2026-11-04).
-- Innovation council: Opus leads; GPT Astra and Gemini 4 Neon (via `agy`) challenge; reasoning
-  high allowed (Neon challenger added 2026-11-21).
+- Innovation council: Fable 5.2 leads (owner decision 2026-11-22); GPT Astra and Gemini 4 Neon
+  (via `agy`) challenge; Opus 5.5 is `experiment-peer`; reasoning high allowed.
 - Experiment design: novel problems, hypothesis forming: Claude Fable leads; Astra and Opus as
   peers; reasoning high allowed.
 
@@ -42,8 +42,8 @@ recommendation, not a silent edit.
   needs rigorous input, route it to `innovation-council`.
 - Above-medium reasoning outside those two is a deliberate, per-turn user
   choice for a distinctly unique problem, not a configured default.
-- Fixed-plan implementation uses the configured `task` route at `medium` (owner decision
-  2026-11-03).
+- Fixed-plan implementation uses the configured `task` route, Haiku 5.5 `high` (owner decision
+  2026-11-22).
 
 ## Evidence ladder
 

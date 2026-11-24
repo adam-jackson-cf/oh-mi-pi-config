@@ -17,6 +17,13 @@ and last 4 characters
 recommended approach only. NEVER execute it or make changes until the user
 explicitly asks or gives permission.
 
+## Research Coverage
+
+- When performing research or analysis, enumerate every candidate source to
+review, then read each one in full. NEVER sample, skim, or keyword-scan a
+subset. Name any source that cannot be read and why. Require the same of
+delegated agents, with a read / not-read coverage list.
+
 ## Shaping Completion Response Messages
 
 ### ALWAYS follow the below rules when responding to the user

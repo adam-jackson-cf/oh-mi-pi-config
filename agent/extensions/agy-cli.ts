@@ -9,6 +9,15 @@ const MUTATING_TOOLS = new Set(["edit", "write", "bash", "eval", "ast_edit"]);
 const SUBSCRIPTION_OVERRIDE_ENV = ["GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI", "AGY_ADC_AUTH"];
 const EFFORT_ORDER: readonly string[] = THINKING_EFFORTS;
 const ASSIGNMENT_SECTIONS = ["Role", "Context", "Plan"];
+const READ_ONLY_SETTINGS = JSON.stringify({
+	permissions: {
+		allow: [
+			"read_file(*)",
+			...["ls", "cat", "head", "tail", "wc", "rg", "grep", "stat", "pwd"].map(command => `command(${command})`),
+			...["status", "log", "show", "diff", "blame", "ls-files"].map(subcommand => `command(git ${subcommand})`),
+		],
+	},
+});
 
 type ModelSpec = { id: string; name: string; levels: string[]; maxTokens: number };
 const MODELS: ModelSpec[] = [
@@ -283,7 +292,7 @@ function agyArgs(model: Model, context: Context, options: SimpleStreamOptions | 
 		agyModelId(model, options?.reasoning),
 		"--output-format",
 		"stream-json",
-		...(mutating ? ["--dangerously-skip-permissions"] : ["--mode", "plan"]),
+		...(mutating ? ["--dangerously-skip-permissions"] : ["--mode", "plan", "--settings", READ_ONLY_SETTINGS]),
 		...(resumed ? ["--conversation", resumed.id] : []),
 	];
 }

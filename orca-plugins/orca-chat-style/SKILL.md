@@ -1,7 +1,7 @@
 ---
 name: "orca-chat-style"
 description: >-
-  Use when the user asks about Orca's chat or terminal look, switches layout modes or palettes,
+  Use when the user asks about Orca's chat or terminal visual styling, switches layout modes or palettes,
   or finds styling missing after an update or reinstall.
 ---
 

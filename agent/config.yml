@@ -13,17 +13,17 @@ modelRoles:
   plan: anthropic/claude-opus-5-5:medium
   slow: anthropic/claude-opus-5-5:medium
   smol: openai-codex/gpt-6-luna:low
-  task: agy/gemini-4-carbon:medium
+  task: anthropic/claude-haiku-5-5:high
   tiny: openai-codex/gpt-6-luna:low
   designer: anthropic/claude-sonnet-5-5:medium
   commit: openai-codex/gpt-6-luna:low
   vision: openai-codex/gpt-6.1-terra:low
-  innovation-council: anthropic/claude-opus-5-5:high
+  innovation-council: anthropic/claude-fable-5-2:high
   innovation-challenger: openai-codex/gpt-6-astra:high
   innovation-gemini-challenger: agy/gemini-4-neon:high
   experiment-design: anthropic/claude-fable-5-2:high
   experiment-peer: anthropic/claude-opus-5-5:high
-  reviewer: anthropic/claude-sonnet-5-5:medium
+  reviewer: openai-codex/gpt-6.1-sol:medium
   kiss: openai-codex/gpt-6.1-sol:low
   operator: openai-codex/gpt-6.1-terra:off
   web: openai-codex/gpt-6-luna
