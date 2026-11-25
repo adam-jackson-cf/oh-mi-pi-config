@@ -84,7 +84,7 @@
     "checkers.coverage_ratchet.approvals: is refused: record each entry in approvals as kind 'ratchet'"
   ],
   "stale-house-style.json": [
-    "houseStyle.version: is 99 but the installed house style is version 1; review the house-style changes and record the new version"
+    "houseStyle.version: is 99 but the installed house style is version 1; review the house-style changes and set the new version in .agentrails/config.json"
   ],
   "stale-questionnaire-version.json": [
     "onboarding.questionnaireVersion: is 2 but the extension's questionnaire is version 1; ask the owner to run /agentrails configure"

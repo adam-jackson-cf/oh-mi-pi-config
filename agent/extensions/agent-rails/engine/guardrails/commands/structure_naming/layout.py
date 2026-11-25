@@ -226,7 +226,7 @@ def configuration_findings(options: dict[str, Any]) -> list[Finding]:
         placement(
             config_label("checkers"),
             "checkers.layout.root_directories and root_files are not configured",
-            "record the approved root allowlist in checkers.layout",
+            "set the approved root allowlist in checkers.layout in .agentrails/config.json",
         )
     ]
 

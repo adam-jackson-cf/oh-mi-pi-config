@@ -148,7 +148,7 @@ def house_style_version_problem(version: object) -> str | None:
         return None
     return (
         f"is {version} but the installed house style is version {shipped}; "
-        "review the house-style changes and record the new version"
+        "review the house-style changes and set the new version in .agentrails/config.json"
     )
 
 

@@ -250,7 +250,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "unit": "the .py files directly in one folder below the repository root, except test files (test_*.py, *_test.py, conftest.py), outside hidden folders, vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), test folders (__tests__, fixture, fixtures, spec, specs, test, testing, tests), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
+        "unit": "the .py files directly in one folder below the repository root, except test files (names starting with test or fixture, *_test.py, conftest.py), outside hidden folders, vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), test folders (names starting with test or fixture, __tests__, spec, specs), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
         "definitions": "top-level functions and classes and the methods of top-level classes spanning at least 5 lines, with docstrings and comments removed",
         "tokens": "identifiers and single non-space characters",
         "features": "the set of token 3-grams; definitions with fewer than 15 are dropped",
@@ -289,7 +289,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "candidates": "prefix clusters: sibling .py files in one folder (not __init__.py, not test files by the config's test file patterns or by name (test_*.py, *_test.py, conftest.py), not under a test folder (__tests__, fixture, fixtures, spec, specs, test, testing, tests); not under hidden or vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
+        "candidates": "prefix clusters: sibling .py files in one folder (not __init__.py, not test files by the config's test file patterns or by name (names starting with test or fixture, *_test.py, conftest.py), not under a test folder (names starting with test or fixture, __tests__, spec, specs); not under hidden or vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
         "pair_features": {
           "import_edge": "either member imports the other",
           "shared_reader": "another owned .py file, tests included, imports both",
@@ -2414,7 +2414,7 @@
       "summary": "Require every repo config value, allowing only four owner-approved exemptions.",
       "remediation": {
         "root_cause": "The repo config is missing required values or carries unapproved exemptions, so checks run with gaps.",
-        "fix": "Record every required config value and get an owner exemption approval for each of the four exemptable fields left as {none: true}. An empty or stand-in value counts as missing, and each exemption needs an owner-approved reason with its approval reference."
+        "fix": "Set every required config value in .agentrails/config.json and get an owner exemption approval for each of the four exemptable fields left as {none: true}. An empty or stand-in value counts as missing, and each exemption needs an owner-approved reason with its approval reference."
       },
       "implementation": [
         {

@@ -833,7 +833,7 @@ def _feature_map_path(config: dict[str, Any]) -> str | None:
     config declares none or exempts the surface."""
     surface = _surface()[0].surface(config)
     value = surface.get("feature_map_path") if surface is not None else None
-    return value.strip().rstrip("/") if isinstance(value, str) else None
+    return (value.strip().rstrip("/") or None) if isinstance(value, str) else None
 
 
 def _unmapped_proof_files(
@@ -1883,9 +1883,12 @@ def _check_bool_decision(name: str, ident: str, decision: dict[str, Any]) -> Non
 
 
 def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None:
-    """A decision fits its question type and carries its taxonomy and mode."""
-    if not isinstance(decision, dict):
-        raise RailsKernelError(f"{name}: decision {ident} must be an object")
+    """A decision fits its question type and carries its taxonomy and mode; none carries a status."""
+    if not isinstance(decision, dict) or "status" in decision:
+        raise RailsKernelError(
+            f"{name}: decision {ident} must be an object without a status "
+            "(its mode says whether it is enforced)"
+        )
     kind = question.get("type") if isinstance(question, dict) else None
     if kind == "bool":
         _check_bool_decision(name, ident, decision)
@@ -1983,6 +1986,10 @@ def load_judgment(name: str) -> Judgment:
     ):
         raise RailsKernelError(
             f"{name}: questions and decisions must be non-empty objects"
+        )
+    if "status" in thresholds:
+        raise RailsKernelError(
+            f"{name}: thresholds hold a status; each decision's mode says whether it is enforced"
         )
     if (
         not isinstance(model, str)

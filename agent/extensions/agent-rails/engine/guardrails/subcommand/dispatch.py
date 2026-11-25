@@ -232,6 +232,6 @@ def config_finding(error: ConfigValueError) -> Finding:
         "CONFIG.complete",
         config_label("tests"),
         str(error),
-        "record tests.adapters in .agentrails/config.json (guardrails init drafts the "
+        "set tests.adapters in .agentrails/config.json (guardrails init drafts the "
         "tests section)",
     )

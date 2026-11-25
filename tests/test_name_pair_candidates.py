@@ -60,6 +60,20 @@ class NamePairTests(unittest.TestCase):
                     for rule, first, second in case["pairs"]
                 }
 
+    def test_test_and_fixture_folders_propose_no_pairs(self) -> None:
+        case = next(case for case in FIXTURE["cases"] if case["pairs"])
+        for folder in (
+            "pkg/testdata/",
+            "internal/testutil/",
+            "src/test_helpers/",
+            "tests_e2e/",
+            "fixtures/",
+        ):
+            with self.subTest(folder=folder):
+                tree = {folder + path: text for path, text in FIXTURE["tree"].items()}
+                changed = {folder + path for path in case["changed"]}
+                assert candidates.name_pair_candidates(tree, changed, {}) == []
+
     def test_each_pair_carries_both_names_evidence_and_its_proposer_score(self) -> None:
         (pair,) = candidates.name_pair_candidates(
             FIXTURE["tree"], {"src/shop/api.py"}, {}
@@ -119,7 +133,7 @@ class NamePairsCommandTests(unittest.TestCase):
         self.repo = Path(scratch.name) / "repo"
         self.repo.mkdir()
         self.git("init", "-q")
-        write_config(self.repo, config(**getattr(self, "profile", {})))
+        write_config(self.repo, config(**getattr(self, "repo_config", {})))
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         store = {"src/shop/store.py": FIXTURE["tree"]["src/shop/store.py"]}

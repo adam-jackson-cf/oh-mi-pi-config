@@ -11,7 +11,7 @@ from test_pytest_adapter import (
     FIXTURES,
     PYTEST_ONLY,
     run_cli,
-    write_profile,
+    write_repo_config,
 )
 from test_pytest_adapter_seams import GIT_ENV
 
@@ -30,7 +30,7 @@ class MutationTests(unittest.TestCase):
         self.repo.mkdir()
         self.out.mkdir()
         self.report = str(self.out / "m.json")
-        write_profile(self.repo, PYTEST_ONLY)
+        write_repo_config(self.repo, PYTEST_ONLY)
         source = FIXTURES / "mutmut-run"
         self.core = self.repo / "src/ledger/core.py"
         self.core.parent.mkdir(parents=True)

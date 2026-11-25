@@ -17,7 +17,13 @@ from guardrails.commands.structure_naming.scan_scope import (
     is_test_path,
     is_vendored_path,
 )
-from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
+from guardrails.context.changes import (
+    DiffError,
+    TreeEntry,
+    changed_paths,
+    read_blobs,
+    tree_entries,
+)
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
@@ -190,7 +196,7 @@ def exempt(pair: dict[str, Any], config: dict[str, Any]) -> bool:
     return len(apply_exceptions(probes, config)) < len(probes)
 
 
-def owned_sources(entries: dict[str, list[str]], excluded: list[str]) -> list[str]:
+def owned_sources(entries: dict[str, TreeEntry], excluded: list[str]) -> list[str]:
     bundles = {
         PurePosixPath(path).parent.as_posix()
         for path in entries
@@ -215,14 +221,10 @@ def owned_sources(entries: dict[str, list[str]], excluded: list[str]) -> list[st
 
 
 def head_tree(repo: Path, head: str, excluded: list[str]) -> dict[str, str]:
-    entries = {}
-    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split("\0"):
-        if entry:
-            metadata, path = entry.split("\t", 1)
-            entries[path] = metadata.split()
+    entries = tree_entries(repo, head)
     paths = owned_sources(entries, excluded)
-    blobs = read_blobs(repo, sorted({entries[path][2] for path in paths}))
-    return {path: blobs[entries[path][2]].decode("utf-8", "replace") for path in paths}
+    blobs = read_blobs(repo, sorted({entries[path].oid for path in paths}))
+    return {path: blobs[entries[path].oid].decode("utf-8", "replace") for path in paths}
 
 
 def name_pair_candidates(

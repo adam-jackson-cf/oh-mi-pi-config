@@ -12,7 +12,7 @@ from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.seam
 
-PROFILE: dict[str, Any] = {
+REPO_CONFIG: dict[str, Any] = {
     "tests": {
         "public_entry_points": {"shop/core.ts": ["checkout"]},
         "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
@@ -36,10 +36,10 @@ class VitestInventoryTests(unittest.TestCase):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(source)
             before = {path: (repo / path).read_bytes() for path in paths}
-            found = lint.lint(repo, PROFILE, [])
+            found = lint.lint(repo, REPO_CONFIG, [])
             assert [item.rule_id for item in found] == ["TEST.no-self-mocking"]
-            profile = {
-                **PROFILE,
+            repo_config = {
+                **REPO_CONFIG,
                 "exceptions": [
                     {
                         "rule": "TEST.no-self-mocking",
@@ -50,7 +50,7 @@ class VitestInventoryTests(unittest.TestCase):
                     }
                 ],
             }
-            assert lint.lint(repo, profile, []) == []
+            assert lint.lint(repo, repo_config, []) == []
             assert before == {path: (repo / path).read_bytes() for path in paths}
 
     def test_inventory_filters_binary_assets_and_reports_unreadable_owned_source(
@@ -64,7 +64,7 @@ class VitestInventoryTests(unittest.TestCase):
                 destination = repo / path
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(b"\xff\xfe\x00")
-            found = lint.lint(repo, PROFILE, [])
+            found = lint.lint(repo, REPO_CONFIG, [])
             assert len(found) == 1
             assert found[0].path == "shop/broken.ts"
             assert found[0].rule_id == "TEST.no-test-hooks"
@@ -83,14 +83,14 @@ class VitestInventoryTests(unittest.TestCase):
                 destination = repo / path
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_text(source)
-            profile = {
-                **PROFILE,
+            repo_config = {
+                **REPO_CONFIG,
                 "tests": {
-                    **PROFILE.get("tests", {}),
+                    **REPO_CONFIG.get("tests", {}),
                     "public_entry_points": {"@shop/core": {".": "./src/index.ts"}},
                 },
             }
-            found = lint.lint(repo, profile, [])
+            found = lint.lint(repo, repo_config, [])
             assert sum(item.rule_id == "TEST.no-self-mocking" for item in found) == 2
             assert any(
                 item.rule_id == "TEST.no-test-hooks"
@@ -104,7 +104,7 @@ class VitestInventoryTests(unittest.TestCase):
             run_text(["git", "init", "-q", str(repo)], check=True, timeout=30)
             (repo / "shop").mkdir()
             (repo / "shop/core.ts").write_text("export function broken( {")
-            found = lint.lint(repo, PROFILE, [])
+            found = lint.lint(repo, REPO_CONFIG, [])
             assert len(found) == 1
             assert found[0].rule_id == "TEST.no-test-hooks"
             assert "cannot parse source" in found[0].message

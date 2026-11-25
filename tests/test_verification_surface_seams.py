@@ -14,7 +14,7 @@ sys.path.insert(
 
 import pytest
 from test_agentrails_fixture import approval
-from test_verification_surface import LEVER, LeverSelftestCase, surface_profile
+from test_verification_surface import LEVER, LeverSelftestCase, surface_repo_config
 
 from guardrails.commands.surface import feature_map, journeys
 
@@ -56,11 +56,11 @@ class SurfaceRepoTestCase(unittest.TestCase):
 
 
 class FeatureMapTests(SurfaceRepoTestCase):
-    def check(self, profile: dict[str, Any] | None = None) -> list[Any]:
-        return feature_map.run(self.repo, profile or surface_profile(), [])
+    def check(self, repo_config: dict[str, Any] | None = None) -> list[Any]:
+        return feature_map.run(self.repo, repo_config or surface_repo_config(), [])
 
     def test_complete_map_passes(self) -> None:
-        assert feature_map.run(self.repo, surface_profile(), []) == []
+        assert feature_map.run(self.repo, surface_repo_config(), []) == []
 
     def test_wrong_or_missing_h2_is_reported(self) -> None:
         self.write(
@@ -117,14 +117,14 @@ class FeatureMapTests(SurfaceRepoTestCase):
 
     def test_index_files_are_link_checked_but_not_feature_documents(self) -> None:
         self.write("docs/features/README.md", "# Features\n\n- [Cart](cart.md)\n")
-        profile = surface_profile()
-        profile["checkers"] = {"feature_map": {"index_files": ["README.md"]}}
-        assert self.check(profile) == []
+        repo_config = surface_repo_config()
+        repo_config["checkers"] = {"feature_map": {"index_files": ["README.md"]}}
+        assert self.check(repo_config) == []
         self.write("docs/features/README.md", "# Features\n\n- [Gone](gone.md)\n")
-        assert len(self.check(profile)) == 1
+        assert len(self.check(repo_config)) == 1
 
     def test_missing_map_is_reported_and_exemption_disables_the_rule(self) -> None:
-        findings = self.check(surface_profile(feature_map_path="docs/nowhere"))
+        findings = self.check(surface_repo_config(feature_map_path="docs/nowhere"))
         assert [finding.rule_id for finding in findings] == ["SURFACE.feature-map"]
         exempt = {
             "tests": {"verification_surface": {"none": True}},
@@ -136,11 +136,11 @@ class FeatureMapTests(SurfaceRepoTestCase):
 
 
 class JourneyTests(SurfaceRepoTestCase):
-    def check(self, profile: dict[str, Any] | None = None) -> list[Any]:
-        return journeys.run(self.repo, profile or surface_profile(), [])
+    def check(self, repo_config: dict[str, Any] | None = None) -> list[Any]:
+        return journeys.run(self.repo, repo_config or surface_repo_config(), [])
 
     def test_mapped_journey_calling_the_lever_passes(self) -> None:
-        assert journeys.run(self.repo, surface_profile(), []) == []
+        assert journeys.run(self.repo, surface_repo_config(), []) == []
 
     def test_journey_not_calling_the_lever_is_reported(self) -> None:
         self.write(JOURNEY, "def test_checkout(client):\n    client.post('/pay')\n")
@@ -150,9 +150,9 @@ class JourneyTests(SurfaceRepoTestCase):
 
     def test_configured_lever_reference_replaces_the_defaults(self) -> None:
         self.write(JOURNEY, "def test_checkout(drive):\n    run_lever('checkout')\n")
-        profile = surface_profile()
-        profile["checkers"] = {"journeys": {"lever_references": ["run_lever("]}}
-        assert self.check(profile) == []
+        repo_config = surface_repo_config()
+        repo_config["checkers"] = {"journeys": {"lever_references": ["run_lever("]}}
+        assert self.check(repo_config) == []
 
     def test_unmapped_journey_is_reported(self) -> None:
         second = "tests/journeys/test_refund_journey.py"

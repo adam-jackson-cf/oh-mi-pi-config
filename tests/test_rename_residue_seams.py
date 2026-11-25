@@ -32,9 +32,9 @@ class RenameResidueCommandTests(unittest.TestCase):
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name) / "repo"
         self.repo.mkdir()
-        self.profile: dict[str, Any] = {}
+        self.repo_config: dict[str, Any] = {}
         self.git("init", "-q")
-        self.write_profile()
+        self.write_repo_config()
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
 
@@ -43,8 +43,8 @@ class RenameResidueCommandTests(unittest.TestCase):
             ["git", "-C", str(self.repo), *args], check=True, timeout=10
         ).stdout.strip()
 
-    def write_profile(self) -> None:
-        write_config(self.repo, config(**self.profile))
+    def write_repo_config(self) -> None:
+        write_config(self.repo, config(**self.repo_config))
 
     def write(self, path: str, text: str) -> None:
         target = self.repo / path
@@ -189,8 +189,8 @@ class RenameResidueCommandTests(unittest.TestCase):
         assert "cannot parse" not in result.stdout
 
     def test_documented_non_owned_paths_are_excluded(self) -> None:
-        self.profile = {"checkers": {"check": {"exclude": ["verifier/vendor"]}}}
-        self.write_profile()
+        self.repo_config = {"checkers": {"check": {"exclude": ["verifier/vendor"]}}}
+        self.write_repo_config()
         self.write("oracle/api.py", "def run():\n    return 'owned API'\n")
         self.write("oracle/vendor/plugin.py", "class OraclePlugin:\n    pass\n")
         base = self.commit("Owned API and vendor plugin")

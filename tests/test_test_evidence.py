@@ -45,7 +45,7 @@ GENERIC = junit.dialect_for(None)
 MACHINE = budgets.Machine("m-approved0001", "Linux x86_64", "python 3.12.4")
 
 
-def profile(
+def repo_config(
     skips: tuple[tuple[str, str], ...] = (), **evidence: object
 ) -> dict[str, Any]:
     """Settings for the evidence checks; ``skips`` are (test id, reason) skip approvals."""
@@ -243,7 +243,7 @@ class BudgetTests(unittest.TestCase):
     def evaluate(
         self, report: junit.Report, machine: budgets.Machine = MACHINE
     ) -> budgets.BudgetResult:
-        return on_machine(machine, report, profile(), REVISION)
+        return on_machine(machine, report, repo_config(), REVISION)
 
     def test_an_approved_machine_within_limits_passes(self) -> None:
         result = self.evaluate(fixture("pytest-clean.xml"))
@@ -273,7 +273,7 @@ class BudgetTests(unittest.TestCase):
         assert "m-unknown00001" in result.notes[0]
 
     def test_a_machine_without_approval_is_report_only(self) -> None:
-        unapproved = profile()
+        unapproved = repo_config()
         unapproved["approvals"] = []
         report = edited("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
         result = on_machine(MACHINE, report, unapproved, REVISION)
@@ -313,7 +313,7 @@ class BudgetTests(unittest.TestCase):
                 assert any(expected in item.message for item in findings), findings
 
     def test_an_undeterminable_revision_is_fatal(self) -> None:
-        result = on_machine(MACHINE, fixture("pytest-clean.xml"), profile(), None)
+        result = on_machine(MACHINE, fixture("pytest-clean.xml"), repo_config(), None)
         assert "cannot be determined" in result.findings[0].message
 
     def test_skipped_cases_need_no_time(self) -> None:
@@ -339,7 +339,7 @@ class RepoTestCase(unittest.TestCase):
         path.write_text(text)
         return path
 
-    def write_profile(self, values: dict[str, Any]) -> None:
+    def write_repo_config(self, values: dict[str, Any]) -> None:
         """The repo config validates installed adapters only: pytest stands in for pytest_like."""
         sections = json.loads(json.dumps(values).replace('"pytest_like"', '"pytest"'))
         write_config(self.repo, config(**sections))
@@ -369,9 +369,9 @@ class TierCollectionTests(unittest.TestCase):
         }
         assert [
             item.message
-            for item in collection.collection_findings(lists, profile(), [])
+            for item in collection.collection_findings(lists, repo_config(), [])
         ] == ["tier t3 has no collect-only list"]
-        exempt = profile()
+        exempt = repo_config()
         exempt["tests"]["tiers"]["t3"] = {"none": True}
         exempt["approvals"].append(
             approval("exemption", "tiers.t3", "no exploratory suites (ADR-9)")
@@ -381,14 +381,18 @@ class TierCollectionTests(unittest.TestCase):
 
 class PropagationTests(unittest.TestCase):
     def test_a_clean_run_passes(self) -> None:
-        assert propagation.evaluate(fixture("pytest-clean.xml"), profile(), None) == []
         assert (
-            propagation.evaluate(fixture("vitest-clean.xml", GENERIC), profile(), 0)
+            propagation.evaluate(fixture("pytest-clean.xml"), repo_config(), None) == []
+        )
+        assert (
+            propagation.evaluate(fixture("vitest-clean.xml", GENERIC), repo_config(), 0)
             == []
         )
 
     def test_failures_errors_skips_xfails_and_retries_are_refused(self) -> None:
-        findings = propagation.evaluate(fixture("pytest-mixed.xml"), profile(), None)
+        findings = propagation.evaluate(
+            fixture("pytest-mixed.xml"), repo_config(), None
+        )
         messages = {(item.rule_id, item.message.split(" ", 1)[1]) for item in findings}
         assert (
             "TEST.failure-propagation",
@@ -411,7 +415,7 @@ class PropagationTests(unittest.TestCase):
 
     def test_vitest_like_failures_skips_and_retries_are_refused(self) -> None:
         findings = propagation.evaluate(
-            fixture("vitest-mixed.xml", GENERIC), profile(), None
+            fixture("vitest-mixed.xml", GENERIC), repo_config(), None
         )
         assert rules(findings) == [
             "TEST.failure-propagation",
@@ -422,25 +426,29 @@ class PropagationTests(unittest.TestCase):
     def test_approved_skips_pass_and_incomplete_approvals_do_not(self) -> None:
         report = fixture("pytest-mixed.xml")
         skip = ("tests/test_parser.py::test_unicode", "locale absent in CI (ADR-12)")
-        accepted = propagation.evaluate(report, profile(skips=(skip,)), None)
+        accepted = propagation.evaluate(report, repo_config(skips=(skip,)), None)
         assert not any("test_unicode" in item.message for item in accepted)
-        refused = propagation.evaluate(report, profile(skips=((skip[0], " "),)), None)
+        refused = propagation.evaluate(
+            report, repo_config(skips=((skip[0], " "),)), None
+        )
         assert any("test_unicode" in item.message for item in refused)
 
     def test_truncated_reports_are_refused(self) -> None:
         report = edited("pytest-clean.xml", 'tests="3"', 'tests="4"')
-        findings = propagation.evaluate(report, profile(), None)
+        findings = propagation.evaluate(report, repo_config(), None)
         assert [item.message for item in findings] == [
             "suites declare 4 tests but the report holds 3"
         ]
 
     def test_runner_exit_codes_must_agree_with_the_cases(self) -> None:
         clean = fixture("pytest-clean.xml")
-        assert "exited 5" in propagation.evaluate(clean, profile(), 5)[0].message
+        assert "exited 5" in propagation.evaluate(clean, repo_config(), 5)[0].message
         assert (
             "exited 2"
             in propagation.evaluate(
-                edited("pytest-clean.xml", 'value="0"', 'value="2"'), profile(), None
+                edited("pytest-clean.xml", 'value="0"', 'value="2"'),
+                repo_config(),
+                None,
             )[0].message
         )
         failing = edited(
@@ -451,42 +459,45 @@ class PropagationTests(unittest.TestCase):
         )
         assert any(
             "exited 0" in item.message
-            for item in propagation.evaluate(failing, profile(), 0)
+            for item in propagation.evaluate(failing, repo_config(), 0)
         )
 
     def test_empty_reports_never_pass(self) -> None:
         empty = junit.parse_text('<testsuites tests="0"/>', GENERIC, "r.xml")
-        assert [item.message for item in propagation.evaluate(empty, profile(), 0)] == [
-            "run report holds no test cases"
-        ]
+        assert [
+            item.message for item in propagation.evaluate(empty, repo_config(), 0)
+        ] == ["run report holds no test cases"]
 
     def test_duplicate_ids_are_ambiguous_unless_they_are_a_retry_to_green(self) -> None:
         twice = '<testsuite><testcase classname="a/b.ts" name="x"/><testcase classname="a/b.ts" name="x"/></testsuite>'
         assert (
             "reported 2 times"
             in propagation.evaluate(
-                junit.parse_text(twice, GENERIC, "r"), profile(), None
+                junit.parse_text(twice, GENERIC, "r"), repo_config(), None
             )[0].message
         )
         retried = twice.replace('name="x"/>', 'name="x"><failure/></testcase>', 1)
         rules_found = rules(
             propagation.evaluate(
-                junit.parse_text(retried, GENERIC, "r"), profile(), None
+                junit.parse_text(retried, GENERIC, "r"), repo_config(), None
             )
         )
         assert rules_found == ["TEST.no-evasion"]
 
     def test_missing_reports_and_bad_arguments_are_findings(self) -> None:
-        missing = propagation.run(Path("/nonexistent"), profile(), ["--junit", "r.xml"])
+        missing = propagation.run(
+            Path("/nonexistent"), repo_config(), ["--junit", "r.xml"]
+        )
         assert missing[0].message == "run report does not exist"
         assert (
-            "--junit" in propagation.run(Path("/nonexistent"), profile(), [])[0].message
+            "--junit"
+            in propagation.run(Path("/nonexistent"), repo_config(), [])[0].message
         )
         assert (
             "usage"
-            in propagation.run(Path("/nonexistent"), profile(), ["--exit-code", "x"])[
-                0
-            ].message
+            in propagation.run(
+                Path("/nonexistent"), repo_config(), ["--exit-code", "x"]
+            )[0].message
         )
 
 

@@ -27,12 +27,14 @@ class PackagePlacementTests(unittest.TestCase):
     def test_each_layout_reports_exactly_its_misplaced_files(self) -> None:
         for case in CASES:
             with self.subTest(case=case["name"]):
-                profile = case.get("config", {})
+                repo_config = case.get("config", {})
                 found = apply_exceptions(
                     package_placement.package_file_findings(
-                        case.get("paths", case["inventory"]), case["inventory"], profile
+                        case.get("paths", case["inventory"]),
+                        case["inventory"],
+                        repo_config,
                     ),
-                    profile,
+                    repo_config,
                 )
                 assert sorted((item.rule_id, item.path) for item in found) == sorted(
                     tuple(row) for row in case["findings"]

@@ -47,7 +47,7 @@ class NamingScopeCase(unittest.TestCase):
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.email", "scope@example.invalid")
         self.git("config", "user.name", "Scope outcomes")
-        self.profile: dict[str, Any] = {
+        self.repo_config: dict[str, Any] = {
             "checkers": {
                 "layout": {"root_directories": ["catalogue"], "root_files": []}
             },
@@ -77,9 +77,9 @@ class NamingScopeCase(unittest.TestCase):
 
     def findings(self, *args: str) -> list[Finding]:
         return dispatch.run_modules(
-            dispatch.module_names("path-check", self.profile),
+            dispatch.module_names("path-check", self.repo_config),
             self.repo,
-            self.profile,
+            self.repo_config,
             list(args),
         )
 
@@ -188,7 +188,9 @@ class ChangedPathScopeTests(NamingScopeCase):
         self.commit()
         head = self.git("rev-parse", "HEAD").strip()
         assert (
-            layout.run(self.repo, self.profile, ["--base", self.base, "--head", head])
+            layout.run(
+                self.repo, self.repo_config, ["--base", self.base, "--head", head]
+            )
             == []
         )
 
@@ -228,7 +230,7 @@ class StructureScopeTests(NamingScopeCase):
                 assert not any(f.rule_id == "TEST.placement" for f in found), found
 
     def test_staged_structure_reads_index_contents_not_worktree_contents(self) -> None:
-        self.profile["checkers"]["layout"]["forbidden_imports"] = [
+        self.repo_config["checkers"]["layout"]["forbidden_imports"] = [
             {"root": "catalogue", "modules": ["requests"]},
         ]
         self.write("catalogue/network.py", "import requests\n")
@@ -244,7 +246,7 @@ class StructureScopeTests(NamingScopeCase):
     def test_new_instance_requires_marker_but_existing_instance_is_not_rejudged(
         self,
     ) -> None:
-        self.profile["checkers"]["layout"]["instances"] = [
+        self.repo_config["checkers"]["layout"]["instances"] = [
             {"root": "catalogue", "depth": 1, "marker": "manifest.json"},
         ]
         self.write("catalogue/archive/reader.py")
@@ -262,12 +264,12 @@ class StructureScopeTests(NamingScopeCase):
 
     def test_naming_command_shares_event_and_full_scan_scope(self) -> None:
         self.write("legacyUtils/misc.py", "VALUE = 2\n")
-        modules = dispatch.module_names("naming", self.profile)
+        modules = dispatch.module_names("naming", self.repo_config)
         assert (
             dispatch.run_modules(
                 modules,
                 self.repo,
-                self.profile,
+                self.repo_config,
                 ["--event", "edit", "legacyUtils/misc.py"],
             )
             == []
@@ -275,14 +277,14 @@ class StructureScopeTests(NamingScopeCase):
         self.write("catalogue/misc.py")
         self.git("add", "catalogue/misc.py")
         found = dispatch.run_modules(
-            modules, self.repo, self.profile, ["--event", "staged"]
+            modules, self.repo, self.repo_config, ["--event", "staged"]
         )
         assert any(
             f.path == "catalogue/misc.py" and f.rule_id == "NAME.conventions"
             for f in found
         )
         assert not any("legacyUtils" in f.path for f in found)
-        found = dispatch.run_modules(modules, self.repo, self.profile, ["--all"])
+        found = dispatch.run_modules(modules, self.repo, self.repo_config, ["--all"])
         assert any(
             "legacyUtils" in f.path and f.rule_id == "NAME.conventions" for f in found
         )
@@ -339,7 +341,7 @@ class ProveScopeTests(NamingScopeCase):
         write_config(
             self.repo,
             config(
-                **self.profile,
+                **self.repo_config,
                 commands={"commit": ["true"]},
                 ci={"enabled": False},
             ),
@@ -435,7 +437,7 @@ class ProveScopeTests(NamingScopeCase):
     def test_configured_python_path_rules_apply_at_edit_commit_and_pr_events(
         self,
     ) -> None:
-        self.profile["checkers"]["python"] = {
+        self.repo_config["checkers"]["python"] = {
             "maintained_roots": ["catalogue", "legacyUtils"]
         }
         self.write("legacyUtils/writer.py")
@@ -461,7 +463,7 @@ class ProveScopeTests(NamingScopeCase):
     def test_path_check_reuses_python_path_rules_without_content_quality(self) -> None:
         from guardrails.commands.python_policy import quality
 
-        self.profile["checkers"]["python"] = {
+        self.repo_config["checkers"]["python"] = {
             "maintained_roots": ["catalogue"],
             "class_limits": {"max_lines": 1},
         }
@@ -471,11 +473,11 @@ class ProveScopeTests(NamingScopeCase):
         )
         found = self.findings("--event", "edit", "catalogue/cart.py")
         assert not any(f.rule_id == "PYQ200" for f in found)
-        content = quality.run(self.repo, self.profile, ["catalogue/cart.py"])
+        content = quality.run(self.repo, self.repo_config, ["catalogue/cart.py"])
         assert any(f.rule_id == "PYQ200" for f in content)
 
     def test_non_python_skill_names_follow_the_same_new_segment_scope(self) -> None:
-        self.profile["checkers"]["python"] = {
+        self.repo_config["checkers"]["python"] = {
             "maintained_roots": ["catalogue"],
             "skill_roots": ["skills"],
         }

@@ -7,7 +7,7 @@ from collections.abc import Mapping
 
 import pytest
 from test_agentrails_fixture import config, write_config
-from test_diff_checks import BASE_PROFILE, FixtureRepo, rules
+from test_diff_checks import BASE_REPO_CONFIG, FixtureRepo, rules
 
 from guardrails.commands import cli
 from guardrails.commands.check import integrity, whole_repo
@@ -20,12 +20,12 @@ class IntegrityCase(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = FixtureRepo(self)
         self.base = self.repo.commit(
-            {"src/existing.py": "# existing\nx = 1\n"}, BASE_PROFILE
+            {"src/existing.py": "# existing\nx = 1\n"}, BASE_REPO_CONFIG
         )
 
     def check(self, files: Mapping[str, str | None]) -> list[Finding]:
         self.repo.commit(files)
-        return integrity.run(self.repo.path, BASE_PROFILE, ["--base", self.base])
+        return integrity.run(self.repo.path, BASE_REPO_CONFIG, ["--base", self.base])
 
 
 class IntegrityCommentTests(IntegrityCase):
@@ -195,7 +195,7 @@ class IntegrityCommentTests(IntegrityCase):
 
     def test_staged_moves_keep_existing_comments_out_of_the_commit_check(self) -> None:
         self.repo.git("mv", "src/existing.py", "src/renamed.py")
-        assert integrity.commit_findings(self.repo.path, BASE_PROFILE) == []
+        assert integrity.commit_findings(self.repo.path, BASE_REPO_CONFIG) == []
 
 
 class IntegrityCodeTests(IntegrityCase):
@@ -233,10 +233,10 @@ class IntegrityCodeTests(IntegrityCase):
     def test_excluded_fixture_trees_hold_no_product_code_but_still_ban_comments(
         self,
     ) -> None:
-        profile = {
-            **BASE_PROFILE,
+        repo_config = {
+            **BASE_REPO_CONFIG,
             "checkers": {
-                **BASE_PROFILE["checkers"],
+                **BASE_REPO_CONFIG["checkers"],
                 "check": {"exclude": ["frozen/**"]},
             },
         }
@@ -244,7 +244,7 @@ class IntegrityCodeTests(IntegrityCase):
             "frozen/case.py": "from unittest import mock\nx = 1 # note\n",
             "frozen/case.ts": "vi.mock('service');\n",
         })
-        findings = integrity.run(self.repo.path, profile, ["--base", self.base])
+        findings = integrity.run(self.repo.path, repo_config, ["--base", self.base])
         assert [(item.rule_id, item.path) for item in findings] == [
             ("CODE.no-comments", "frozen/case.py")
         ]
@@ -258,14 +258,14 @@ class IntegrityCodeTests(IntegrityCase):
     def test_commit_check_blocks_uncommitted_comments_even_when_other_checks_excluded(
         self,
     ) -> None:
-        profile = {
-            **BASE_PROFILE,
+        repo_config = {
+            **BASE_REPO_CONFIG,
             "checkers": {
-                **BASE_PROFILE.get("checkers", {}),
+                **BASE_REPO_CONFIG.get("checkers", {}),
                 "check": {"run": ["python-quality"], "exclude": ["**"]},
             },
         }
-        write_config(self.repo.path, config(**profile))
+        write_config(self.repo.path, config(**repo_config))
         (self.repo.path / "src/existing.py").write_text("# existing\nx = 1 # new\n")
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -282,7 +282,7 @@ class IntegrityCodeTests(IntegrityCase):
         target.write_text("# existing\nx = 1 # staged\n")
         self.repo.git("add", "src/existing.py")
         target.write_text("# existing\nx = 1\n")
-        findings = integrity.commit_findings(self.repo.path, BASE_PROFILE)
+        findings = integrity.commit_findings(self.repo.path, BASE_REPO_CONFIG)
         assert [item.rule_id for item in findings] == ["CODE.no-comments"]
 
     def test_new_untracked_files_are_checked_before_staging(self) -> None:
@@ -290,7 +290,7 @@ class IntegrityCodeTests(IntegrityCase):
         target.write_text("value = 1 # new\n")
         assert [
             item.rule_id
-            for item in integrity.commit_findings(self.repo.path, BASE_PROFILE)
+            for item in integrity.commit_findings(self.repo.path, BASE_REPO_CONFIG)
         ] == ["CODE.no-comments"]
 
     def test_declaration_import_aliases_keep_their_exemptions(self) -> None:
@@ -316,7 +316,7 @@ class IntegrityCodeTests(IntegrityCase):
         fresh = FixtureRepo(self)
         target = fresh.path / "initial.py"
         target.write_text("value = 1 # initial\n")
-        findings = integrity.commit_findings(fresh.path, BASE_PROFILE)
+        findings = integrity.commit_findings(fresh.path, BASE_REPO_CONFIG)
         assert [item.rule_id for item in findings] == ["CODE.no-comments"]
 
     def test_explicit_diff_command_blocks_integrity_failures(self) -> None:
@@ -343,7 +343,7 @@ class StagedDiffCheckTests(IntegrityCase):
         repo.git("add", "-A")
 
     def staged(self, repo: FixtureRepo) -> list[tuple[str, str]]:
-        return rules(whole_repo.staged_diff_findings(repo.path, BASE_PROFILE))
+        return rules(whole_repo.staged_diff_findings(repo.path, BASE_REPO_CONFIG))
 
     def test_staged_coverage_golden_growth_and_duplicate_failures_block(self) -> None:
         self.repo.commit({"tests/fixtures/golden/out.txt": "old\n"})
@@ -397,14 +397,14 @@ class StagedDiffCheckTests(IntegrityCase):
         ]
 
     def test_commit_check_command_blocks_staged_diff_findings(self) -> None:
-        profile = {
-            **BASE_PROFILE,
+        repo_config = {
+            **BASE_REPO_CONFIG,
             "checkers": {
-                **BASE_PROFILE["checkers"],
+                **BASE_REPO_CONFIG["checkers"],
                 "check": {"run": ["python-quality"], "exclude": ["**"]},
             },
         }
-        self.repo.commit({"tests/fixtures/golden/out.txt": "old\n"}, profile)
+        self.repo.commit({"tests/fixtures/golden/out.txt": "old\n"}, repo_config)
         self.stage(self.repo, {"tests/fixtures/golden/out.txt": "new\n"})
         output = io.StringIO()
         with contextlib.redirect_stdout(output):

@@ -879,6 +879,10 @@ class JudgmentRegistryTests(unittest.TestCase):
             "band without a fallback judge": broken(lambda t: band(t, 0.3, None)),
             "fallback judge; use": broken(lambda t: band(t, 0.3, "absent")),
             "fallback judge; use a": broken(lambda t: band(t, 0.3, "demo")),
+            "without a status": broken(
+                lambda t: t["decisions"]["flag"].update(status="ready")
+            ),
+            "thresholds hold a status": broken(lambda t: t.update(status="ready")),
             "round_up_floor": broken(
                 lambda t: t["decisions"]["kind"].update(round_up_floor=True)
             ),
@@ -1940,6 +1944,15 @@ class TriageTests(unittest.TestCase):
                 {"PyYAML": RuntimeError("judge offline"), "black": answers()},
                 {key: evidence() for key in self.keys},
             )
+
+
+class FeatureMapPathTests(unittest.TestCase):
+    def test_a_path_naming_only_the_root_is_no_feature_map(self) -> None:
+        for value, expected in (("/", None), ("///", None), ("docs/map/", "docs/map")):
+            with self.subTest(value=value):
+                surface = {"feature_map_path": value}
+                config = {"tests": {"verification_surface": surface}}
+                assert rails_kernel._feature_map_path(config) == expected
 
 
 if __name__ == "__main__":

@@ -51,9 +51,9 @@ ENGINE_TESTS = (
     "test_init.py",
     "test_init_language_servers.py",
     "test_kind_candidates.py",
-    "test_name_extract.py",
-    "test_name_pairs.py",
-    "test_name_propose.py",
+    "test_name_pair_candidates.py",
+    "test_name_pair_extract.py",
+    "test_name_pair_propose.py",
     "test_package_placement.py",
     "test_prefix_folder.py",
     "test_pytest_adapter.py",
@@ -305,10 +305,13 @@ class EngineCatalogueTests(unittest.TestCase):
             for path in sorted(sources)
             if path.is_file() and path.suffix in {".py", ".json", ".md", ".xml"}
         )
-        conformance = ENGINE / "guardrails/commands/adapters/pytest/conformance"
-        texts += "".join(
-            path.read_text(encoding="utf-8") for path in conformance.glob("*.json")
-        )
+        conformance = [
+            ENGINE / "data/conformance-cases.json",
+            ENGINE / "data/pytest-conformance-bindings.json",
+        ]
+        for path in conformance:
+            assert path.is_file(), path
+        texts += "".join(path.read_text(encoding="utf-8") for path in conformance)
         for rule in self.catalogue["rules"]:
             if not proven_by_package(rule):
                 continue

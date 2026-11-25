@@ -12,7 +12,12 @@ from guardrails.commands.structure_naming.scan_scope import (
     is_test_path,
     is_vendored_path,
 )
-from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
+from guardrails.context.changes import (
+    DiffError,
+    changed_paths,
+    read_blobs,
+    tree_entries,
+)
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
@@ -477,11 +482,7 @@ def wanted(path: str, kind: str, size: str) -> bool:
 def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
     tree: dict[str, str] = {}
     want: list[tuple[str, str]] = []
-    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split("\0"):
-        if not entry:
-            continue
-        metadata, path = entry.split("\t", 1)
-        _, kind, oid, size = metadata.split()
+    for path, (_, kind, oid, size) in tree_entries(repo, head).items():
         if matches_any(path, excluded_paths):
             continue
         if kind == "blob" and PurePosixPath(path).name == "SKILL.md":

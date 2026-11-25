@@ -17,7 +17,7 @@ sys.path.insert(
 
 import pytest
 from test_agentrails_fixture import config, write_config
-from test_bun_test_adapter import PROFILE
+from test_bun_test_adapter import REPO_CONFIG
 
 from guardrails.commands import cli
 from guardrails.commands.adapters.bun_test.conformance import run_conformance
@@ -162,7 +162,7 @@ class BunRunTests(unittest.TestCase):
             )
             repo = bun_repository(Path(scratch), {"tests/cart.test.ts": source})
             run_text(["git", "init", "-q", str(repo)], check=True, timeout=60)
-            write_config(repo, config(**PROFILE))
+            write_config(repo, config(**REPO_CONFIG))
             out_dir = Path(scratch, "collections")
             location = ["--repo", str(repo)]
             with (

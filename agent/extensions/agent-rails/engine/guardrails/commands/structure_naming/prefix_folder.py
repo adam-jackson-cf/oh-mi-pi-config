@@ -14,7 +14,13 @@ from guardrails.commands.structure_naming.scan_scope import (
     is_test_path,
     is_vendored_path,
 )
-from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
+from guardrails.context.changes import (
+    DiffError,
+    changed_paths,
+    git,
+    read_blobs,
+    tree_entries,
+)
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
 from guardrails.context.config.suite_files import is_test_file
@@ -322,22 +328,18 @@ def scored(
 def sources(
     repo: Path, head: str, excluded: list[str]
 ) -> tuple[list[str], dict[str, str]]:
-    entries = {}
-    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split("\0"):
-        if entry:
-            metadata, raw = entry.split("\t", 1)
-            entries[raw] = metadata.split()
+    entries = tree_entries(repo, head)
     paths = sorted(path for path in entries if not matches_any(path, excluded))
     owned = [
         path
         for path in owned_python(paths)
-        if entries[path][1] == "blob" and entries[path][0] != "120000"
+        if entries[path].kind == "blob" and entries[path].mode != "120000"
     ]
-    oids = sorted({entries[path][2] for path in owned})
+    oids = sorted({entries[path].oid for path in owned})
     blobs = read_blobs(repo, oids)
     texts = {}
     for path in owned:
-        data = blobs.get(entries[path][2], b"")
+        data = blobs.get(entries[path].oid, b"")
         texts[path] = (
             data.decode("utf-8", "replace") if len(data) < MAX_SOURCE_BYTES else ""
         )

@@ -25,7 +25,7 @@ from guardrails.test_report.collect_list import read_ids
 
 pytestmark = pytest.mark.seam
 
-PROFILE: dict[str, Any] = {
+REPO_CONFIG: dict[str, Any] = {
     "tests": {
         "adapters": [
             {
@@ -91,7 +91,7 @@ def shop_module(root: Path) -> tuple[Path, Path]:
         check=False,
     )
     assert initialised.returncode == 0, initialised.stderr
-    write_config(repo, config(**PROFILE))
+    write_config(repo, config(**REPO_CONFIG))
     return repo, root
 
 
@@ -128,10 +128,10 @@ class GoAdapterTests(unittest.TestCase):
             ]
 
 
-AFFECTED_PROFILE = {
-    **PROFILE,
+AFFECTED_REPO_CONFIG = {
+    **REPO_CONFIG,
     "tests": {
-        **PROFILE.get("tests", {}),
+        **REPO_CONFIG.get("tests", {}),
         "adapters": [
             {
                 "name": "go",
@@ -153,7 +153,7 @@ AFFECTED_PROFILE = {
 class GoAffectedTests(unittest.TestCase):
     def setUp(self) -> None:
         self.repo = FixtureRepo(self)
-        self.base = self.repo.commit(MODULE, AFFECTED_PROFILE)
+        self.base = self.repo.commit(MODULE, AFFECTED_REPO_CONFIG)
         self.located = ["--repo", str(self.repo.path)]
 
     def test_a_changed_package_prints_its_t2_selector_and_package(self) -> None:

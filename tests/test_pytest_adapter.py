@@ -81,7 +81,7 @@ def containerfile_lock() -> dict[str, frozenset[str]]:
 PYTEST_ONLY: dict[str, Any] = {}
 
 
-def write_profile(repo: Path, sections: dict[str, Any]) -> Path:
+def write_repo_config(repo: Path, sections: dict[str, Any]) -> Path:
     """Write the repo's .agentrails/config.json: the fixture config with ``sections`` applied."""
     if not (repo / ".git").exists():
         run_text(["git", "init", "-q", str(repo)], check=True, timeout=60)
@@ -255,16 +255,16 @@ class TestOnlySymbolCase(unittest.TestCase):
         )
     }
 
-    PROFILE = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
+    REPO_CONFIG = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
 
     def findings(
         self,
         production: dict[str, str] | None = None,
-        profile: dict[str, Any] | None = None,
+        repo_config: dict[str, Any] | None = None,
     ) -> list[Finding]:
         production = production or self.PRODUCTION
         return symbol_usage.test_only_findings(
-            production, self.TESTS, profile or self.PROFILE, set(production)
+            production, self.TESTS, repo_config or self.REPO_CONFIG, set(production)
         )
 
 

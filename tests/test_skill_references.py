@@ -107,6 +107,7 @@ class SkillReferenceTests(unittest.TestCase):
             PACKAGE / "index.ts",
             *(PACKAGE / "engine").rglob("*.py"),
             *(PACKAGE / "lib").rglob("*.ts"),
+            *(PACKAGE / "lib").rglob("*.py"),
         ]
         readers = [
             str(source.relative_to(ROOT))

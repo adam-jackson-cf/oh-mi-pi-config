@@ -16,18 +16,10 @@ VENDORED_FOLDERS = frozenset({
     "third_party",
     "vendor",
 })
-TEST_FOLDERS = frozenset({
-    "__tests__",
-    "fixture",
-    "fixtures",
-    "spec",
-    "specs",
-    "test",
-    "testing",
-    "tests",
-})
+TEST_PREFIXES = ("test", "fixture")
+TEST_FOLDERS = frozenset({"__tests__", "spec", "specs"})
 TEST_FILE = re.compile(
-    r"^(test_.*\.py|conftest\.py|.*_test\.(py|go)|.*\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs))$"
+    r"^(conftest\.py|.*_test\.(py|go)|.*\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs))$"
 )
 
 
@@ -40,8 +32,13 @@ def is_vendored_path(path: str) -> bool:
 
 
 def is_test_path(path: str) -> bool:
-    """The file is a test, fixture or test configuration file by name or folder."""
+    """The file is a test, fixture or test configuration file by name or folder: a
+    folder or file name starting with test or fixture (tests/, testdata/, testutil/,
+    fixtures/, test_store.py, tests.py), a __tests__, spec or specs folder, or a
+    conftest.py, *_test.py, *_test.go or *.test.ts / *.spec.ts style file."""
     pure = PurePosixPath(path)
-    return bool(TEST_FOLDERS.intersection(pure.parts[:-1])) or bool(
-        TEST_FILE.match(pure.name)
+    return (
+        any(part.startswith(TEST_PREFIXES) for part in pure.parts)
+        or bool(TEST_FOLDERS.intersection(pure.parts[:-1]))
+        or bool(TEST_FILE.match(pure.name))
     )

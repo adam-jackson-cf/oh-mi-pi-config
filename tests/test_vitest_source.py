@@ -24,7 +24,7 @@ pytestmark = pytest.mark.fast
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
 
-PROFILE: dict[str, Any] = {
+REPO_CONFIG: dict[str, Any] = {
     "tests": {
         "public_entry_points": {"shop/core.ts": ["checkout"]},
         "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
@@ -35,13 +35,15 @@ ROOTS = ("shop",)
 
 
 def findings(
-    source: str, path: str = "tests/case.test.ts", profile: dict[str, Any] = PROFILE
+    source: str,
+    path: str = "tests/case.test.ts",
+    repo_config: dict[str, Any] = REPO_CONFIG,
 ) -> list[Finding]:
     rules = [
         rule
         for rule in lint.load_patterns()
         if rule.scope
-        == ("tests" if lint.is_test(path, profile, "vitest") else "production")
+        == ("tests" if lint.is_test(path, repo_config, "vitest") else "production")
     ]
     return lint.file_findings(path, source, rules, ROOTS, VITEST)
 
@@ -340,12 +342,14 @@ class SourceLint(unittest.TestCase):
             "shop/core.ts": "export function checkout() {} export function inspect() {}",
             "tests/case.test.ts": "import { inspect as view } from '../shop/core'; test('x', () => { view(); });",
         }
-        found = lint.hook_findings(sources, PROFILE, {"shop/core.ts"}, ROOTS, "vitest")
+        found = lint.hook_findings(
+            sources, REPO_CONFIG, {"shop/core.ts"}, ROOTS, "vitest"
+        )
         assert len(found) == 1
         assert "inspect" in found[0].message
         sources["shop/consumer.ts"] = "import { inspect } from './core'; inspect();"
         assert (
-            lint.hook_findings(sources, PROFILE, {"shop/core.ts"}, ROOTS, "vitest")
+            lint.hook_findings(sources, REPO_CONFIG, {"shop/core.ts"}, ROOTS, "vitest")
             == []
         )
 
@@ -355,7 +359,7 @@ class SourceLint(unittest.TestCase):
             "tests/case.test.ts": "import {checkout, unused} from '../shop/core'; checkout();",
         }
         assert (
-            lint.hook_findings(sources, PROFILE, {"shop/core.ts"}, ROOTS, "vitest")
+            lint.hook_findings(sources, REPO_CONFIG, {"shop/core.ts"}, ROOTS, "vitest")
             == []
         )
 

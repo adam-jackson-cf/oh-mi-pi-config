@@ -40,7 +40,7 @@ class GuardRunTests(GuardRunCase):
         added = self.real_home / ".config/app/new.db"
         noisy = self.real_home / ".config/app/history.log"
         code = f"open({str(added)!r}, 'w').write('x'); open({str(noisy)!r}, 'w').write('x')"
-        profile = {
+        repo_config = {
             "checkers": {
                 "guard_run": {
                     "watch": [".config/app"],
@@ -48,7 +48,7 @@ class GuardRunTests(GuardRunCase):
                 }
             }
         }
-        findings = self.guard(["--", *python(code)], profile)
+        findings = self.guard(["--", *python(code)], repo_config)
         assert len(findings) == 1
         assert "added .config/app/new.db" in findings[0].message
         assert "history.log" not in findings[0].message
@@ -64,20 +64,20 @@ class GuardRunTests(GuardRunCase):
 
     def test_tier_command_comes_from_the_config(self) -> None:
         marker = self.repo / "ran"
-        profile = {
-            **self.profile,
+        repo_config = {
+            **self.repo_config,
             "tests": {
-                **self.profile.get("tests", {}),
+                **self.repo_config.get("tests", {}),
                 "tiers": {
                     "t1": {"command": shlex.join(python(f"open({str(marker)!r}, 'w')"))}
                 },
             },
         }
-        assert self.guard(["--tier", "t1"], profile) == []
+        assert self.guard(["--tier", "t1"], repo_config) == []
         assert marker.exists()
 
     def test_network_none_runs_behind_the_configured_prefix(self) -> None:
-        profile = {
+        repo_config = {
             "checkers": {
                 "guard_run": {
                     "watch": [".config/app"],
@@ -89,7 +89,7 @@ class GuardRunTests(GuardRunCase):
             "import os, sys\n"
             "sys.exit(0 if os.environ.get('OMP_GUARD_PREFIX_HOME') == os.environ['HOME'] else 9)"
         )
-        assert self.guard(["--network-none", "--", *python(code)], profile) == []
+        assert self.guard(["--network-none", "--", *python(code)], repo_config) == []
 
 
 if __name__ == "__main__":

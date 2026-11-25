@@ -135,7 +135,7 @@ class KindCandidatesCommandTests(unittest.TestCase):
         self.repo = Path(scratch.name) / "repo"
         self.repo.mkdir()
         self.git("init", "-q")
-        write_config(self.repo, config(**getattr(self, "profile", {})))
+        write_config(self.repo, config(**getattr(self, "repo_config", {})))
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         tree = FIXTURE["tree"]

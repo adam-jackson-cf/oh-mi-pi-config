@@ -137,9 +137,9 @@ tests/*
 !tests/test_init.py
 !tests/test_init_language_servers.py
 !tests/test_kind_candidates.py
-!tests/test_name_extract.py
-!tests/test_name_pairs.py
-!tests/test_name_propose.py
+!tests/test_name_pair_candidates.py
+!tests/test_name_pair_extract.py
+!tests/test_name_pair_propose.py
 !tests/test_package_placement.py
 !tests/test_prefix_folder.py
 !tests/test_pytest_adapter.py
@@ -181,8 +181,8 @@ tests/fixtures/*
 !tests/fixtures/agentrails/
 !tests/fixtures/agentrails/**
 !tests/test_device_rollout.py
-!tests/test_repo_config.py
-!tests/test_repo_config_seams.py
+!tests/test_config_validator.py
+!tests/test_config_validator_seams.py
 !tests/repo-config.test.ts
 !tests/repo-config-seams.test.ts
 !tests/agent-rails-onboarding-seams.test.ts

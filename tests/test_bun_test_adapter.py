@@ -23,7 +23,7 @@ from guardrails.test_report.junit import ReportError, parse_report
 
 pytestmark = pytest.mark.fast
 
-PROFILE: dict[str, Any] = {
+REPO_CONFIG: dict[str, Any] = {
     "tests": {
         "adapters": [
             {
@@ -73,7 +73,7 @@ class BunAdapterWiringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
             found = bun_test.run(
-                repo, PROFILE, ["junit-args", "--tier", "t1", "--out", "report.xml"]
+                repo, REPO_CONFIG, ["junit-args", "--tier", "t1", "--out", "report.xml"]
             )
             assert [item.rule_id for item in found] == [
                 "GUARDRAILS.output-outside-repo"

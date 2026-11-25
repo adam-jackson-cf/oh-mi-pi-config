@@ -13,7 +13,12 @@ from guardrails.commands.structure_naming.scan_scope import (
     is_test_path,
     is_vendored_path,
 )
-from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
+from guardrails.context.changes import (
+    DiffError,
+    changed_paths,
+    read_blobs,
+    tree_entries,
+)
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
@@ -278,17 +283,16 @@ def model_of(tree: dict[str, str]) -> TreeModel:
 
 
 def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
-    entries = {}
-    for entry in git(repo, "ls-tree", "-r", "-z", head).split("\0"):
-        if entry:
-            metadata, path = entry.split("\t", 1)
-            if not matches_any(path, excluded_paths):
-                entries[path] = metadata.split()
+    entries = {
+        path: entry
+        for path, entry in tree_entries(repo, head).items()
+        if not matches_any(path, excluded_paths)
+    }
     paths = owned(sorted(entries))
     want = [
-        (path, entries[path][2])
+        (path, entries[path].oid)
         for path in paths
-        if path.endswith(".py") and entries[path][1] == "blob"
+        if path.endswith(".py") and entries[path].kind == "blob"
     ]
     tree = dict.fromkeys(paths, "")
     blobs = read_blobs(repo, sorted({oid for _, oid in want}))

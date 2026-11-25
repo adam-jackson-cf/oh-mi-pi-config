@@ -94,7 +94,7 @@ class RepositoryCase(unittest.TestCase):
             "commands": {"commit": ["false"], "ci": ["false"]},
             "ci": {"enabled": False},
         }
-        self.profile(None)
+        self.configure_surface(None)
         self.write(
             f"{MAP_PATH}/value.md", map_doc(*(f"../../{name}" for name in MAPPED))
         )
@@ -220,7 +220,7 @@ class RepositoryCase(unittest.TestCase):
     def rebase_parent(self, message: str = "parent fixtures") -> None:
         self.parent = self.commit(message)
 
-    def profile(self, marker: str | None, **surface: str | None) -> None:
+    def configure_surface(self, marker: str | None, **surface: str | None) -> None:
         values = {
             "lever_command": "lever",
             "doctor_marker": marker,
@@ -1103,7 +1103,7 @@ class ConfigGateTests(RepositoryCase):
 
 class FeatureMapTests(RepositoryCase):
     def test_freeze_refuses_red_from_environment_doctor(self) -> None:
-        self.profile("DOCTOR:")
+        self.configure_surface("DOCTOR:")
         self.rebase_parent()
         doctor = self.proof(
             code="from pathlib import Path\nprint('DOCTOR: database not reachable')\n"
@@ -1122,12 +1122,12 @@ class FeatureMapTests(RepositoryCase):
         self,
     ) -> None:
         doctor = "from pathlib import Path\nprint('DOCTOR:')\n" + RED_AT_BASE
-        self.profile("DOCTOR FAILED")
-        self.rebase_parent("profile marker")
+        self.configure_surface("DOCTOR FAILED")
+        self.rebase_parent("doctor marker")
         path, _ = self.freeze([self.proof(code=doctor)], base=self.parent)
         assert path.exists()
         path.unlink()
-        self.profile("<doctor failure marker>")
+        self.configure_surface("<doctor failure marker>")
         with pytest.raises(rails_kernel.RailsKernelError, match="config.json invalid"):
             self.freeze([self.proof()], base=self.parent)
 
@@ -1179,17 +1179,17 @@ class FeatureMapTests(RepositoryCase):
             self.freeze([self.proof()])
         assert not self.manifest_path.exists()
         del self.sections["approvals"]
-        self.profile(None, feature_map_path="<feature map path>")
+        self.configure_surface(None, feature_map_path="<feature map path>")
         with pytest.raises(rails_kernel.RailsKernelError, match="config.json invalid"):
             self.freeze([self.proof()])
-        self.profile(None, feature_map_path="docs/missing")
+        self.configure_surface(None, feature_map_path="docs/missing")
         with pytest.raises(
             rails_kernel.RailsKernelError,
             match="feature map docs/missing .* does not exist",
         ):
             self.freeze([self.proof()])
         assert not self.manifest_path.exists()
-        self.profile(None)
+        self.configure_surface(None)
         (self.repo / "proof.py").unlink()
         path, _ = self.freeze([])
         assert json.loads(path.read_text())["proofs"] == []
@@ -1220,7 +1220,7 @@ class FeatureMapTests(RepositoryCase):
             f"{MAP_PATH}/value.md", map_doc("../../proof.py", "../../journey.py")
         )
         self.write(f"{MAP_PATH}/README.md", "# Features\n\n- [Value](value.md)\n")
-        self.profile(None)
+        self.configure_surface(None)
         self.sections["checkers"]["feature_map"] = {"index_files": ["README.md"]}
         self.write_config()
         self.change()

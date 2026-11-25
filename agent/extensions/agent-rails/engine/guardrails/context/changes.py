@@ -5,6 +5,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_bytes
@@ -69,6 +70,24 @@ def git_bytes(
 
 def git(repo: Path, *args: str) -> str:
     return git_bytes(repo, *args).decode(errors="replace")
+
+
+class TreeEntry(NamedTuple):
+    mode: str
+    kind: str
+    oid: str
+    size: str
+
+
+def tree_entries(repo: Path, head: str) -> dict[str, TreeEntry]:
+    """Every path in head's tree with its mode, object type, object id and size
+    (`git ls-tree -r -l`; the size is "-" for a submodule), in git's order."""
+    entries = {}
+    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split("\0"):
+        if entry:
+            metadata, path = entry.split("\t", 1)
+            entries[path] = TreeEntry(*metadata.split())
+    return entries
 
 
 def read_blobs(repo: Path, oids: list[str]) -> dict[str, bytes]:

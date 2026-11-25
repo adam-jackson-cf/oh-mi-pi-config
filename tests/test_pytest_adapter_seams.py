@@ -23,7 +23,7 @@ from test_pytest_adapter import (
     UNITTEST_SHOP_TEST,
     TestOnlySymbolCase,
     run_cli,
-    write_profile,
+    write_repo_config,
 )
 
 from guardrails.commands.adapters import pytest as adapter
@@ -79,10 +79,10 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
     def test_lint_reports_test_only_symbols_in_linted_production_files(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
-            profile = {
-                **self.PROFILE,
+            repo_config = {
+                **self.REPO_CONFIG,
                 "tests": {
-                    **self.PROFILE.get("tests", {}),
+                    **self.REPO_CONFIG.get("tests", {}),
                     "adapters": [
                         {
                             "name": "pytest",
@@ -96,7 +96,7 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
                     "layout": {"test_file_patterns": ["test_*.py"]},
                 },
             }
-            write_profile(repo, profile)
+            write_repo_config(repo, repo_config)
             for path, text in {**self.PRODUCTION, **self.TESTS}.items():
                 (repo / path).parent.mkdir(parents=True, exist_ok=True)
                 (repo / path).write_text(text)
@@ -107,7 +107,7 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
         assert "production symbol 'reset_cache_for_tests' is used only by tests" in out
 
 
-SHOP_PROFILE: dict[str, Any] = {
+SHOP_REPO_CONFIG: dict[str, Any] = {
     "tests": {
         "adapters": [
             {
@@ -164,7 +164,7 @@ def shop_repository(root: Path, test_source: str = SHOP_TEST) -> Path:
         "[pytest]\nmarkers =\n    fast: t1\n    slow: t2\n"
     )
     (repo / "tests/test_shop.py").write_text(test_source)
-    write_profile(repo, SHOP_PROFILE)
+    write_repo_config(repo, SHOP_REPO_CONFIG)
     git(repo, "init", "-q")
     git(repo, "add", ".")
     git(
@@ -224,13 +224,13 @@ class ExtraTests(unittest.TestCase):
             )
             repo = shop_repository(Path(scratch), source)
             excluded = {
-                **SHOP_PROFILE,
+                **SHOP_REPO_CONFIG,
                 "checkers": {
-                    **SHOP_PROFILE.get("checkers", {}),
+                    **SHOP_REPO_CONFIG.get("checkers", {}),
                     "check": {"exclude": ["tests/**"]},
                 },
             }
-            write_profile(repo, excluded)
+            write_repo_config(repo, excluded)
             code, out = run_cli("adapter", "--repo", str(repo), "pytest", "lint")
             assert "TEST.no-self-mocking" not in out
             assert "shop/core.py: TEST.no-test-hooks" in out
@@ -413,7 +413,7 @@ class ExtraTests(unittest.TestCase):
             )
             assert result.returncode == 0, result.stdout + result.stderr
             parsed = parse_report(report, DIALECT)
-            assert propagation.evaluate(parsed, SHOP_PROFILE, None) == []
+            assert propagation.evaluate(parsed, SHOP_REPO_CONFIG, None) == []
             assert parsed.properties["guardrails.subtests.tests"] == "3"
 
     def test_unittest_suites_take_tier_markers_and_run_unchanged(self) -> None:
@@ -498,7 +498,7 @@ class ConformancePrerequisiteTests(unittest.TestCase):
     ) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
-            write_profile(repo, {})
+            write_repo_config(repo, {})
             real_find_spec = importlib.util.find_spec
 
             def without_pytest(name: str, *args: Any) -> Any:
@@ -525,7 +525,7 @@ class StandardLibraryCliTests(unittest.TestCase):
     def test_cli_prints_tier_arguments_and_mutation_tool(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
-            write_profile(repo, PYTEST_ONLY)
+            write_repo_config(repo, PYTEST_ONLY)
             report = Path(scratch).parent / "reports/t1.xml"
             code, out = run_cli(
                 "adapter",

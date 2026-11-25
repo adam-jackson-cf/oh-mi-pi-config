@@ -79,7 +79,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | --- | --- | --- |
 | Rails tests | `tests/agent-rails-*.test.ts` | Entry point, guards, agent loop |
 | Config tests | `tests/repo-config*.test.ts` | `lib/repo-config.ts`, `lib/git-paths.ts` |
-| Config tests | `tests/test_repo_config*.py` | Engine `context/config/validator.py` |
+| Config tests | `tests/test_config_validator*.py` | Engine `context/config/validator.py` |
 | Config fixtures | `tests/fixtures/agentrails` | Valid and invalid repo configs |
 | Engine tests | `ENGINE_TESTS` in `tests/test_rule_catalogue.py` | Checkers, adapters, `init` |
 | Kernel tests | `tests/test_rails_kernel*.py` | `lib/rails_kernel.py` |

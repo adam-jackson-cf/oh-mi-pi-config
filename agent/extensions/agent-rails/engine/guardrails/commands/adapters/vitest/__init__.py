@@ -64,12 +64,6 @@ def affected_arguments(
     return print_affected(repo, config, command, base, head)
 
 
-def guard_evidence(report: Path, tier: str) -> list[Finding]:
-    from guardrails.commands.adapters.vitest.dialect import guard_evidence as check
-
-    return check(report, tier)
-
-
 def lint_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
@@ -96,6 +90,8 @@ def junit_action(
 def evidence_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
+    from guardrails.commands.adapters.vitest.dialect import guard_evidence
+
     return guard_evidence(options.report, options.tier)
 
 

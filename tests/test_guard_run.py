@@ -45,13 +45,13 @@ class GuardRunCase(unittest.TestCase):
         patcher = unittest.mock.patch.dict(os.environ, {"HOME": str(self.real_home)})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.profile = {"checkers": {"guard_run": {"watch": [".config/app"]}}}
+        self.repo_config = {"checkers": {"guard_run": {"watch": [".config/app"]}}}
 
     def guard(
-        self, argv: list[str], profile: dict[str, Any] | None = None
+        self, argv: list[str], repo_config: dict[str, Any] | None = None
     ) -> list[Any]:
         return command.run(
-            self.repo, self.profile if profile is None else profile, argv
+            self.repo, self.repo_config if repo_config is None else repo_config, argv
         )
 
 

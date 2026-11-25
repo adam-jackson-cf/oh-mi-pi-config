@@ -30,7 +30,7 @@ LEVER = "scripts/lever"
 DOCTOR_MARKER = "LEVER-DOCTOR-FAILED"
 
 
-def surface_profile(**overrides: str) -> dict[str, Any]:
+def surface_repo_config(**overrides: str) -> dict[str, Any]:
     values = {
         "lever_command": LEVER,
         "doctor_marker": DOCTOR_MARKER,
@@ -56,11 +56,11 @@ class LeverSelftestCase(unittest.TestCase):
 
     def selftest(self, mode: str, **settings: object) -> list[Any]:
         lever = shlex.join([sys.executable, str(FAKE_LEVER), "--mode", mode])
-        profile = surface_profile(lever_command=lever)
-        profile["checkers"] = {
+        repo_config = surface_repo_config(lever_command=lever)
+        repo_config["checkers"] = {
             "lever_selftest": {"doctor_args": ["doctor"], **settings}
         }
-        return lever_selftest.run(self.repo, profile, [])
+        return lever_selftest.run(self.repo, repo_config, [])
 
     def messages(self, findings: list[Any]) -> str:
         assert all(f.rule_id == "SURFACE.lever-isolation" for f in findings)
@@ -69,8 +69,8 @@ class LeverSelftestCase(unittest.TestCase):
 
 class LeverSelftestTests(LeverSelftestCase):
     def test_incomplete_surface_is_reported(self) -> None:
-        profile = surface_profile(doctor_marker="")
-        findings = lever_selftest.run(self.repo, profile, [])
+        repo_config = surface_repo_config(doctor_marker="")
+        findings = lever_selftest.run(self.repo, repo_config, [])
         assert "needs lever_command, doctor_marker" in self.messages(findings)
 
 

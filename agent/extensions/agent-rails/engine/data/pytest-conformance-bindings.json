@@ -1,5 +1,5 @@
 {
-  "about": "pytest bindings for cases.json. Each case runs fixtures/<case id with '-' as '_'>.py unless 'fixture' names another file. 'place' is test (tests/test_case.py, the default) or production (shop/settings.py inside the owned package). 'config' entries replace top-level sections of the base conformance config (.agentrails/config.json shape). 'tier' picks the guarded tier for run-report cases (default t1).",
+  "about": "pytest bindings for data/conformance-cases.json. Each case runs guardrails/commands/adapters/pytest/conformance/fixtures/<case id with '-' as '_'>.py unless 'fixture' names another file. 'place' is test (tests/test_case.py, the default) or production (shop/settings.py inside the owned package). 'config' entries replace top-level sections of the base conformance config (.agentrails/config.json shape). 'tier' picks the guarded tier for run-report cases (default t1).",
   "cases": {
     "approved-static-skip": {
       "fixture": "unapproved_static_skip.py",

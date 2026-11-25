@@ -14,7 +14,12 @@ from guardrails.commands.structure_naming.scan_scope import (
     is_test_path,
     is_vendored_path,
 )
-from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
+from guardrails.context.changes import (
+    DiffError,
+    changed_paths,
+    read_blobs,
+    tree_entries,
+)
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding, catalogue_rules
@@ -226,11 +231,7 @@ def overlap_findings(
 def head_units(
     repo: Path, head: str, excluded: list[str]
 ) -> tuple[dict[str, str], dict[str, str]]:
-    entries = {}
-    for entry in git(repo, "ls-tree", "-r", "-z", head).split("\0"):
-        if entry:
-            metadata, raw = entry.split("\t", 1)
-            entries[raw] = metadata.split()
+    entries = tree_entries(repo, head)
     bundles = {
         PurePosixPath(path).parent.as_posix()
         for path in entries
@@ -238,11 +239,11 @@ def head_units(
     }
     units = {
         path: unit
-        for path, (mode, kind, _) in entries.items()
+        for path, (mode, kind, _, _) in entries.items()
         if kind == "blob" and mode != "120000" and not matches_any(path, excluded)
         if (unit := unit_of(path, bundles)) is not None
     }
-    return units, {path: entries[path][2] for path in units}
+    return units, {path: entries[path].oid for path in units}
 
 
 def unit_definitions(

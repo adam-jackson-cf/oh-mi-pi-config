@@ -76,12 +76,12 @@ class ShopRepo:
             target = self.path / relpath
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")
-        self.profile = copy.deepcopy(FIXTURE["config"])
-        python = self.profile["checkers"]["python"]
-        self.profile["checkers"]["python"] = merged_settings(python, settings or {})
+        self.repo_config = copy.deepcopy(FIXTURE["config"])
+        python = self.repo_config["checkers"]["python"]
+        self.repo_config["checkers"]["python"] = merged_settings(python, settings or {})
 
     def run(self, checker: str, *argv: str) -> list[Finding]:
-        return CHECKERS[checker](self.path, self.profile, list(argv))
+        return CHECKERS[checker](self.path, self.repo_config, list(argv))
 
 
 def rules_at(findings: list[Any]) -> set[tuple[str, str]]:
@@ -128,7 +128,7 @@ class PythonNameScopeTests(unittest.TestCase):
             GIT_CONFIG_NOSYSTEM="1",
             GIT_CONFIG_GLOBAL=os.devnull,
         )
-        self.repo.profile["checkers"]["check"] = {"run": ["python-quality"]}
+        self.repo.repo_config["checkers"]["check"] = {"run": ["python-quality"]}
         self.name_rules = {f"PYQ{number}" for number in range(100, 108)}
         self.commit()
 
@@ -158,7 +158,7 @@ class PythonNameScopeTests(unittest.TestCase):
         target.write_text(source)
 
     def check(self) -> list[Any]:
-        return whole_repo.run(self.repo.path, self.repo.profile, [])
+        return whole_repo.run(self.repo.path, self.repo.repo_config, [])
 
     def test_automatic_commit_scope_preserves_legacy_names_but_explicit_scan_reports_them(
         self,
@@ -194,7 +194,7 @@ class PythonNameScopeTests(unittest.TestCase):
         )
         self.write("src/shop/contracts.py", source)
         self.write("src/shop/receipt.py", source)
-        self.repo.profile["checkers"]["python"]["contract_files"].append(
+        self.repo.repo_config["checkers"]["python"]["contract_files"].append(
             "src/shop/receipt.py"
         )
         self.write("src/shop/reader.py")
@@ -271,7 +271,7 @@ class FailClosedDefaultTests(unittest.TestCase):
         self,
     ) -> None:
         repo = ShopRepo(self)
-        repo.profile = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
+        repo.repo_config = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
         unmapped = {
             item.path for item in repo.run("quality") if item.rule_id == "PYQ100"
         }
@@ -287,7 +287,7 @@ class FailClosedDefaultTests(unittest.TestCase):
 
     def test_process_scope_defaults_to_every_maintained_root(self) -> None:
         repo = ShopRepo(self)
-        del repo.profile["checkers"]["python"]["subprocess_wrappers"]
+        del repo.repo_config["checkers"]["python"]["subprocess_wrappers"]
         found = rules_at(repo.run("quality"))
         assert ("PYQ220", "src/shop/process.py") in found
         assert ("PYQ220", "scripts/build-catalogue.py") in found
@@ -306,7 +306,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_guardrail_exception_with_reason_drops_the_finding(self) -> None:
         repo = ShopRepo(self, {"src/shop/utils.py": "X = 1\n"})
-        repo.profile["exceptions"] = [
+        repo.repo_config["exceptions"] = [
             agentrails_exception(
                 "PYQ104",
                 "src/shop/utils.py",
@@ -384,17 +384,17 @@ class SettingsTests(unittest.TestCase):
         source = "import shop.orders\nimport shop.process\n"
         settings = {"fanout": {"architectural_max": 1}}
         repo = ShopRepo(self, {"src/shop/hub.py": source}, settings)
-        repo.profile["tests"]["public_entry_points"] = {}
+        repo.repo_config["tests"]["public_entry_points"] = {}
         assert "fanout.root_packages" in repo.run("fanout")[0].message
 
 
 class CliTests(unittest.TestCase):
-    def write_profile(self, repo: ShopRepo) -> None:
-        write_config(repo.path, config(**repo.profile))
+    def write_repo_config(self, repo: ShopRepo) -> None:
+        write_config(repo.path, config(**repo.repo_config))
 
     def test_cli_dispatches_each_python_subcommand(self) -> None:
         repo = ShopRepo(self, {"src/shop/utils.py": "X = 1\n"})
-        self.write_profile(repo)
+        self.write_repo_config(repo)
         expected = {"python-quality": 1, "python-scalability": 0, "python-fanout": 0}
         for name, code in expected.items():
             with self.subTest(name), contextlib.redirect_stdout(io.StringIO()) as out:
@@ -404,7 +404,7 @@ class CliTests(unittest.TestCase):
                 assert "src/shop/utils.py: PYQ104:" in out.getvalue()
 
 
-TIMEOUTS_PROFILE = {"tests": {"layout": {"test_file_patterns": ["test_*.py"]}}}
+TIMEOUTS_REPO_CONFIG = {"tests": {"layout": {"test_file_patterns": ["test_*.py"]}}}
 
 
 class SubprocessTimeoutTests(unittest.TestCase):
@@ -420,9 +420,9 @@ class SubprocessTimeoutTests(unittest.TestCase):
         return path
 
     def check(
-        self, files: dict[str, str], profile: dict[str, Any] = TIMEOUTS_PROFILE
+        self, files: dict[str, str], repo_config: dict[str, Any] = TIMEOUTS_REPO_CONFIG
     ) -> list[Any]:
-        return subprocess_timeouts.run(self.repo(files), profile, [])
+        return subprocess_timeouts.run(self.repo(files), repo_config, [])
 
     def test_bounded_process_calls_pass(self) -> None:
         bounded = (
@@ -474,7 +474,7 @@ class SubprocessTimeoutTests(unittest.TestCase):
         path = self.repo({
             "tests/unit/test_proc.py": "import subprocess\nsubprocess.call(['x'])\n"
         })
-        write_config(path, config(**TIMEOUTS_PROFILE))
+        write_config(path, config(**TIMEOUTS_REPO_CONFIG))
         argv = ["python-subprocess-timeouts", "--repo", str(path)]
         with contextlib.redirect_stdout(io.StringIO()) as out:
             assert cli.main(argv) == 1
@@ -485,10 +485,12 @@ class SubprocessTimeoutTests(unittest.TestCase):
 
 
 class StandaloneExclusionTests(unittest.TestCase):
-    def exit_codes(self, step: str, repo: Path, profile: dict[str, Any]) -> list[int]:
+    def exit_codes(
+        self, step: str, repo: Path, repo_config: dict[str, Any]
+    ) -> list[int]:
         codes = []
         for exclude in ([], ["tests/**"]):
-            excluded = {**profile, "checkers": {**profile.get("checkers", {})}}
+            excluded = {**repo_config, "checkers": {**repo_config.get("checkers", {})}}
             excluded["checkers"]["check"] = {"exclude": exclude}
             write_config(repo, config(**excluded))
             argv = [step, "--repo", str(repo)]
@@ -499,7 +501,7 @@ class StandaloneExclusionTests(unittest.TestCase):
     def test_python_quality_drops_findings_under_the_record_exclusions(self) -> None:
         repo = ShopRepo(self, {"tests/BadName/check.py": "VALUE = 1\n"})
         assert repo.run("quality")
-        assert self.exit_codes("python-quality", repo.path, repo.profile) == [1, 0]
+        assert self.exit_codes("python-quality", repo.path, repo.repo_config) == [1, 0]
 
     def test_python_test_hygiene_drops_findings_under_the_record_exclusions(
         self,
@@ -513,7 +515,7 @@ class StandaloneExclusionTests(unittest.TestCase):
             "import subprocess\n\n\ndef test_sync():\n    subprocess.check_output(['true'])\n"
         )
         assert self.exit_codes(
-            "python-subprocess-timeouts", path, TIMEOUTS_PROFILE
+            "python-subprocess-timeouts", path, TIMEOUTS_REPO_CONFIG
         ) == [
             1,
             0,
@@ -521,7 +523,7 @@ class StandaloneExclusionTests(unittest.TestCase):
 
 
 def test_engine_modules_stay_within_the_default_fanout_limit() -> None:
-    profile = {
+    repo_config = {
         "checkers": {
             "python": {
                 "source_roots": ["agent/extensions/agent-rails/engine"],
@@ -529,7 +531,7 @@ def test_engine_modules_stay_within_the_default_fanout_limit() -> None:
             }
         }
     }
-    findings = fanout.run(ROOT, profile, ["agent/extensions/agent-rails/engine"])
+    findings = fanout.run(ROOT, repo_config, ["agent/extensions/agent-rails/engine"])
     assert [(item.path, item.message) for item in findings] == []
 
 
