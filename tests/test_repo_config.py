@@ -145,12 +145,10 @@ class Validation(unittest.TestCase):
     def test_leaf_shapes_name_the_expected_value(self) -> None:
         config = fixture("full.json")
         config["onboarding"]["questionnaireVersion"] = True
-        config["onboarding"]["skills"] = {
-            "test-guidance": {
-                "version": "ABC",
-                "ranAt": "2026-13-40T99:00:00Z",
-                "scope": {"kind": "paths", "paths": [" "]},
-            }
+        config["onboarding"]["skills"]["test-guidance"] = {
+            "version": "ABC",
+            "ranAt": "2026-13-40T99:00:00Z",
+            "scope": {"kind": "paths", "paths": [" "]},
         }
         config["afterMerge"] = {"argv": ["make"], "paths": []}
         config["mergePolicies"][0]["headPrefix"] = 3
@@ -174,9 +172,7 @@ class Validation(unittest.TestCase):
             "exceptions[1]: must be an object",
         ]
 
-    def test_an_unknown_onboarding_origin_and_skill_scope_name_their_options(
-        self,
-    ) -> None:
+    def test_an_unknown_skill_scope_names_its_options(self) -> None:
         config = fixture("minimal.json")
         config["onboarding"]["skills"]["setup-repo-proofs"]["scope"] = {"kind": "all"}
         config["autonomy"] = []
@@ -184,20 +180,6 @@ class Validation(unittest.TestCase):
             "onboarding.skills.setup-repo-proofs.scope.kind: must be one of "
             '["whole", "changed", "paths"]',
             "autonomy: must be an object",
-        ]
-        config["onboarding"] = {"origin": "import"}
-        assert repo_config.validate(config, origin=None)[0] == (
-            'onboarding.origin: must be one of ["onboarding", "migration"]'
-        )
-
-    def test_migration_onboarding_names_its_source_and_may_omit_skill_runs(
-        self,
-    ) -> None:
-        config = fixture("full.json")
-        assert config["onboarding"]["origin"] == "migration"
-        del config["onboarding"]["migratedFrom"]
-        assert repo_config.validate(config, origin=None) == [
-            "onboarding.migratedFrom: is missing"
         ]
 
     def test_an_exemption_approval_must_name_an_exemptable_field(self) -> None:

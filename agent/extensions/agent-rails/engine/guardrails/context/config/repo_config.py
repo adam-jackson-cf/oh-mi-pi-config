@@ -631,30 +631,11 @@ SKILL_RUN = _strict({
         ),
     ),
 })
-ONBOARDING = _union(
-    "origin",
-    (
-        (
-            "onboarding",
-            _strict({
-                "origin": _leaf(_literal("onboarding")),
-                "completedAt": ISO,
-                "questionnaireVersion": _leaf(_questionnaire),
-                "skills": _strict(dict.fromkeys(SKILLS, SKILL_RUN)),
-            }),
-        ),
-        (
-            "migration",
-            _strict({
-                "origin": _leaf(_literal("migration")),
-                "completedAt": ISO,
-                "questionnaireVersion": _leaf(_questionnaire),
-                "migratedFrom": TEXT,
-                "skills": _strict({}, dict.fromkeys(SKILLS, SKILL_RUN)),
-            }),
-        ),
-    ),
-)
+ONBOARDING = _strict({
+    "completedAt": ISO,
+    "questionnaireVersion": _leaf(_questionnaire),
+    "skills": _strict(dict.fromkeys(SKILLS, SKILL_RUN)),
+})
 CI = _union(
     "enabled",
     (

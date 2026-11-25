@@ -231,8 +231,6 @@ class DraftSectionTests(InitCase):
             in output
         )
         assert "required checks not read (--offline)" in output
-        for retired in ("agentMerge", "ownerOnlyPaths", "gate.json"):
-            assert retired not in output
         assert not HARNESS_NAME.search(output), output
 
     def test_second_run_changes_nothing(self) -> None:

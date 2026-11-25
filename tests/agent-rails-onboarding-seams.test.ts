@@ -213,7 +213,6 @@ describe("/agentrails onboard", () => {
 			afterMerge: { argv: ["make", "sync"] },
 		});
 		assert.deepEqual(config.repo, { slug: SLUG, defaultBranch: "main" });
-		assert.equal(config.onboarding.origin, "onboarding");
 		assert.equal(config.onboarding.skills["setup-repo-proofs"]?.version, await skillVersion(join(s.skills, "setup-repo-proofs")));
 		assert.deepEqual(config.onboarding.skills["test-guidance"]?.scope, { kind: "paths", paths: ["tests"] });
 		assert.deepEqual(config.approvals.map(entry => [entry.kind, entry.target, entry.approvedBy]), [["budget", "a1b2c3d4e5f60718", "example-owner"]]);

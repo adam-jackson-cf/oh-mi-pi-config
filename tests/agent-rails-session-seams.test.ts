@@ -322,7 +322,7 @@ describe("review on restart", () => {
 		try {
 			mkdirSync(extension, { recursive: true });
 			git("init", "-q");
-			writeFileSync(join(records, ".gitignore"), "repos/\nmodes.json\n");
+			writeFileSync(join(records, ".gitignore"), "node_modules/\n");
 			git("add", ".gitignore");
 			change("feat: first rails");
 			h.config({ afterMerge: { argv: ["make", "sync"] } });
@@ -380,7 +380,7 @@ describe("review on restart", () => {
 		try {
 			mkdirSync(extension, { recursive: true });
 			git("init", "-q");
-			writeFileSync(join(records, ".gitignore"), "repos/\nmodes.json\n");
+			writeFileSync(join(records, ".gitignore"), "node_modules/\n");
 			git("add", ".gitignore");
 			change("feat: first rails");
 			h.govern();

@@ -5,7 +5,6 @@
     "defaultBranch": "main"
   },
   "onboarding": {
-    "origin": "onboarding",
     "completedAt": "2026-11-24T09:00:00Z",
     "questionnaireVersion": 2,
     "skills": {

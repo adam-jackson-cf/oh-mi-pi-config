@@ -145,7 +145,7 @@ function onboardedConfig(at: { slug: string; branch: string }, draft: Draft, qa:
 	const base: AgentRailsConfig = {
 		schemaVersion: 1, repo: { slug: at.slug, defaultBranch: at.branch },
 		onboarding: {
-			origin: "onboarding", completedAt: new Date().toISOString(), questionnaireVersion: QUESTIONNAIRE_VERSION,
+			completedAt: new Date().toISOString(), questionnaireVersion: QUESTIONNAIRE_VERSION,
 			skills: { "setup-repo-proofs": proofs, "test-guidance": guidance },
 		},
 		autonomy: qa.autonomy, ci: qa.ci, gates: { ...qa.gates, audit: false }, judgments: {}, mergePolicies: [],

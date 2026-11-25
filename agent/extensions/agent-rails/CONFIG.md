@@ -25,14 +25,14 @@ flowchart LR
   tg["agentrails_config tool
   after skill://test-guidance"] --> tests
   owner["owner $approve / $revoke lines"] --> exceptions & approvals
-  file["/agentrails import, cutover script"] --> whole["whole file"]
+  file["/agentrails import"] --> whole["whole file"]
 ```
 
 | Section | Writer | Holds |
 | --- | --- | --- |
 | `schemaVersion` | Every writer | `1` |
 | `repo` | `/agentrails onboard` | `slug`, `defaultBranch` |
-| `onboarding` | `/agentrails onboard` | Origin, completion time, Q&A version, skill stamps |
+| `onboarding` | `/agentrails onboard` | Completion time, Q&A version, skill stamps |
 | `autonomy` | Q&A | `branch`, `pr`, `merge`: `allowed` or `ask` |
 | `ci` | Q&A | Whether merges need CI; runner role and required context |
 | `gates` | Q&A | Which deterministic gates run; code rules switched off |

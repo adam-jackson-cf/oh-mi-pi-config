@@ -5,11 +5,27 @@
     "defaultBranch": "main"
   },
   "onboarding": {
-    "origin": "migration",
     "completedAt": "2026-11-24T09:00:00Z",
     "questionnaireVersion": 1,
-    "migratedFrom": "~/.omp/repos/example-owner/agent-config",
-    "skills": {}
+    "skills": {
+      "setup-repo-proofs": {
+        "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ranAt": "2026-11-24T09:00:00Z",
+        "scope": {
+          "kind": "whole"
+        }
+      },
+      "test-guidance": {
+        "version": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ranAt": "2026-11-24T09:00:00Z",
+        "scope": {
+          "kind": "paths",
+          "paths": [
+            "tests"
+          ]
+        }
+      }
+    }
   },
   "autonomy": {
     "branch": "allowed",

@@ -661,8 +661,8 @@ class CiGateTests(GateFixture):
                 "gates.audit: must be true exactly when commands.audit is present",
             ),
             "unknown-key": (
-                {**settings(), "agentMerge": "allowed"},
-                "agentMerge",
+                {**settings(), "colour": "blue"},
+                "colour",
             ),
             "wrong-schema": ({**settings(), "schemaVersion": 2}, "schemaVersion"),
         }

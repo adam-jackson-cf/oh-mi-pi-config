@@ -32,9 +32,7 @@ export type Permission = "allowed" | "ask";
 export type SkillName = "setup-repo-proofs" | "test-guidance";
 export type SkillScope = { kind: "whole" } | { kind: "changed" } | { kind: "paths"; paths: string[] };
 export type SkillRun = { version: string; ranAt: string; scope: SkillScope };
-export type Onboarding =
-	| { origin: "onboarding"; completedAt: string; questionnaireVersion: number; skills: Record<SkillName, SkillRun> }
-	| { origin: "migration"; completedAt: string; questionnaireVersion: number; migratedFrom: string; skills: Partial<Record<SkillName, SkillRun>> };
+export type Onboarding = { completedAt: string; questionnaireVersion: number; skills: Record<SkillName, SkillRun> };
 export type Autonomy = { branch: Permission; pr: Permission; merge: Permission };
 export type Ci = { enabled: false } | { enabled: true; runner: "github-actions" | "ci-gate"; requiredContext: string };
 export type Gates = {
