@@ -90,6 +90,29 @@ The Q&A is fixed in [questionnaire.ts](lib/questionnaire.ts), version 1. It neve
 `config-check --list-rules` and `--list-questions` give the rule and judgment choices.
 `/agentrails configure` also repairs a config refused only for an older questionnaire version.
 
+## The imported setup skill
+
+`skills/setup-repo-proofs` is the upstream skill from `xSolutions365/skills`
+(`plugins/setup-repo-proofs`), copied verbatim at commit `7137100`. Only `hide` and
+`disable-model-invocation` are added to its frontmatter. The quality gates neither format nor lint
+it; `IMPORTED_SKILLS` in `tests/test_skill_references.py` lists it.
+
+It differs from the rails in three known ways:
+
+1. Rule catalogue. The engine catalogue, `engine/guardrails/data/guardrail-rules.json` (172
+   rules), is the only rule authority for the rails, `gates.rules` and `config-check
+   --list-rules`. The skill's `assets/guardrail-rules.json` (164 rules) is the target
+   repository's own catalogue, and no rails code reads it. The IDs drift: the engine's
+   `TEST.fast-tier-isolation` and `TEST.budget.fast-tier-time` are the skill's
+   `TEST.t1-isolation` and `TEST.budget.t1-time`. Only the skill has `GATE.enforced`,
+   `GATE.parity`, `GATE.self-check` and `GIT.required-checks`.
+2. Host protection. The skill's `GIT.required-checks` makes the host require the CI and
+   validator statuses. The rails never require host protection: a merge needs a CI status only
+   when `ci.enabled` is true.
+3. Run state and hooks. The skill appends `/.proofs/` to `.git/info/exclude` and runs
+   `git config core.hooksPath .githooks`. Under the rails the extension writes the exclude line,
+   and `/agentrails onboard` offers the hooks path to the owner.
+
 ## Rails scope
 
 The rails decide what runs in a repository from its config state, on every action.

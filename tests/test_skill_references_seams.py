@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 import pytest
-from test_skill_references import ROOT
+from test_skill_references import IMPORTED_SKILLS, ROOT
 
 from guardrails.host.process import run_text
 
@@ -168,7 +168,8 @@ def skill_shape_failures(directory: Path) -> list[str]:
         )
     if route == "behaviour-guidance" and (directory / "references").exists():
         failures.append(f"{entry}: behaviour-guidance ships no references")
-    failures += width_failures([ROOT / entry, *references])
+    if directory.name not in IMPORTED_SKILLS:
+        failures += width_failures([ROOT / entry, *references])
     failures += reference_failures(directory, text, references)
     if route in {"multi-step-workflow", "simple-task:runbook-index"}:
         failures += latitude_failures(entry, body)

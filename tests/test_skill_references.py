@@ -1,6 +1,7 @@
 """Check that core skill references resolve within this repository."""
 
 import re
+import tomllib
 import unittest
 from collections import defaultdict
 from collections.abc import Mapping
@@ -24,6 +25,16 @@ CORE_SKILLS = (
     "setup-repo-proofs",
     "jev-actions",
     "git-tool",
+)
+
+# Skills copied verbatim from their upstream repository. Only their frontmatter differs; the
+# quality gates and the reference width cap leave their text as upstream wrote it.
+IMPORTED_SKILLS = frozenset({"setup-repo-proofs"})
+
+# The engine's own rule catalogue is the only rule authority for the rails. The imported
+# setup-repo-proofs catalogue (assets/guardrail-rules.json) is the target repository's.
+SKILL_ASSETS_READ = re.compile(
+    r"setup-repo-proofs[\"']?\s*[,/]\s*[\"']?assets", re.IGNORECASE
 )
 
 REFERENCE = re.compile(
@@ -64,7 +75,7 @@ def unresolved_links(source: Path) -> list[str]:
             continue
         relative, _, anchor = target.partition("#")
         linked = source.parent / relative
-        if not linked.is_file() or (
+        if not (linked.is_file() or (relative.endswith("/") and linked.is_dir())) or (
             anchor and linked.suffix == ".md" and anchor not in heading_anchors(linked)
         ):
             unresolved.append(
@@ -77,13 +88,43 @@ def unresolved_links(source: Path) -> list[str]:
 class SkillReferenceTests(unittest.TestCase):
     def test_repository_setup_is_independent_of_the_assistant(self) -> None:
         directory = PACKAGE_SKILLS / "setup-repo-proofs"
-        forbidden = re.compile(r"\b(?:omp|dynaflows|harness|freeze)\b", re.IGNORECASE)
+        forbidden = re.compile(
+            r"\b(?:omp|dynaflows|agent-rails|agentrails|harness)\b", re.IGNORECASE
+        )
         for source in sorted(directory.rglob("*.md")):
             with self.subTest(source=source.relative_to(ROOT)):
                 assert forbidden.search(source.read_text(encoding="utf-8")) is None
         entry = (directory / "SKILL.md").read_text(encoding="utf-8")
         assert "hide: true" in entry
         assert "disable-model-invocation: true" in entry
+
+    def test_rails_never_read_the_imported_setup_catalogue(self) -> None:
+        sources = [
+            PACKAGE / "index.ts",
+            *(PACKAGE / "engine").rglob("*.py"),
+            *(PACKAGE / "lib").rglob("*.ts"),
+        ]
+        readers = [
+            str(source.relative_to(ROOT))
+            for source in sorted(sources)
+            if SKILL_ASSETS_READ.search(source.read_text(encoding="utf-8"))
+        ]
+        assert readers == []
+        assert SKILL_ASSETS_READ.search('join(skills, "setup-repo-proofs", "assets")')
+        assert SKILL_ASSETS_READ.search("skills / 'setup-repo-proofs' / 'assets'")
+
+    def test_quality_gates_leave_imported_skills_verbatim(self) -> None:
+        tool = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+            "tool"
+        ]
+        gates = (ROOT / "scripts/run-ci-quality-gates.sh").read_text(encoding="utf-8")
+        for name in sorted(IMPORTED_SKILLS):
+            with self.subTest(skill=name):
+                path = skill_directory(name).relative_to(ROOT).as_posix()
+                assert path in tool["ruff"]["extend-exclude"]
+                assert f"^{path}/" in tool["mypy"]["exclude"]
+                assert f"{path}/*" in tool["coverage"]["run"]["omit"]
+                assert f"':(exclude,glob){path}/**'" in gates
 
     def test_core_skill_references_resolve_locally(self) -> None:
         sources = {

@@ -1,0 +1,2091 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "RENAME.residue",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "diff_scoped_renamed_folders_and_files": true,
+        "whole_segment_retired_names": true,
+        "head_owned_directory_or_module_preserves_term": true,
+        "no_exemption_list": true
+      },
+      "summary": "Reject retired path and defined names left in a renamed folder or file."
+    },
+    {
+      "id": "PREFIX.candidates",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "added_or_moved_member_required": true,
+        "candidate_only_owner_judgment_required": true,
+        "unresolved_cluster_is_failure": true,
+        "owner_resolution": "extract the concept folder, or a proofs.toml exception naming the cluster"
+      },
+      "summary": "Block an added or moved member of a sibling prefix cluster until the owner extracts the concept or records an exception."
+    },
+    {
+      "id": "STRUCT.dependency-direction",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_layer_dependency_allowlist_required": true,
+        "reject_unmapped_or_forbidden_dependency_edges": true,
+        "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "diagnostic_names_file_edge_and_fix": true
+      },
+      "summary": "Reject dependencies outside the target's declared layer direction."
+    },
+    {
+      "id": "STRUCT.folder-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_path_ownership_map_required": true,
+        "reject_unmapped_or_misplaced_files": true,
+        "event_scope": "added and renamed paths only; only new path segments are checked, never legacy parent directories; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "diagnostic_names_file_and_destination": true,
+        "grab_bag_folder_words_source": "house_style_banned_words"
+      },
+      "summary": "Require files to live under their declared capability owner."
+    },
+    {
+      "id": "STRUCT.tier-readership",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "shared_tier_minimum_distinct_readers": 2,
+        "diagnostic_names_tier_and_fix": true
+      },
+      "summary": "Require at least two distinct parts to read each populated shared tier."
+    },
+    {
+      "id": "STRUCT.single-owner-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "reject_shared_module_with_one_owner": true,
+        "diagnostic_names_file_and_destination": true
+      },
+      "summary": "Move a shared-tier module read by exactly one part under that owner."
+    },
+    {
+      "id": "STRUCT.sibling-isolation",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "reject_same_tier_cross_part_imports": true,
+        "diagnostic_names_file_edge_and_fix": true
+      },
+      "summary": "Reject imports between distinct parts on the same tier."
+    },
+    {
+      "id": "NAME.conventions",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_path_and_symbol_naming_patterns_required": true,
+        "reject_nonmatching_names": true,
+        "diagnostic_names_file_and_correct_name": true,
+        "event_scope": "added and renamed paths only: edit uses worktree changes, commit uses staged changes, PR uses merge-base/head; content edits do not trigger naming; explicit CLI paths or no-path full scans remain available",
+        "segment_scope": "only new path segments are checked, never unchanged legacy parent directories",
+        "child_repeats_parent": {
+          "match": "the whole nonempty parent token sequence occurs contiguously and in order anywhere in the child directory name or file stem token sequence",
+          "tokens": "split on underscores, hyphens, dots, ASCII lowercase-or-digit to uppercase boundaries, and acronym-to-capitalized-word boundaries; discard empty tokens and compare case-insensitively",
+          "files": "the final path segment uses its house-style stem (before the first dot, except dotfiles)",
+          "conventions": "language convention packs exempt Python __init__.py and __main__.py and Go package filenames from parent repetition, supported by ecosystem references; other exceptions require an owner-approved reason in proofs.toml exceptions",
+          "check": "child-repeats-parent",
+          "exceptions": "proofs.toml exception entries require rule, path and nonempty reason; path uses fnmatchcase for globs and path or descendants for plain paths; optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
+          "whole_words_only": "a single-token parent counts as a whole word in a longer child (audit/log_audit), never as a substring (rail/railways); partial or reordered multi-token parents do not count"
+        }
+      },
+      "summary": "Enforce the target's explicit file, folder, and symbol naming conventions."
+    },
+    {
+      "id": "TEST.placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_test_to_owner_and_tier_map_required": true,
+        "reject_unmapped_or_misplaced_tests": true,
+        "diagnostic_names_file_and_destination": true,
+        "fixtures_and_support_under_declared_layout": true,
+        "t2_files_map_to_declared_ownership_areas": true
+      },
+      "summary": "Place tests with their declared behavior owner and test tier."
+    },
+    {
+      "id": "TEST.budget.t1-time",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "git_hook",
+      "contract": {
+        "input": "normalised_junit_run_report",
+        "limit_source": "owner_approved_machine_limits",
+        "machine_id": "deterministic_local_probe_of_platform_cpu_model_and_runtime_version",
+        "baseline_runs_min": 5,
+        "limit_increase_requires_owner_approval": true,
+        "local_commit_blocks_over_approved_limit": true,
+        "gate": "local_commit_only",
+        "ci_never_measures_or_reports_timing": true,
+        "missing_invalid_or_stale_report_is_failure": true,
+        "measurement": "t1_wall_clock_seconds",
+        "unknown_machine_report_only_with_baseline_prompt": true
+      },
+      "summary": "Block a local commit when the T1 tier exceeds the machine's approved wall-clock limit."
+    },
+    {
+      "id": "TEST.budget.per-test-time",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "git_hook",
+      "contract": {
+        "input": "normalised_junit_run_report",
+        "limit_source": "owner_approved_machine_limits",
+        "machine_id": "deterministic_local_probe_of_platform_cpu_model_and_runtime_version",
+        "baseline_runs_min": 5,
+        "limit_increase_requires_owner_approval": true,
+        "local_commit_blocks_over_approved_limit": true,
+        "gate": "local_commit_only",
+        "ci_never_measures_or_reports_timing": true,
+        "missing_invalid_or_stale_report_is_failure": true,
+        "scope": "t1_test_cases",
+        "diagnostic_names_test_and_speedup_fix_never_tier_move": true,
+        "unknown_machine_report_only_with_baseline_prompt": true
+      },
+      "summary": "Block a local commit when a T1 test exceeds the machine's approved per-test limit."
+    },
+    {
+      "id": "TEST.growth.justified",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "new_test_functions_relative_to_base_ref",
+        "descriptive_behavior_name_required": true,
+        "input": "Python test function name without test_ and underscores; JS/TS test title; Go top-level test function name without Test, split at underscores and lower-to-upper case boundaries (subtest names are parameter rows)",
+        "one_name_per_function_covers_parameter_rows": true,
+        "presence_only_requires_two_words_other_than_test_case_todo_tbd_placeholder_example": true,
+        "uncollectable_changed_test_file_is_failure": true,
+        "diagnostic_names_test_and_rename_or_remove_fix": true,
+        "truthfulness_judged_outside_check": true
+      },
+      "summary": "Require every added test function to name the behavior it proves."
+    },
+    {
+      "id": "TEST.duplicate-path",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "new_test_cases_relative_to_base_ref",
+        "fingerprint": [
+          "normalized_call_path",
+          "normalized_assertion"
+        ],
+        "compare_with": "existing_and_other_new_test_cases",
+        "duplicate_fingerprint_is_failure": true,
+        "diagnostic_names_both_tests_and_merge_or_remove_fix": true
+      },
+      "summary": "Reject new tests duplicating an existing call path and assertion."
+    },
+    {
+      "id": "GATE.enforced",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configuration": "proofs.toml claim enforced_by and canary",
+        "every_claim_names_a_deterministic_blocking_point": true,
+        "blocking_points": [
+          "installed_git_hook",
+          "ci_status_required_by_host_protection",
+          "host_setting"
+        ],
+        "instructions_documentation_and_agent_rules_never_count": true,
+        "point_reference_present_in_the_point_file": true,
+        "canary_runs_through_the_enforcement_entrypoint": true,
+        "hook_points_need_installation_check_in_every_clone": true,
+        "nonzero_exit_blocks": true,
+        "check_only": true
+      },
+      "summary": "Bind every verification claim to a deterministic point that runs it and blocks on failure."
+    },
+    {
+      "id": "GATE.parity",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configuration": "proofs.toml claim enforced_by",
+        "points_enforcing_one_claim_invoke_the_same_entrypoint": true,
+        "ci_runs_every_check_the_local_point_runs": "except git_hook-only rules (TEST.budget.*), which CI never runs",
+        "parallel_jobs_use_one_runner_with_tier_selectors_only": true,
+        "parallel_aggregate_depends_on_every_tier_job": true,
+        "parallel_aggregate_always_runs": true,
+        "parallel_aggregate_fails_on_failed_cancelled_or_skipped_tiers": true,
+        "scope": "full_t1_and_t2_suite_on_every_push_and_pull_request",
+        "nonzero_exit_propagates": true
+      },
+      "summary": "Make every point that enforces a claim run the same entrypoint, with CI running the full set."
+    },
+    {
+      "id": "GATE.self-check",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configuration": "proofs.toml validator",
+        "validator_runs_in_its_own_ci_job": true,
+        "job_posts_the_validator_status": true,
+        "validator_status_required_by_host_protection": "GIT.required-checks",
+        "owner_review_protects": [
+          "proofs.toml",
+          "validator",
+          "ci_workflow_files"
+        ],
+        "validator_runs_from_the_repo_without_the_skill": true
+      },
+      "summary": "Run the repo's proofs validator as its own required CI status so removing it blocks merges."
+    },
+    {
+      "id": "GIT.required-checks",
+      "kind": "process",
+      "applicability": "conditional",
+      "evidence_kind": "host_query",
+      "contract": {
+        "protected_branch": "resolved_default_branch",
+        "required_status_checks": "every_ci_status_named_by_a_proofs_claim_and_the_validator_status",
+        "merge_blocked_until_required_checks_pass": true,
+        "proof": "live_host_query_naming_every_required_status",
+        "auto_merge_enabled_where_supported": true,
+        "rebase_merge_enabled_where_supported": true
+      },
+      "summary": "Require every claim's CI status and the validator status before merging into the protected branch."
+    },
+    {
+      "id": "FANOUT.general",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "count": "distinct_non_stdlib_architectural_imports",
+        "max_non_stdlib_dependencies": 10
+      },
+      "summary": "Bound non-stdlib architectural imports.",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-fanout.py"
+        }
+      ]
+    },
+    {
+      "id": "FANOUT.large-module",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "nloc_over": 800,
+        "count": "distinct_non_stdlib_architectural_imports",
+        "max_non_stdlib_dependencies": 3
+      },
+      "summary": "Use a tighter fan-out limit for large modules.",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-fanout.py"
+        }
+      ]
+    },
+    {
+      "id": "MYPY.SETTING.exclude",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_exclusions_with_non_maintained_path_rationales_required": true,
+        "maintained_source_must_not_be_excluded": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting exclude."
+    },
+    {
+      "id": "MYPY.SETTING.mypy_path",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_source_roots_required": true,
+        "all_maintained_import_roots_must_be_covered": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting mypy_path."
+    },
+    {
+      "id": "MYPY.SETTING.python_version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_supported_python_version_required": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting python_version."
+    },
+    {
+      "id": "MYPY.SETTING.show_error_codes",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "True"
+      },
+      "summary": "Preserve or deliberately adapt mypy setting show_error_codes."
+    },
+    {
+      "id": "MYPY.follow_imports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "normal",
+        "third_party": "silent",
+        "vendored_third_party_override_required": true,
+        "skip_forbidden": true,
+        "untyped_third_party": "follow_untyped_imports",
+        "in_repo_third_party_stubs_forbidden": true
+      },
+      "summary": "Follow every import: report errors in first-party modules, keep third-party types but hide their errors (installed packages are silent by default; vendored copies need a named silent override); never skip imports. Third-party types come from upstream: the package's own annotations (follow_untyped_imports for a named package without py.typed) or a published stub package; never stubs or shims maintained in the repo."
+    },
+    {
+      "id": "MYPY.module-overrides",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_named_module_overrides_required": true,
+        "each_override_requires_missing_stub_or_decorator_evidence": true,
+        "published_stub_package_before_ignore_missing_imports": true,
+        "unscoped_exceptions_forbidden": true
+      },
+      "summary": "Scope missing-import and decorator exceptions to named modules. ignore_missing_imports only for a package with no annotations and no published stub package."
+    },
+    {
+      "id": "MYPY.package-coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_package_inventory_required": true,
+        "all_maintained_packages_must_be_checked": true,
+        "package_list_drift_is_failure": true
+      },
+      "summary": "Type-check every maintained package and fail on package-list drift."
+    },
+    {
+      "id": "MYPY.strict",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "True"
+      },
+      "summary": "Enforce strict typing behavior or target-language equivalent."
+    },
+    {
+      "id": "MYPY.warn_unused_ignores",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "True"
+      },
+      "summary": "Enforce warn_unused_ignores typing behavior or target-language equivalent."
+    },
+    {
+      "id": "PARITY.dependency-inventory",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "declared_analyzer_dependencies_match_install": true
+      },
+      "summary": "Fail when declared optional analyzer dependencies and installation behavior drift."
+    },
+    {
+      "id": "PARITY.install-guidance",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {},
+      "summary": "Keep documented install commands aligned with the actual installer."
+    },
+    {
+      "id": "PARITY.lock-version",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "tracked_lockfile": true,
+        "version_sync": true
+      },
+      "summary": "Fail when package metadata and lockfile versions drift."
+    },
+    {
+      "id": "PRETTIER.version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "applies_when": "the repo has a JavaScript or TypeScript toolchain (a tracked package.json)",
+        "single_exact_repository_pin": true,
+        "tracked_markdown_yaml": true
+      },
+      "summary": "In a repo with a JavaScript or TypeScript toolchain, pin and invoke Prettier for maintained Markdown and YAML."
+    },
+    {
+      "id": "PYQ100",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_roots_required": true
+      },
+      "summary": "Maintained Python source roots",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ101",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_script_name_allowlist_required": true,
+        "kebab_case_for_command_scripts": true
+      },
+      "summary": "Approved script file naming and allowlist",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ102",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_canonical_test_groups_required": true,
+        "target_must_map_groups": true
+      },
+      "summary": "Canonical test directory groups",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ103",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "restricted_name_parts": "assets/conventions/house-style.json banned_words",
+        "target_allowlist_required": true
+      },
+      "summary": "No unapproved generic directory names",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ104",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "restricted_name_parts": "assets/conventions/house-style.json banned_words",
+        "target_allowlist_required": true
+      },
+      "summary": "No unapproved generic module names",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ105",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "snake_case"
+      },
+      "summary": "Python package directories use snake_case",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ106",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "kebab-case"
+      },
+      "summary": "Skill directories use kebab-case",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ107",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "snake_case"
+      },
+      "summary": "Python module names use snake_case",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ200",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_lines": 700
+      },
+      "summary": "Class length at most 700 lines",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ201",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_public_methods": "owner-approved limit recorded at Step 5; unset blocks until approved",
+        "not_applicable_when": "RUFF.LIMIT.max-public-methods (PLR0904) is enforced: the same check under the tool's own rule"
+      },
+      "summary": "Public methods per class at most the owner-approved limit"
+    },
+    {
+      "id": "PYQ202",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_parameters": 8
+      },
+      "summary": "Constructor parameters at most 8",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ203",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_attributes": 12
+      },
+      "summary": "Instance attributes at most 12",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ210",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "approved_base_or_mixin_required": true
+      },
+      "summary": "Analyzer classes inherit an approved analyzer base or mixin",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ211",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "project_entrypoint_required": true
+      },
+      "summary": "Project analyzers implement the project entrypoint",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ220",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "approved_subprocess_wrapper_map_required": true
+      },
+      "summary": "Subprocess calls stay in approved seam wrappers",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ221",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "dynamic_import_adapter_allowlist_required": true
+      },
+      "summary": "Dynamic imports stay in adapter modules",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ230",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "named_callable_aliases_required": true
+      },
+      "summary": "Contract callables use named aliases",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ231",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "prohibit_any_collaborator_boundary": true
+      },
+      "summary": "Collaborator contracts do not use Any",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYQ299",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "parse_error_is_failure": true
+      },
+      "summary": "Undecodable source fails closed",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-quality.py"
+        }
+      ]
+    },
+    {
+      "id": "PYS000",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "parse_error_is_failure": true
+      },
+      "summary": "Unparsable source fails closed",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-scalability.py"
+        }
+      ]
+    },
+    {
+      "id": "PYS250",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_loop_depth": 2
+      },
+      "summary": "Nested loop and comprehension depth at most 2",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-scalability.py"
+        }
+      ]
+    },
+    {
+      "id": "PYS251",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "approved_seam_required": true
+      },
+      "summary": "No synchronous filesystem I/O in analyzer-like code",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-scalability.py"
+        }
+      ]
+    },
+    {
+      "id": "PYS252",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "approved_seam_required": true
+      },
+      "summary": "No direct subprocess or environment access in analyzer-like code",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-scalability.py"
+        }
+      ]
+    },
+    {
+      "id": "PYS253",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "ownership_marker_required": true
+      },
+      "summary": "Analyzer-like subsystem has an ownership marker",
+      "reference": [
+        {
+          "script": "assets/python-reference/check-python-scalability.py"
+        }
+      ]
+    },
+    {
+      "id": "RUFF.FORMAT.indent-style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "space"
+      },
+      "summary": "Enforce the indent-style formatting behavior or equivalent."
+    },
+    {
+      "id": "RUFF.FORMAT.line-ending",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "auto"
+      },
+      "summary": "Enforce the line-ending formatting behavior or equivalent."
+    },
+    {
+      "id": "RUFF.FORMAT.quote-style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "double"
+      },
+      "summary": "Enforce the quote-style formatting behavior or equivalent."
+    },
+    {
+      "id": "RUFF.IGNORES",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "ignore": [
+          "E501",
+          "B006",
+          "B008",
+          "A005"
+        ],
+        "per_file": {
+          "__init__.py": [
+            "F401",
+            "F403"
+          ],
+          "test_*.py": [
+            "S101",
+            "PLR2004"
+          ],
+          "**/tests/**": [
+            "S101",
+            "PLR2004"
+          ]
+        }
+      },
+      "summary": "Carry only justified lint exceptions; detect added suppressions."
+    },
+    {
+      "id": "RUFF.ISORT.combine-as-imports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Enforce the combine-as-imports import-order behavior or equivalent."
+    },
+    {
+      "id": "RUFF.ISORT.force-single-line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Enforce the force-single-line import-order behavior or equivalent."
+    },
+    {
+      "id": "RUFF.ISORT.known-first-party",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_first_party_package_names_required": true
+      },
+      "summary": "Enforce the known-first-party import-order behavior or equivalent."
+    },
+    {
+      "id": "RUFF.ISORT.split-on-trailing-comma",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Enforce the split-on-trailing-comma import-order behavior or equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-args",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0913",
+        "value": 5
+      },
+      "summary": "Enable the Ruff PLR0913 rule with the max-args limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-branches",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0912",
+        "value": 12
+      },
+      "summary": "Enable the Ruff PLR0912 rule with the max-branches limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-locals",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0914",
+        "value": 15
+      },
+      "summary": "Enable the Ruff PLR0914 rule with the max-locals limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-positional-args",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0917",
+        "value": 5
+      },
+      "summary": "Enable the Ruff PLR0917 rule with the max-positional-args limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-public-methods",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0904",
+        "value": 20
+      },
+      "summary": "Enable the Ruff PLR0904 rule with the max-public-methods limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-returns",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0911",
+        "value": 6
+      },
+      "summary": "Enable the Ruff PLR0911 rule with the max-returns limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.LIMIT.max-statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0915",
+        "value": 50
+      },
+      "summary": "Enable the Ruff PLR0915 rule with the max-statements limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.ROOT.exclude",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": [
+          ".build",
+          ".git",
+          ".tox",
+          ".venv",
+          "venv",
+          "__pycache__",
+          "*.egg-info",
+          "build",
+          "dist",
+          "node_modules",
+          ".pytest_cache",
+          ".mypy_cache",
+          ".ruff_cache"
+        ],
+        "target_additional_exclusions_with_non_maintained_path_rationales_required": true,
+        "maintained_source_must_not_be_excluded": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting exclude."
+    },
+    {
+      "id": "RUFF.ROOT.fix",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false,
+        "check_only_gate": "verification invocations never fix; fixing is a separate explicit command such as ruff check --fix"
+      },
+      "summary": "Keep Ruff's default fixer off so check-only gates never mutate the checkout."
+    },
+    {
+      "id": "RUFF.ROOT.output-format",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "full"
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting output-format."
+    },
+    {
+      "id": "RUFF.ROOT.preview",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting preview."
+    },
+    {
+      "id": "RUFF.ROOT.respect-gitignore",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting respect-gitignore."
+    },
+    {
+      "id": "RUFF.SELECT.A",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "A"
+      },
+      "summary": "Enable the Ruff A rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.B",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "B"
+      },
+      "summary": "Enable the Ruff B rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.C4",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "C4"
+      },
+      "summary": "Enable the Ruff C4 rule selector or target-language equivalent."
+    },
+    {
+      "id": "CODE.no-comments",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added diff lines, including touched comment lines; existing unchanged comments remain",
+        "python": "tokenize comments and AST module/class/function docstrings",
+        "other_languages": "quote-aware lexer: hash, slash/block, SQL/Lua double-dash, Haskell/Elm block, HTML/XML/Markdown block, TeX/Erlang percent, Lisp semicolon and INI/properties comments; common extensions and Dockerfile/Makefile/CMakeLists/dotfiles",
+        "limits": "lexical, not a full non-Python parser; embedded languages, heredocs, regex literals and language-specific raw strings are not interpreted",
+        "exemptions": "shebang; noqa; type: ignore; pyright; fmt; ruff; isort; pylint; eslint-*; @ts-expect-error/ignore/nocheck; prettier-ignore; biome-ignore; go:build; nolint; SPDX-License-Identifier; markdownlint-*; vim/emacs modelines; encoding cookies; Rust #[allow] is syntax, not a comment; docstrings a repository-enforced lint rule requires (Ruff D, pydocstyle), whose owning tool stays the authority"
+      },
+      "summary": "Block added comments of every supported syntax, including Python docstrings; preserve tool directives."
+    },
+    {
+      "id": "CODE.no-placeholder-bodies",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added Python function-body lines",
+        "bodies": [
+          "pass",
+          "...",
+          "raise NotImplementedError"
+        ],
+        "exemptions": [
+          "Protocol methods",
+          "abstract methods",
+          "@overload",
+          ".pyi"
+        ],
+        "limits": "Python AST only; non-Python placeholder bodies are not checked"
+      },
+      "summary": "Block whole-function placeholder bodies, excluding declarations."
+    },
+    {
+      "id": "CODE.no-product-mocks",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added import/call lines outside declared test, support and fixture paths, using TEST.placement path matching",
+        "libraries": [
+          "unittest.mock",
+          "mock",
+          "pytest_mock",
+          "sinon",
+          "jest-mock",
+          "ts-mockito",
+          "testdouble",
+          "mock-require",
+          "proxyquire"
+        ],
+        "calls": [
+          "jest.mock",
+          "jest.doMock",
+          "jest.unstable_mockModule",
+          "vi.mock",
+          "vi.doMock"
+        ],
+        "limits": "Python static imports and JS/TS static imports/requires plus jest/vi calls; dynamic computed names and aliases are not resolved"
+      },
+      "summary": "Keep mock libraries and mock calls out of product code."
+    },
+    {
+      "id": "RUFF.SELECT.S110",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "S110"
+      },
+      "summary": "Enable Ruff S110 (try-except-pass) or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.BLE001",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "BLE001"
+      },
+      "summary": "Enable Ruff BLE001 (blind-except) or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.SIM105",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "SIM105"
+      },
+      "summary": "Enable Ruff SIM105 (suppressible-exception) or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.E",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "E"
+      },
+      "summary": "Enable the Ruff E rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.F",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "F"
+      },
+      "summary": "Enable the Ruff F rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.I",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "I"
+      },
+      "summary": "Enable the Ruff I rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.N",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "N"
+      },
+      "summary": "Enable the Ruff N rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PGH",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PGH"
+      },
+      "summary": "Enable the Ruff PGH rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.PT",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PT"
+      },
+      "summary": "Enable the Ruff PT rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.SIM",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "SIM"
+      },
+      "summary": "Enable the Ruff SIM rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.UP",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "UP"
+      },
+      "summary": "Enable the Ruff UP rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SELECT.W",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "W"
+      },
+      "summary": "Enable the Ruff W rule selector or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SETTING.mccabe.max-complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "C901",
+        "value": 10
+      },
+      "summary": "Enable the Ruff C901 rule with the max-complexity limit or target-language equivalent."
+    },
+    {
+      "id": "RUFF.SETTING.target-version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_supported_python_version_required": true
+      },
+      "summary": "Preserve the target-version setting or target-language equivalent."
+    },
+    {
+      "id": "SECURITY.dependency-audit",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "owner": "repo_checker_run_by_commit_and_ci_commands",
+        "setup_outcomes": [
+          "keep",
+          "grow"
+        ],
+        "scope_source": "git ls-files --cached --others --exclude-standard",
+        "scope": "every_lock_file_and_dependency_manifest_in_every_ecosystem",
+        "unknown_lock_format_is_failure": true,
+        "manifest_with_dependencies_and_no_lock_is_failure": true,
+        "exclusions": "fixture_or_vendored_paths_named_one_by_one_with_origin_evidence",
+        "exclusion_by_glob_ecosystem_or_package_forbidden": true,
+        "runs": "whole_repo_at_every_commit_and_every_ci_run",
+        "staged_file_trigger_forbidden": true,
+        "scheduled_run_by_default": false,
+        "every_advisory_blocks": true,
+        "severity_scoring_in_checker_forbidden": true,
+        "finding_per": "advisory_and_locked_package_version_and_lock",
+        "advisory_line": "SECURITY.dependency-audit lock=<lock-path> ecosystem=<osv-ecosystem> package=<name> version=<exact-locked-version> advisory=<advisory-id> aliases=<id>,<id> fix=<version>,<version>",
+        "advisory_fields_in_order": [
+          "lock",
+          "ecosystem",
+          "package",
+          "version",
+          "advisory",
+          "aliases",
+          "fix"
+        ],
+        "failure_line": "SECURITY.dependency-audit failure=<kind> path=<repo-path> reason=<text-to-end-of-line>",
+        "failure_kinds": [
+          "unknown-lock-format",
+          "manifest-without-lock",
+          "exception",
+          "auditor"
+        ],
+        "line_grammar": "one finding per line; the rule ID starts the line; fields are separated by one space and appear in the stated order; values are nonempty and contain no whitespace except reason; list values are comma-separated with no spaces, and an empty list is an empty value (aliases=, fix=)",
+        "malicious_package_mark": "the advisory ID or an alias starts with MAL- (an OSV malicious-package record); an advisory the auditor marks malicious without one lists the alias MAL-<advisory-id>",
+        "untrusted_auditor_output_is_failure": true,
+        "exceptions": {
+          "allowed_only_for": [
+            "advisory_with_no_fix_version",
+            "fixed_release_blocked_by_pinned_dependent"
+          ],
+          "file": "repo_json_file_protected_by_owner_review",
+          "entry_fields": [
+            "advisory",
+            "package",
+            "version",
+            "lock",
+            "reason",
+            "exposure",
+            "expires"
+          ],
+          "expires_format": "YYYY-MM-DD",
+          "expires_validation": "valid calendar date; expired when expires is before today's UTC date",
+          "entry_validation": "exactly entry_fields for an advisory with no fixed version; exactly entry_fields plus blocked_fix_fields for an advisory with fixed versions; all values are nonblank strings; unknown or missing fields fail",
+          "blocked_fix_fields": [
+            "blocked_by",
+            "constraint",
+            "constraint_source"
+          ],
+          "blocked_by_format": "<package>@<exact-locked-version>; split at the last @ so scoped package names remain valid",
+          "constraint_format": "exact upstream dependency declaration including the blocking package and version, requires, and the advisory package's constraint; for example semgrep==1.185.0 requires opentelemetry-api~=1.37.0",
+          "constraint_source_format": "absolute HTTPS URL naming the upstream package metadata or source that publishes the exact constraint for that blocker version",
+          "blocked_fix_validation": "the named blocker must be present at exactly that version in the same lock; constraint must parse, target the advisory package and exclude every reported fixed version under the ecosystem's version semantics; constraint_source must be an absolute HTTPS URL; missing blocking fields, a missing or changed blocker, an unparsable constraint, or any compatible fixed version is failure",
+          "upstream_evidence_attestation": "the owner attests that constraint is the exact upstream declaration at constraint_source when writing the entry; checkers are deterministic and never fetch constraint_source at commit or CI",
+          "suppresses_only_the_exact_advisory_package_version_and_lock": true,
+          "expired_entry_reports_the_advisory_again_and_a_failure": true,
+          "entry_matching_no_reported_advisory_is_failure": true,
+          "entry_for_an_advisory_with_an_unblocked_fix_is_failure": true,
+          "malformed_entry_is_failure": true,
+          "agents_never_add_or_edit": true
+        },
+        "duplicate_checker_forbidden": true
+      },
+      "summary": "Audit every lock file in the repo for advisories at every commit and CI run; every advisory blocks."
+    },
+    {
+      "id": "SKILL.metadata",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "name_matches_directory": true,
+        "use_when_prefix_case_insensitive": true,
+        "target_metadata_schema_required": true,
+        "shared_skill_scope_metadata_must_match_target_schema": true
+      },
+      "summary": "Validate agent skill metadata and linked support files when skills exist."
+    },
+    {
+      "id": "TEST.failure-propagation",
+      "kind": "process",
+      "applicability": "always",
+      "contract": {
+        "negative_case_required": true,
+        "missing_skipped_timed_out_or_infrastructure_failed_required_check_is_failure": true,
+        "empty_collection_is_failure": true
+      },
+      "summary": "A failed prerequisite cannot be reported as a passing gate."
+    },
+    {
+      "id": "TEST.subprocess-timeouts",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "test_files_and_shared_fixtures",
+        "synchronous_process_call_requires_positive_timeout": true,
+        "process_wait_or_communicate_requires_positive_timeout": true,
+        "async_process_wait_requires_bounded_wait": true,
+        "diagnostic_names_file_line_and_timeout_fix": true
+      },
+      "summary": "Bound subprocess calls in tests and keep failure output diagnosable."
+    },
+    {
+      "id": "TEST.no-self-mocking",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "owned_code": "packages_declared_in_the_package_manifest",
+        "reject_mock_stub_fake_or_runtime_patch_targets_inside_owned_code": true,
+        "allowed_substitution": "owned adapter interfaces that wrap a third party",
+        "mechanism": "adapter_source_patterns",
+        "diagnostic_names_test_target_and_public_entry_point_fix": true
+      },
+      "summary": "Reject tests that mock, stub, fake or patch the repository's own code."
+    },
+    {
+      "id": "TEST.no-test-hooks",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "reject_production_symbols_referenced_only_from_tests": true,
+        "reject_test_marker_env_or_flag_names_in_production_code": true,
+        "mechanism": "adapter_source_patterns",
+        "diagnostic_names_symbol_and_production_input_fix": true
+      },
+      "summary": "Reject test-only flags, hooks and production symbols that only tests use."
+    },
+    {
+      "id": "TEST.no-evasion",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "reject_unapproved_static_skip_xfail_focus_or_flaky_markers": true,
+        "reject_unapproved_skips_and_retries_to_green_in_run_report": true,
+        "reject_timeout_increases_in_changed_tests": true,
+        "mechanism": [
+          "adapter_source_patterns",
+          "normalised_junit_run_report",
+          "git_diff"
+        ]
+      },
+      "summary": "Reject skips, focused-only runs, retries to green and longer timeouts."
+    },
+    {
+      "id": "TEST.t1-isolation",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "t1_setup_call_and_teardown",
+        "subprocess_creation_is_failure": true,
+        "network_connection_is_failure": true,
+        "ci_mechanism": "network_denied_test_container",
+        "local_mechanism": "adapter_guard_hook",
+        "proof": "canary_test_that_starts_a_process_or_opens_a_connection_fails"
+      },
+      "summary": "Fail any T1 test that starts a process or opens a network connection."
+    },
+    {
+      "id": "TEST.user-data-guard",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "run_with_home_and_xdg_directories_in_temp_directory": true,
+        "guard_blocks_writes_under_the_real_user_home_before_they_happen": true,
+        "changed_file_under_real_user_home_outside_temp_is_failure": true,
+        "proof": "canary_test_whose_real_home_write_the_guard_blocks_and_reports"
+      },
+      "summary": "Fail the test session when a live user file changes."
+    },
+    {
+      "id": "TEST.tier-selectors",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "collect_only_test_ids_per_tier",
+        "selector_source": "test_runner_configuration",
+        "one_tier_per_file": true,
+        "overlapping_selection_is_failure": true,
+        "unselected_test_file_is_failure": true
+      },
+      "summary": "Require strict, disjoint tier selectors that together select every test file."
+    },
+    {
+      "id": "TEST.coverage-ratchet",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "floor_source": "coverage_tool_configuration",
+        "added_coverage_exclusion_or_pragma_is_failure": true,
+        "lowered_floor_or_changed_exclusion_config_requires_approval_reference": true
+      },
+      "summary": "Reject new coverage exclusions and unapproved floor or exclusion changes."
+    },
+    {
+      "id": "TEST.golden-change-record",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "changed_golden_requires_change_record_entry_naming_it": true
+      },
+      "summary": "Require a change-record entry naming every changed golden file."
+    },
+    {
+      "id": "TEST.identity-artefacts",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "artefact_source": "declared_identity_artefacts",
+        "applies_when_no_production_file_changed": true,
+        "changed_identity_artefact_is_failure": true
+      },
+      "summary": "Keep identity-bearing artefacts unchanged in test-only work."
+    },
+    {
+      "id": "TEST.property-seed",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "property_tests_set_or_report_seed": true,
+        "mechanism": "adapter_source_patterns"
+      },
+      "summary": "Require property tests to set or report their seed."
+    },
+    {
+      "id": "TEST.mutation-sensitivity",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "later_job",
+      "contract": {
+        "scope": "code_changed_since_the_job_recorded_base_ref",
+        "tool_source": "adapter_mutation_tool",
+        "run_event": "t3_mutation_later_job",
+        "never_a_required_merge_status": true,
+        "surviving_mutant_in_changed_behaviour_is_failure": true,
+        "untested_or_unfinished_mutant_in_changed_behaviour_is_failure": true,
+        "mechanism": "normalised_mutation_report"
+      },
+      "summary": "Fail when a mutation of changed code leaves every test green."
+    },
+    {
+      "id": "NAME.test-files",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "pattern_sources": [
+          "language_convention_packs",
+          "declared_test_file_patterns"
+        ],
+        "event_scope": "added and renamed paths only; content edits do not trigger naming; explicit CLI paths or no-path full scans remain available",
+        "reject_ticket_version_or_date_tokens": true,
+        "nonmatching_test_file_is_failure": true,
+        "diagnostic_names_file_and_correct_name": true
+      },
+      "summary": "Require test file names to match the declared patterns without ticket, version or date tokens."
+    },
+    {
+      "id": "SURFACE.feature-map",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "path_source": "declared_feature_map_path",
+        "one_document_per_feature": true,
+        "exact_h2_sections": [
+          "Sub-features",
+          "How to get to it (user POV)",
+          "Driving it with <lever>",
+          "Gotchas"
+        ],
+        "stale_link_is_failure": true
+      },
+      "summary": "Require one feature-map document per feature with exactly the four fixed sections."
+    },
+    {
+      "id": "SURFACE.journeys",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "pattern_source": "declared_journey_file_pattern",
+        "nonmatching_journey_file_is_failure": true,
+        "journey_must_call_lever": true
+      },
+      "summary": "Require journeys to match the declared pattern and drive the lever."
+    },
+    {
+      "id": "SURFACE.lever-isolation",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "run_event": "ci",
+        "doctor_failure_prints_declared_marker": true,
+        "kills_only_own_process_group": true,
+        "per_instance_ports_and_data": true,
+        "no_leftover_processes_or_ports": true,
+        "evidence_directory_survives_cleanup": true
+      },
+      "summary": "Self-test the lever: visible doctor failure, own-process cleanup and surviving evidence."
+    },
+    {
+      "id": "TSC.strict",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.strict to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUncheckedIndexedAccess",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUncheckedIndexedAccess to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.exactOptionalPropertyTypes",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.exactOptionalPropertyTypes to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noImplicitOverride",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noImplicitOverride to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noImplicitReturns",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noImplicitReturns to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noFallthroughCasesInSwitch",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noFallthroughCasesInSwitch to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noPropertyAccessFromIndexSignature",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noPropertyAccessFromIndexSignature to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUnusedLocals",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUnusedLocals to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.noUnusedParameters",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUnusedParameters to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.allowUnreachableCode",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Set tsc compilerOptions.allowUnreachableCode to false in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.allowUnusedLabels",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Set tsc compilerOptions.allowUnusedLabels to false in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.forceConsistentCasingInFileNames",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.forceConsistentCasingInFileNames to true in the repository's tsconfig."
+    },
+    {
+      "id": "TSC.project-coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_source_roots_required": true,
+        "all_maintained_typescript_files_must_be_checked": true,
+        "third_party_types_from_upstream_packages": true,
+        "in_repo_third_party_declaration_shims_forbidden": true
+      },
+      "summary": "Type-check every maintained TypeScript file with the repository's tsc; third-party types come from the package or a published @types package."
+    },
+    {
+      "id": "OXLINT.plugins",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": [
+          "eslint",
+          "typescript",
+          "unicorn",
+          "oxc",
+          "import"
+        ]
+      },
+      "summary": "Enable oxlint's default plugins plus import, which carries the dependency fan-out limit."
+    },
+    {
+      "id": "OXLINT.CATEGORY.correctness",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "error"
+      },
+      "summary": "Report every oxlint correctness rule as an error."
+    },
+    {
+      "id": "OXLINT.CATEGORY.suspicious",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "error"
+      },
+      "summary": "Report every oxlint suspicious rule as an error."
+    },
+    {
+      "id": "OXLINT.LIMIT.complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/complexity",
+        "value": [
+          "error",
+          {
+            "max": 10
+          }
+        ],
+        "mirrors": "RUFF.SETTING.mccabe.max-complexity"
+      },
+      "summary": "Enable oxlint eslint/complexity as RUFF.SETTING.mccabe.max-complexity does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-params",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/max-params",
+        "value": [
+          "error",
+          {
+            "max": 5
+          }
+        ],
+        "mirrors": "RUFF.LIMIT.max-args"
+      },
+      "summary": "Enable oxlint eslint/max-params as RUFF.LIMIT.max-args does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/max-statements",
+        "value": [
+          "error",
+          {
+            "max": 50
+          }
+        ],
+        "mirrors": "RUFF.LIMIT.max-statements"
+      },
+      "summary": "Enable oxlint eslint/max-statements as RUFF.LIMIT.max-statements does for Python."
+    },
+    {
+      "id": "OXLINT.LIMIT.max-dependencies",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "import/max-dependencies",
+        "value": [
+          "error",
+          {
+            "max": 10
+          }
+        ],
+        "mirrors": "FANOUT.general"
+      },
+      "summary": "Enable oxlint import/max-dependencies as FANOUT.general does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.no-empty",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/no-empty",
+        "value": [
+          "error",
+          {
+            "allowEmptyCatch": false
+          }
+        ],
+        "mirrors": "RUFF.SELECT.S110"
+      },
+      "summary": "Enable oxlint eslint/no-empty as RUFF.SELECT.S110 does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.ban-ts-comment",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "typescript/ban-ts-comment",
+        "value": "error",
+        "mirrors": "RUFF.SELECT.PGH"
+      },
+      "summary": "Enable oxlint typescript/ban-ts-comment as RUFF.SELECT.PGH does for Python."
+    },
+    {
+      "id": "OXLINT.RULE.no-explicit-any",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "typescript/no-explicit-any",
+        "value": "error",
+        "mirrors": "MYPY.strict"
+      },
+      "summary": "Enable oxlint typescript/no-explicit-any as MYPY.strict does for Python."
+    },
+    {
+      "id": "GOLANGCI.version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "2"
+      },
+      "summary": "Use the golangci-lint v2 configuration format."
+    },
+    {
+      "id": "GOLANGCI.run.tests",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Lint test files with the same linters as production code."
+    },
+    {
+      "id": "GOLANGCI.linters.default",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "standard",
+        "includes": [
+          "errcheck",
+          "govet",
+          "ineffassign",
+          "staticcheck",
+          "unused"
+        ]
+      },
+      "summary": "Keep the standard linter set, which runs go vet (govet), errcheck, staticcheck, unused and ineffassign."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.gocyclo",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "gocyclo"
+      },
+      "summary": "Enable the golangci-lint gocyclo linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.funlen",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen"
+      },
+      "summary": "Enable the golangci-lint funlen linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.revive",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "revive"
+      },
+      "summary": "Enable the golangci-lint revive linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.forbidigo",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "forbidigo"
+      },
+      "summary": "Enable the golangci-lint forbidigo linter."
+    },
+    {
+      "id": "GOLANGCI.ENABLE.nolintlint",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "nolintlint"
+      },
+      "summary": "Enable the golangci-lint nolintlint linter."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.gocyclo.min-complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "gocyclo",
+        "setting": "min-complexity",
+        "value": 10,
+        "mirrors": "RUFF.SETTING.mccabe.max-complexity"
+      },
+      "summary": "Report Go functions whose cyclomatic complexity exceeds 10."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.funlen.statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen",
+        "setting": "statements",
+        "value": 50,
+        "mirrors": "RUFF.LIMIT.max-statements"
+      },
+      "summary": "Report Go functions with more than 50 statements."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.funlen.lines",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen",
+        "setting": "lines",
+        "value": -1
+      },
+      "summary": "Judge Go function size by statements only; line counts are off."
+    },
+    {
+      "id": "GOLANGCI.LIMIT.revive.argument-limit",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "revive",
+        "setting": "argument-limit",
+        "value": 5,
+        "mirrors": "RUFF.LIMIT.max-args"
+      },
+      "summary": "Report Go functions with more than 5 parameters."
+    },
+    {
+      "id": "GOLANGCI.RULE.forbidigo.exec-command",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "forbidigo",
+        "value": [
+          {
+            "pattern": "^exec\\.Command$",
+            "msg": "use exec.CommandContext with a deadline so a hung process cannot stall the run"
+          }
+        ],
+        "mirrors": "TEST.subprocess-timeouts"
+      },
+      "summary": "Forbid exec.Command; every process call takes a context with a deadline (exec.CommandContext)."
+    },
+    {
+      "id": "GOLANGCI.RULE.nolintlint",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "nolintlint",
+        "value": {
+          "require-explanation": true,
+          "require-specific": true
+        },
+        "mirrors": "RUFF.IGNORES"
+      },
+      "summary": "Every //nolint names its linter and explains why."
+    },
+    {
+      "id": "GOLANGCI.FORMAT.gofmt",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "formatter": "gofmt"
+      },
+      "summary": "Enforce gofmt formatting through golangci-lint fmt."
+    },
+    {
+      "id": "GOLANGCI.FORMAT.goimports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "formatter": "goimports",
+        "target_module_path_local_prefix_required": true,
+        "mirrors": "RUFF.ISORT.known-first-party"
+      },
+      "summary": "Enforce goimports grouping with the repository's module path as the local prefix."
+    },
+    {
+      "id": "SHELLCHECK.enable",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": [
+          "avoid-nullary-conditions",
+          "check-extra-masked-returns",
+          "check-set-e-suppressed",
+          "check-unassigned-uppercase",
+          "deprecate-which",
+          "quote-safe-variables"
+        ]
+      },
+      "summary": "Enable shellcheck's optional checks for masked returns, suppressed set -e, unassigned uppercase variables, nullary conditions, which and unquoted variables."
+    },
+    {
+      "id": "SHELLCHECK.external-sources",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Let shellcheck follow sourced files."
+    },
+    {
+      "id": "SHELLCHECK.source-path",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "SCRIPTDIR"
+      },
+      "summary": "Resolve sourced files relative to the script's own directory."
+    },
+    {
+      "id": "SHELLCHECK.coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "all_maintained_shell_scripts_must_be_checked": true,
+        "scope_source": "git ls-files",
+        "extensionless_scripts_by_shebang": true
+      },
+      "summary": "Run shellcheck over every maintained shell script, including extensionless scripts with a shell shebang."
+    },
+    {
+      "id": "SHFMT.indent_style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": "space"
+      },
+      "summary": "Set shfmt indent_style to space in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.indent_size",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": 2
+      },
+      "summary": "Set shfmt indent_size to 2 in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.binary_next_line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": true
+      },
+      "summary": "Set shfmt binary_next_line to true in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.switch_case_indent",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": true
+      },
+      "summary": "Set shfmt switch_case_indent to true in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "SHFMT.function_next_line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": false
+      },
+      "summary": "Set shfmt function_next_line to false in the repository's .editorconfig shell section."
+    },
+    {
+      "id": "PARITY.package-manager",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "exact_package_manager_pin": true,
+        "lock_matches_package_manager": true,
+        "foreign_lockfiles_forbidden": true
+      },
+      "summary": "Declare one exact packageManager pin and commit only that manager's lockfile."
+    }
+  ]
+}

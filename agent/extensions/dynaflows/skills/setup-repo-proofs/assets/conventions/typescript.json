@@ -1,0 +1,145 @@
+{
+  "name": "typescript",
+  "convention_sources": {
+    "extensions": {
+      ".ts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      ".tsx": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      ".mts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      ".cts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      ".js": "https://nodejs.org/api/packages.html#determining-module-system",
+      ".jsx": "https://nodejs.org/api/packages.html#determining-module-system",
+      ".mjs": "https://nodejs.org/api/packages.html#determining-module-system",
+      ".cjs": "https://nodejs.org/api/packages.html#determining-module-system"
+    },
+    "fixed_files": {
+      "index.ts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "index.tsx": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "index.js": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "index.jsx": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "index.mts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "index.cts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "index.mjs": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "index.cjs": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "*.d.ts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "*.d.mts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+      "*.d.cts": "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution"
+    },
+    "fixed_folders": {
+      "__tests__": "https://jestjs.io/docs/configuration#testmatch-arraystring",
+      "node_modules": "https://docs.npmjs.com/cli/v11/configuring-npm/folders"
+    },
+    "ignored_folders": {
+      "node_modules": "https://docs.npmjs.com/cli/v11/configuring-npm/folders"
+    },
+    "test_patterns": {
+      "*.test.ts": "https://vitest.dev/config/include.html",
+      "*.test.tsx": "https://vitest.dev/config/include.html",
+      "*.test.mts": "https://vitest.dev/config/include.html",
+      "*.test.cts": "https://vitest.dev/config/include.html",
+      "*.test.js": "https://vitest.dev/config/include.html",
+      "*.test.jsx": "https://vitest.dev/config/include.html",
+      "*.test.mjs": "https://vitest.dev/config/include.html",
+      "*.test.cjs": "https://vitest.dev/config/include.html",
+      "*.spec.ts": "https://vitest.dev/config/include.html",
+      "*.spec.tsx": "https://vitest.dev/config/include.html",
+      "*.spec.mts": "https://vitest.dev/config/include.html",
+      "*.spec.cts": "https://vitest.dev/config/include.html",
+      "*.spec.js": "https://vitest.dev/config/include.html",
+      "*.spec.jsx": "https://vitest.dev/config/include.html",
+      "*.spec.mjs": "https://vitest.dev/config/include.html",
+      "*.spec.cjs": "https://vitest.dev/config/include.html",
+      "__tests__/*.ts": "https://jestjs.io/docs/configuration#testmatch-arraystring",
+      "__tests__/*.tsx": "https://jestjs.io/docs/configuration#testmatch-arraystring",
+      "__tests__/*.js": "https://jestjs.io/docs/configuration#testmatch-arraystring",
+      "__tests__/*.jsx": "https://jestjs.io/docs/configuration#testmatch-arraystring",
+      "*/__tests__/*.ts": "https://jestjs.io/docs/configuration#testmatch-arraystring",
+      "*/__tests__/*.tsx": "https://jestjs.io/docs/configuration#testmatch-arraystring",
+      "*/__tests__/*.js": "https://jestjs.io/docs/configuration#testmatch-arraystring",
+      "*/__tests__/*.jsx": "https://jestjs.io/docs/configuration#testmatch-arraystring"
+    },
+    "placement": {
+      "root": "references/structure-and-naming.md#structure-and-grouping",
+      "fixtures_dir": "references/structure-and-naming.md#structure-and-grouping",
+      "support_dir": "references/structure-and-naming.md#structure-and-grouping",
+      "beside_code": "https://jestjs.io/docs/configuration#testmatch-arraystring"
+    }
+  },
+  "convention_notes": [
+    "No file or directory casing is imposed: neither language mandates a project naming style.",
+    "Index module names and declaration suffixes are supported module-resolution conventions, not required names for every module.",
+    "Test patterns are runner discovery conventions; __tests__ is Jest-supported and .test/.spec are Vitest-supported.",
+    "The tests/fixtures/support names are skill defaults, not language requirements."
+  ],
+  "extensions": [
+    ".ts",
+    ".tsx",
+    ".mts",
+    ".cts",
+    ".js",
+    ".jsx",
+    ".mjs",
+    ".cjs"
+  ],
+  "file": [],
+  "directory": [],
+  "fixed_files": [
+    "index.ts",
+    "index.tsx",
+    "index.js",
+    "index.jsx",
+    "index.mts",
+    "index.cts",
+    "index.mjs",
+    "index.cjs",
+    "*.d.ts",
+    "*.d.mts",
+    "*.d.cts"
+  ],
+  "fixed_folders": [
+    "__tests__",
+    "node_modules"
+  ],
+  "ignored_folders": [
+    "node_modules"
+  ],
+  "test_patterns": [
+    "*.test.ts",
+    "*.test.tsx",
+    "*.test.mts",
+    "*.test.cts",
+    "*.test.js",
+    "*.test.jsx",
+    "*.test.mjs",
+    "*.test.cjs",
+    "*.spec.ts",
+    "*.spec.tsx",
+    "*.spec.mts",
+    "*.spec.cts",
+    "*.spec.js",
+    "*.spec.jsx",
+    "*.spec.mjs",
+    "*.spec.cjs",
+    "__tests__/*.ts",
+    "__tests__/*.tsx",
+    "__tests__/*.js",
+    "__tests__/*.jsx",
+    "*/__tests__/*.ts",
+    "*/__tests__/*.tsx",
+    "*/__tests__/*.js",
+    "*/__tests__/*.jsx"
+  ],
+  "test_like_patterns": [],
+  "sources": [
+    "https://www.typescriptlang.org/docs/handbook/modules/theory.html#module-resolution",
+    "https://www.typescriptlang.org/docs/handbook/declaration-files/introduction.html",
+    "https://vitest.dev/config/include.html",
+    "https://jestjs.io/docs/configuration#testmatch-arraystring",
+    "https://docs.npmjs.com/cli/v11/configuring-npm/folders"
+  ],
+  "placement": {
+    "root": "tests",
+    "fixtures_dir": "fixtures",
+    "support_dir": "support",
+    "beside_code": true
+  }
+}

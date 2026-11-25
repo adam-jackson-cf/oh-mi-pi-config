@@ -1,0 +1,41 @@
+{
+  "name": "shell",
+  "convention_sources": {
+    "extensions": {
+      ".sh": "https://pubs.opengroup.org/onlinepubs/9799919799/utilities/sh.html",
+      ".bash": "https://www.gnu.org/software/bash/manual/bash.html",
+      ".zsh": "https://zsh.sourceforge.io/Doc/Release/Files.html"
+    },
+    "placement": {
+      "root": "references/structure-and-naming.md#structure-and-grouping",
+      "fixtures_dir": "references/structure-and-naming.md#structure-and-grouping",
+      "support_dir": "references/structure-and-naming.md#structure-and-grouping",
+      "beside_code": "references/structure-and-naming.md#structure-and-grouping"
+    }
+  },
+  "convention_notes": [
+    "Extensions select this pack; shells do not require an extension or a casing convention.",
+    "No universal shell test discovery or beside-code placement convention is imposed; test layout uses skill defaults."
+  ],
+  "extensions": [
+    ".sh",
+    ".bash",
+    ".zsh"
+  ],
+  "file": [],
+  "directory": [],
+  "fixed_files": [],
+  "fixed_folders": [],
+  "ignored_folders": [],
+  "test_patterns": [],
+  "test_like_patterns": [],
+  "sources": [
+    "https://pubs.opengroup.org/onlinepubs/9799919799/utilities/sh.html"
+  ],
+  "placement": {
+    "root": "tests",
+    "fixtures_dir": "fixtures",
+    "support_dir": "support",
+    "beside_code": false
+  }
+}

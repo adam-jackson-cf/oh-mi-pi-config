@@ -39,6 +39,7 @@ source = [
 ]
 omit = [
   "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
+  "agent/extensions/dynaflows/skills/setup-repo-proofs/*",
   "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
 ]
 
@@ -69,6 +70,7 @@ mypy_path = [
 ]
 exclude = [
   "^agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/",
+  "^agent/extensions/dynaflows/skills/setup-repo-proofs/",
   "^agent/skills/omp-config-optimise/experiments/[^/]+/fixtures/",
   "^tests/fixtures/",
   "/build/",
@@ -104,9 +106,11 @@ exclude = [
   ".mypy_cache",
   ".ruff_cache",
 ]
-# Intentional test-fixture trees: frozen repositories and conformance cases, not owned code.
+# Intentional test-fixture trees (frozen repositories and conformance cases) and imported upstream
+# skills, copied verbatim: not owned code.
 extend-exclude = [
   "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures",
+  "agent/extensions/dynaflows/skills/setup-repo-proofs",
   "agent/skills/omp-config-optimise/experiments/*/fixtures",
   "tests/fixtures",
 ]

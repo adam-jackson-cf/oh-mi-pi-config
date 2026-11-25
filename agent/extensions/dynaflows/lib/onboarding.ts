@@ -58,8 +58,10 @@ export function onboardingInstruction(slug: string, root: string, gaps: string[]
 	return [
 		`Agent rails onboarding for ${slug}. The owner ran /agentrails onboard; still missing: ${gaps.join(", ")}.`,
 		"1. Read skill://setup-repo-proofs and run it against this repository. Record what it settles with the agentrails_config tool:",
-		"   - commands: the repository's commit, ci and audit entry points the skill installs, as argv arrays;",
+		"   - commands: the repository's commit, ci and audit entry points the skill installs, as argv arrays: commit is the check " +
+			"entrypoint its hook runs, ci the entrypoint its CI job runs with the full T1 and T2 suite, audit its dependency audit;",
 		"   - checkers, structure and houseStyle: the settings the engine needs (the extension's CONFIG.md and engine/guardrails/data/config-template.json).",
+		"     Rule IDs come from `guardrails config-check --list-rules`, never from the skill's assets/guardrail-rules.json.",
 		"2. Read skill://test-guidance and run it against this repository. Record the tests section with the agentrails_config tool.",
 		`   A draft from \`guardrails init --repo ${root} --out <a file outside the repository>\` may seed these sections.`,
 		"3. Do not edit .git/info/exclude or set core.hooksPath: the extension keeps /.agentrails/ and /.proofs/ out of Git, and /agentrails onboard asks the owner about the hooks path.",
