@@ -1,16 +1,17 @@
 {
   "judgment": "structure-naming",
   "model": "typesafe/jev-1.14.0",
-  "version_key": "39f0327e72ff177ea2b1ba452031dcbba700400958ee1e6ff4c07fa8220e7196",
+  "version_key": "2053a5cc4f7b88928bed75e3f3d7de2ee2368511bdad4b06abda4859bd343242",
   "score_space": "raw",
-  "question_version": "structure-naming-candidates@6",
+  "question_version": "structure-naming-candidates@7",
   "model_reported": "typesafe/jev-1.14.0",
   "scoring": {
     "date": "2026-11-24",
     "route": "omp eval judge_batch with modelRoles.judge typesafe/jev-1.14.0 (direct TypeSafe); per-question scoring runs are recorded in each decision's measured block",
     "note": "same_thing scored 2026-11-23 (k3), consumer_placement 2026-11-23 (k3) and 2026-11-24 (k5 full history), technical_kind_grouping 2026-11-23 (k4) and 2026-11-24 (full history)"
   },
-  "scores_sha256": "57d20b14d9ffdf34d2b561094d079f94a39e0dc03e073290e0a829ce2518b1dc",
+  "scores_sha256": "59fe1d32d02d5a22de9f2530209cbb6ac8e4115da013b7dc3a1a15f9eec6af81",
+  "rekey": "2026-11-25 (plan step S7a): questions.json lost the unused state.unit_state, which fed every version key. The questions are unchanged, and the registry sends the judge only the questions with states the guardrails proposers build, never the state description, so the judge input is byte-identical: labels.jsonl, scores.csv and the questions/ files moved to the new keys with their labels and scores unchanged, and scores_sha256 pins the rekeyed scores.csv",
   "minimums": {
     "precision": 0.75,
     "assumed": true,
@@ -30,7 +31,7 @@
   ],
   "decisions": {
     "technical_kind_grouping": {
-      "version_key": "a856af7e3d083f02f854ab8dab200709d9cc2124a8fa21ab7c420324c2c594db",
+      "version_key": "6449411edeeb941f1dd2cdbe0d16204f85a82b349f55d51be43549747b58f079",
       "approach": "Eval judge",
       "overlays": [],
       "primitive": "noul",
@@ -78,7 +79,7 @@
       ]
     },
     "same_thing": {
-      "version_key": "58135b4af5078201bee9ca6e4699458f3401e74c7d3b560cdfa3416e3a96c237",
+      "version_key": "cd4f40f4f58e59575c30685ca0682acad516afb74f9323a782fb3a8c74951c31",
       "approach": "Eval judge",
       "overlays": [],
       "primitive": "noul",
@@ -134,7 +135,7 @@
       ]
     },
     "consumer_placement": {
-      "version_key": "b85c890c3a97490cc4553a1d3d28222d4b874ed98bf8292b223c8655dfdb2cdb",
+      "version_key": "968ef7db713cf92e666b54e937c5e5fbfec3e017726cde498dfa646f7ad7d875",
       "approach": "Eval judge",
       "overlays": ["Place"],
       "primitive": "choice",

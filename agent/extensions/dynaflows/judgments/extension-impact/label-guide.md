@@ -5,8 +5,7 @@ repository: it must be reviewed or addressed for that repository before the chan
 
 | Input | What the labeller sees |
 | --- | --- |
-| `mode` | Mode name and the fixed list of what runs in it |
-| `record` | `gate.json` in full, bounded `profile.md` summary |
+| `config` | Rail sections: autonomy, ci, gates, judgments, mergePolicies, afterMerge, commands |
 | `change` | Changed files, commit subject, bounded diff excerpts |
 
 Labellers never see Jev scores. Cite one rule per label and give a one-sentence reason.
@@ -15,18 +14,16 @@ Labellers never see Jev scores. Cite one rule per label and give a one-sentence 
 
 Yes when the change alters:
 
-- Y1. How the record is read, validated, written or migrated: a field this record holds or must
-  hold. Any mode
-- Y2. A guard listed for minimal mode: hook bypass, default-branch push, `gh pr merge`, worktree
-  placement, subagent paths, `agentMerge`, `git-tool` read. Any mode
-- Y3. A structured-only check or merge step (commit checks, catalogue rules, path, naming,
-  structure, `prove()`, CI) that applies to every repository or to a language, framework, runner
-  or command the record shows. Structured only
-- Y4. Which steps a mode runs, or how a repository's mode is decided. Repositories in the affected
-  mode
-- Y5. The required steps of a skill or agent role an agent follows in this repository: `git-tool`
-  in any mode; `structured-workflow`, `test-guidance`, `setup-repo-proofs`, agent roles in
-  structured mode
+- Y1. How the config is read, validated, written or migrated: a section or field this config holds
+  or must hold.
+- Y2. A fixed guard, which runs in every repository: hook bypass, default-branch push, `gh pr merge`,
+  worktree placement, subagent paths, config protection, the onboarding refusal.
+- Y3. A commit check or merge step (commit checks, catalogue rules, path, naming, structure,
+  `prove()`, CI, judged rules) that this config's `gates`, `ci` or `judgments` leaves on, and
+  that applies to every repository or to a language, framework, runner or command the config shows.
+- Y4. Which steps a config setting turns on or off, or how autonomy asks are granted.
+- Y5. The required steps of a skill an agent follows in every governed repository: `git-tool`,
+  `test-guidance`, `setup-repo-proofs`.
 
 ## No rules (label 0)
 
@@ -34,32 +31,34 @@ Yes when the change alters:
 | --- | --- |
 | N1 | Edits docs, ADRs, readme, workflow pages or dependency maps |
 | N2 | Edits tests, fixtures, formatting, types or internal structure with the same results |
-| N3 | Changes structured-only steps and the mode is minimal |
-| N4 | Changes a language, framework or CI runner the record and profile do not use |
+| N3 | Changes a step this config's `gates`, `ci`, `autonomy` or `judgments` turns off |
+| N4 | Changes a language, framework or CI runner the config does not use |
 | N5 | Changes help text, messages or wording; every required step stays the same |
 | N6 | Changes judgment data or eval tooling for steps the repository does not run |
 
 ## Tie-breaks
 
 - T1. Any one changed behaviour that reaches the repository makes the label 1.
-- T2. Judge the change as if applied today to this record in this mode. Records are a 2026-11-21
-  snapshot; older commits are replayed against it. A change whose effect `mode.runs` already
-  describes changes no step that mode runs (no Y4); Y1-Y3 still apply. Owner-confirmed 2026-11-21.
+- T2. Judge the change as if applied today to this config. Configs are converted from a 2026-11-21
+  record snapshot (every gate on, autonomy from the record's agentMerge); older commits are replayed
+  against it. A change to how the record was read counts under Y1 for the config field converted
+  from it.
 - T3. A clipped diff: judge visible hunks, file paths and the subject. A runtime file
   (`rails.yml`, `lib/`, `index.ts`, engine source) with visible behaviour change counts.
 - T4. A removed check or refusal is a behaviour change (Y1-Y3), not a cleanup.
-- T5. Language-neutral catalogue or commit-check changes apply to every structured repository.
+- T5. Language-neutral catalogue or commit-check changes apply to every repository whose
+  `gates.commitChecks` is on.
 
 ## Worked examples
 
 | Example | Label | Rule |
 | --- | --- | --- |
 | Rails refuse `git push --force` to the default branch; any repository | 1 | Y2 |
-| Record loader requires `checks.commit`; any repository | 1 | Y1 |
-| Python directory casing rule; structured Python repository | 1 | Y3 |
-| Same rule; minimal TypeScript repository | 0 | N3 |
-| Go test adapter; structured Python-only repository | 0 | N4 |
+| Config validator requires `commands.commit`; any repository | 1 | Y1 |
+| Python directory casing rule; repository whose commands run Python tooling | 1 | Y3 |
+| Same rule; repository whose config sets `gates.commitChecks` false | 0 | N3 |
+| Go test adapter; Python-only repository | 0 | N4 |
 | Workflow page redrawn as diagrams | 0 | N1 |
 | `ruff format` over engine files | 0 | N2 |
-| Minimal mode stops running a step it ran before; minimal repository | 1 | Y4 |
-| Same change; structured repository, structured steps unchanged | 0 | N3 |
+| `gates.prove` false starts skipping structure review too; any repository | 1 | Y4 |
+| `prove()` change; repository whose config sets `gates.prove` false | 0 | N3 |

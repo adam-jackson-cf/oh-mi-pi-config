@@ -1338,6 +1338,20 @@ class ShippedJudgmentTests(unittest.TestCase):
                     assert row["label"] in ("0", "1")
                     assert 0 <= float(row["score"]) <= 1
 
+    def test_extension_impact_loads_on_the_rekeyed_config_state(self) -> None:
+        judgment = workflow.load_judgment("extension-impact")
+        assert judgment.model == CONFIGURED_JUDGE
+        assert set(judgment.state) == {"config", "change"}
+        decision = judgment.decisions["impact"]
+        assert decision["mode"] == "enforced"
+        directory = workflow._harness_root() / workflow.JUDGMENTS / judgment.name
+        scores = (directory / "scores.csv").read_text()
+        measured = decision["measured_on"]["question_version"]
+        assert measured != f"impact@{decision['version_key']}"
+        assert {
+            row["question_version"] for row in csv.DictReader(io.StringIO(scores))
+        } == {measured}
+
 
 class StructureProposalTests(unittest.TestCase):
     """structure_review()'s code-proposed pairs and files: scores, modes and decision store rows."""

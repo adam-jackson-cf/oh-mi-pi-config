@@ -1,22 +1,6 @@
 {
-  "version": "structure-naming-candidates@6",
-  "state": {
-    "unit_state": {
-      "folder_path": "Repository-relative folder; full ancestry is evidence.",
-      "files": "Bounded recursively tracked file list at head; full repository-relative paths. evidence_limits records every truncation.",
-      "top_level_symbols": "Python file -> locally defined module-scope function/class/assigned binding names only; imported bindings and values omitted. Non-Python files have no inferred symbols.",
-      "import_edges": "Python AST imports partitioned into inbound/outbound/internal; unresolved/external imports have empty to lists.",
-      "sibling_context": "Every unit directly under the folder's parent, the folder itself included, with unit_path, bounded direct-file lists and Python names; not recursive inventories. Root units have no fictitious parent context.",
-      "related_context": "Bounded direct-file summaries of same-revision source/destination parents implicated by the diff; no future contents.",
-      "evidence_limits": "Deterministic caps: tree_files=4096; unit_files=256; python_file_bytes=262144; python_total_bytes=8388608; symbols_per_file=128; imports_per_file=128; docstring_chars=512; context_units=24; context_files=64; edges=512; term_owners=128; owner_paths=24; clusters=32; history_commits=128; change_rows=256; state_bytes=48000; limit_rows=24; limit_text_chars=512. Truncation counts and state_budget_omissions expose incomplete evidence; omitted evidence is not proof of absence. Only Python AST symbols/imports are inferred.",
-      "change": "Touching rename rows base..head with --find-renames=50%, whole-segment retired terms including a renamed folder itself, and scoped residue. Before/current-tree rows use base=head, never a future change.",
-      "docstrings": "Python module first paragraph and top-level function/class first docstring line at the frozen revision.",
-      "constant_values": "Python module-level uppercase assigned string literals of at most 80 characters.",
-      "term_owners": "Words from unit paths and defined names that exactly name a module or directory elsewhere in the same-revision tracked tree; word -> paths.",
-      "cluster": "Array of eligible PREFIX.candidates clusters with prefix, members, internal_edges, importers, co_change, added_or_moved. Empty means no; decided in code without asking the judge.",
-      "file_facts": "Python file -> bytes, lines, top-level function count and top-level class count, computed in code at head."
-    }
-  },
+  "version": "structure-naming-candidates@7",
+  "state": {},
   "questions": {
     "technical_kind_grouping": {
       "type": "bool",
