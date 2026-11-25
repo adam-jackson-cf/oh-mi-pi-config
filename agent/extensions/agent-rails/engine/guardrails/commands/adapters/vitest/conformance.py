@@ -3,8 +3,6 @@ from __future__ import annotations
 import copy
 import json
 import os
-import shlex
-import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -12,6 +10,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters.vitest.tiers import command
 from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_bytes, run_text
 
@@ -66,10 +65,8 @@ def fixture_source(case_id: str) -> str:
     return (FIXTURES / f"{case_id}.ts.txt").read_text(encoding="utf-8")
 
 
-def native_installation(
-    repo: Path | None, config: dict[str, Any] | None
-) -> tuple[list[str], Path]:
-    root = (repo or Path.cwd()).resolve()
+def native_installation(repo: Path, config: dict[str, Any]) -> tuple[list[str], Path]:
+    root = repo.resolve()
     modules = next(
         (
             path / "node_modules"
@@ -82,20 +79,7 @@ def native_installation(
         raise ValueError(
             "Vitest is not installed locally; install the target's pinned dependencies before conformance"
         )
-    settings = (config or {}).get("checkers", {}).get("adapter_vitest", {})
-    command = settings.get("command")
-    if command:
-        argv = shlex.split(command) if isinstance(command, str) else list(command)
-        if not argv:
-            raise ValueError("checkers.adapter_vitest.command must not be empty")
-    else:
-        node = shutil.which("node")
-        if not node:
-            raise ValueError(
-                "Node is unavailable; activate the target's pinned Node before conformance"
-            )
-        argv = [node, str(modules / "vitest" / "vitest.mjs")]
-    return argv, modules
+    return command(modules.parent, config), modules
 
 
 def build_project(
@@ -235,13 +219,13 @@ def check_collection(
 
 
 def run_conformance(
-    case_ids: list[str] | None = None,
+    case_ids: list[str],
     *,
-    repo: Path | None = None,
-    config: dict[str, Any] | None = None,
+    repo: Path,
+    config: dict[str, Any],
 ) -> list[CaseResult]:
     cases = load_cases()
-    unknown = sorted(set(case_ids or []) - {case["id"] for case in cases})
+    unknown = sorted(set(case_ids) - {case["id"] for case in cases})
     if unknown:
         raise ValueError(f"unknown conformance case(s): {', '.join(unknown)}")
     selected = [case for case in cases if not case_ids or case["id"] in case_ids]
@@ -286,8 +270,8 @@ def run_conformance(
 def run_cases(
     case_ids: list[str],
     *,
-    repo: Path | None = None,
-    config: dict[str, Any] | None = None,
+    repo: Path,
+    config: dict[str, Any],
 ) -> list[Finding]:
     return [
         Finding(

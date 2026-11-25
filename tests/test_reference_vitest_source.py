@@ -30,6 +30,7 @@ PROFILE: dict[str, Any] = {
         "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
     }
 }
+ROOTS = ("shop",)
 
 
 def findings(
@@ -41,7 +42,7 @@ def findings(
         if rule.scope
         == ("tests" if lint.is_test(path, profile, "vitest") else "production")
     ]
-    return lint.file_findings(path, source, rules, lint.owned_roots(profile))
+    return lint.file_findings(path, source, rules, ROOTS, lint.VITEST)
 
 
 class StaticCases(unittest.TestCase):
@@ -338,18 +339,24 @@ class SourceLint(unittest.TestCase):
             "shop/core.ts": "export function checkout() {} export function inspect() {}",
             "tests/case.test.ts": "import { inspect as view } from '../shop/core'; test('x', () => { view(); });",
         }
-        found = lint.hook_findings(sources, PROFILE, {"shop/core.ts"})
+        found = lint.hook_findings(sources, PROFILE, {"shop/core.ts"}, ROOTS, "vitest")
         assert len(found) == 1
         assert "inspect" in found[0].message
         sources["shop/consumer.ts"] = "import { inspect } from './core'; inspect();"
-        assert lint.hook_findings(sources, PROFILE, {"shop/core.ts"}) == []
+        assert (
+            lint.hook_findings(sources, PROFILE, {"shop/core.ts"}, ROOTS, "vitest")
+            == []
+        )
 
     def test_public_entry_symbol_and_unused_import_are_not_hooks(self) -> None:
         sources = {
             "shop/core.ts": "export function checkout() {} export function unused() {}",
             "tests/case.test.ts": "import {checkout, unused} from '../shop/core'; checkout();",
         }
-        assert lint.hook_findings(sources, PROFILE, {"shop/core.ts"}) == []
+        assert (
+            lint.hook_findings(sources, PROFILE, {"shop/core.ts"}, ROOTS, "vitest")
+            == []
+        )
 
     def test_root_package_ownership_does_not_turn_locals_or_external_modules_into_owned_imports(
         self,
@@ -359,7 +366,7 @@ class SourceLint(unittest.TestCase):
         let local = 0; local = 1; const state = {value: 0}; state.value = 1;
         vi.mock('third-party'); vi.spyOn(external, 'run'); vi.spyOn(process, 'exit');"""
         found = lint.file_findings(
-            "tests/case.test.ts", source, rules, (".", "owned-app")
+            "tests/case.test.ts", source, rules, (".", "owned-app"), lint.VITEST
         )
         assert found == []
         owned = lint.file_findings(
@@ -367,6 +374,7 @@ class SourceLint(unittest.TestCase):
             "import * as core from '../src/core'; core.run = replacement;",
             rules,
             (".", "owned-app"),
+            lint.VITEST,
         )
         assert [item.rule_id for item in owned] == ["TEST.no-self-mocking"]
 

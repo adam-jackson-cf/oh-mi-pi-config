@@ -37,7 +37,7 @@ export function canonicalArgument(args: unknown[], index: number): string | null
 
 export const within = (value: string, root: string) => value === root || value.startsWith(root + path.sep);
 
-export function opensForWriting(args: unknown[], index: number): boolean {
+function opensForWriting(args: unknown[], index: number): boolean {
   const flags = args[index];
   if (Number.isInteger(flags)) return Boolean(Number(flags) & WRITE_FLAGS);
   return /[wa+]/.test(String(flags ?? 'r'));

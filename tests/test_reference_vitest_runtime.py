@@ -141,7 +141,14 @@ class VitestRuntimeTests(VitestRuntimeCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as scratch:
-            results = conformance.run_conformance(repo=Path(scratch))
+            repo = Path(scratch)
+            results = conformance.run_conformance(
+                [], repo=repo, config=conformance.BASE_CONFIG
+            )
+            with pytest.raises(ValueError, match="unknown conformance"):
+                conformance.run_conformance(
+                    ["not-a-case"], repo=repo, config=conformance.BASE_CONFIG
+                )
         assert [result.case_id for result in results] == [
             case["id"] for case in conformance.load_cases()
         ]
@@ -149,8 +156,6 @@ class VitestRuntimeTests(VitestRuntimeCase):
             not result.passed and "installed locally" in result.detail
             for result in results
         )
-        with pytest.raises(ValueError, match="unknown conformance"):
-            conformance.run_conformance(["not-a-case"])
 
 
 if __name__ == "__main__":

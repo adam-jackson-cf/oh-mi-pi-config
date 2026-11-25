@@ -252,11 +252,11 @@ def run_case(case: dict[str, Any], binding: dict[str, Any]) -> CaseResult:
     return CaseResult(case["id"], case["rule"], passed, detail)
 
 
-def run_conformance(case_ids: list[str] | None = None) -> list[CaseResult]:
+def run_conformance(case_ids: list[str]) -> list[CaseResult]:
     bindings = data("bindings.json")["cases"]
     cases = load_cases()
     known = {case["id"] for case in cases}
-    unknown = sorted(set(case_ids or []) - known)
+    unknown = sorted(set(case_ids) - known)
     if unknown:
         raise ValueError(f"unknown conformance case(s): {', '.join(unknown)}")
     selected = [case for case in cases if not case_ids or case["id"] in case_ids]

@@ -94,7 +94,7 @@ def is_test(path: str, config: dict[str, Any], adapter: str) -> bool:
     )
 
 
-def owned_roots(config: dict[str, Any], repo: Path | None = None) -> tuple[str, ...]:
+def owned_roots(config: dict[str, Any], repo: Path) -> tuple[str, ...]:
     entries = tests_settings(config, "public_entry_points") or {}
     roots = set()
     for raw in entries if isinstance(entries, dict) else ():
@@ -103,19 +103,18 @@ def owned_roots(config: dict[str, Any], repo: Path | None = None) -> tuple[str, 
             roots.add(posixpath.dirname(path) or ".")
         else:
             roots.add(path.rstrip("/"))
-    if repo is not None:
-        package_names = set(roots)
-        for raw in repo_paths(repo):
-            manifest = normalized_path(repo, raw)
-            if (
-                manifest is None
-                or PurePosixPath(manifest).name != "package.json"
-                or SKIPPED.intersection(PurePosixPath(manifest).parts)
-            ):
-                continue
-            data = json.loads((repo / manifest).read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("name") in package_names:
-                roots.add(posixpath.dirname(manifest) or ".")
+    package_names = set(roots)
+    for raw in repo_paths(repo):
+        manifest = normalized_path(repo, raw)
+        if (
+            manifest is None
+            or PurePosixPath(manifest).name != "package.json"
+            or SKIPPED.intersection(PurePosixPath(manifest).parts)
+        ):
+            continue
+        data = json.loads((repo / manifest).read_text(encoding="utf-8"))
+        if isinstance(data, dict) and data.get("name") in package_names:
+            roots.add(posixpath.dirname(manifest) or ".")
     return tuple(sorted(roots))
 
 
@@ -338,7 +337,7 @@ def file_findings(
     source: str,
     rules: list[Rule],
     owned: tuple[str, ...],
-    vocabulary: Vocabulary = VITEST,
+    vocabulary: Vocabulary,
 ) -> list[Finding]:
     from ast_grep_py import SgRoot
 
@@ -494,10 +493,9 @@ def hook_findings(
     sources: dict[str, str],
     config: dict[str, Any],
     reported: set[str],
-    roots: tuple[str, ...] | None = None,
-    adapter: str = VITEST.adapter,
+    roots: tuple[str, ...],
+    adapter: str,
 ) -> list[Finding]:
-    roots = owned_roots(config) if roots is None else roots
     trees = {path: parse(path, text) for path, text in sources.items()}
     definitions = production_definitions(trees, config, roots, adapter)
     uses: dict[tuple[str, str], set[bool]] = {key: set() for key in definitions}

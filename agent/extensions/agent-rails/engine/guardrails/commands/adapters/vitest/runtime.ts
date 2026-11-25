@@ -21,7 +21,7 @@ export interface RuntimeGuards {
   tier: string;
 }
 
-export type RuntimeExtension = (guards: RuntimeGuards) => void;
+type RuntimeExtension = (guards: RuntimeGuards) => void;
 
 function journal(events: string, entry: Record<string, string | string[]>): void {
   append(events, JSON.stringify(entry) + '\n');
