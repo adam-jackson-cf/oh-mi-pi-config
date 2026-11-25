@@ -5,7 +5,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.adapters.go.source import (
+from guardrails.commands.adapters.go.dialect import XFAIL_PREFIX
+from guardrails.commands.adapters.go.ownership import (
+    owned_import,
+    owned_imports,
+    owned_path,
+)
+from guardrails.commands.adapters.go.syntax import (
     arguments,
     call_name,
     children,
@@ -14,9 +20,6 @@ from guardrails.commands.adapters.go.source import (
     has_errors,
     imports,
     is_test_path,
-    owned_import,
-    owned_imports,
-    owned_path,
     parse,
     string_value,
     test_functions,
@@ -24,7 +27,7 @@ from guardrails.commands.adapters.go.source import (
     words,
 )
 from guardrails.commands.adapters.marker_bindings import inline_bindings
-from guardrails.commands.adapters.pytest.lint import waived
+from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import normalized_path, repo_paths, tests_settings
 
@@ -35,7 +38,6 @@ SELF_MOCKING = "TEST.no-self-mocking"
 EVASION = "TEST.no-evasion"
 SEED = "TEST.property-seed"
 HOOKS = "TEST.no-test-hooks"
-XFAIL_PREFIX = "xfail:"
 SKIP_CALLS = frozenset({"Skip", "Skipf", "SkipNow"})
 PATCH_PACKAGES = frozenset({
     "github.com/agiledragon/gomonkey",
@@ -479,8 +481,4 @@ def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
             findings.extend(hook_findings(production[path]))
             reported.add(path)
     findings.extend(test_only_symbols(production, tests, config, reported))
-    return [
-        finding
-        for finding in findings
-        if not waived(finding.rule_id, finding.path, config)
-    ]
+    return apply_exceptions(findings, config)

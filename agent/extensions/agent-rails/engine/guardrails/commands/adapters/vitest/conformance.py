@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 import copy
-import json
 import os
-import subprocess
-import tempfile
-from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters import conformance
 from guardrails.commands.adapters.vitest.tiers import command
 from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_bytes, run_text
 
-CASE_TIMEOUT_S = 300
 FIXTURES = Path(__file__).with_name("fixtures")
 BASE_CONFIG: dict[str, Any] = {
     "tests": {
@@ -43,24 +38,6 @@ BASE_CONFIG: dict[str, Any] = {
 }
 
 
-@dataclass(frozen=True)
-class CaseResult:
-    case_id: str
-    rule: str
-    passed: bool
-    detail: str
-
-
-def load_cases() -> list[dict[str, Any]]:
-    canonical = resources.files(
-        "guardrails.commands.adapters.pytest.conformance"
-    ).joinpath("cases.json")
-    cases: list[dict[str, Any]] = json.loads(canonical.read_text(encoding="utf-8"))[
-        "cases"
-    ]
-    return cases
-
-
 def fixture_source(case_id: str) -> str:
     return (FIXTURES / f"{case_id}.ts.txt").read_text(encoding="utf-8")
 
@@ -84,7 +61,7 @@ def native_installation(repo: Path, config: dict[str, Any]) -> tuple[list[str], 
 
 def build_project(
     root: Path, case: dict[str, Any], modules: Path | None
-) -> tuple[Path, str, dict[str, Any]]:
+) -> conformance.Project:
     project = root / "project"
     (project / "shop").mkdir(parents=True)
     (project / "tests").mkdir()
@@ -97,53 +74,37 @@ def build_project(
     )
     production = case["id"].startswith("production-")
     placed = "shop/settings.ts" if production else "tests/case.test.ts"
-    (project / placed).write_text(fixture_source(case["id"]), encoding="utf-8")
+    (project / placed).write_text(
+        fixture_source(conformance.fixture_case(case["id"])), encoding="utf-8"
+    )
     config = copy.deepcopy(BASE_CONFIG)
-    if case["id"] == "approved-static-skip":
-        config["exceptions"] = [
-            {
-                "rule": "TEST.no-evasion",
-                "path": placed,
-                "reason": "Upstream vendor outage",
-                "approvedBy": "conformance-owner",
-                "approvedAt": "2026-01-01T00:00:00Z",
-            }
-        ]
+    config["exceptions"] = conformance.case_exceptions(case, placed)
     if production:
         config["tests"]["public_entry_points"][placed] = ["publicApi"]
-    return project, placed, config
+    return conformance.Project(root, placed, config)
 
 
 def check_source(
-    project: Path, config: dict[str, Any], placed: str, case: dict[str, Any]
-) -> tuple[bool, str]:
+    project: conformance.Project, case: dict[str, Any]
+) -> conformance.Verdict:
     from guardrails.commands.adapters.vitest.lint import lint
 
-    rules = sorted({finding.rule_id for finding in lint(project, config, [placed])})
-    return (case["rule"] in rules) == (
-        case["expect"] == "finding"
-    ), f"rules reported: {rules}"
+    reported = lint(project.path, project.config, [project.placed])
+    return conformance.source_verdict(case, reported)
 
 
 def check_static_cases(
-    project: Path, placed: str, case: dict[str, Any]
-) -> tuple[bool, str]:
-    from guardrails.commands.adapters.vitest.cases import collect
-    from guardrails.toolkit.growth import Snapshot, growth_findings
+    project: conformance.Project, case: dict[str, Any]
+) -> conformance.Verdict:
+    from guardrails.commands.adapters.javascript.cases import collect
 
-    collected = collect(placed, (project / placed).read_text(encoding="utf-8"))
-    findings = growth_findings(
-        Snapshot({}, {}, {}), Snapshot({}, dict(collected.behaviours), {})
-    )
-    reported = any(finding.rule_id == case["rule"] for finding in findings)
-    return reported == (
-        case["expect"] == "finding"
-    ), f"behaviours: {dict(collected.behaviours)}"
+    text = (project.path / project.placed).read_text(encoding="utf-8")
+    return conformance.static_verdict(case, collect(project.placed, text))
 
 
 def check_run(
-    root: Path, project: Path, case: dict[str, Any], command: list[str]
-) -> tuple[bool, str]:
+    project: conformance.Project, case: dict[str, Any], command: list[str]
+) -> conformance.Verdict:
     from guardrails.commands.adapters.vitest.dialect import (
         DIALECT,
         guard_evidence,
@@ -152,20 +113,20 @@ def check_run(
     from guardrails.toolkit.test_report.junit import ReportError, parse_report
 
     tier = "t2" if case["id"].startswith("user-data-") else "t1"
-    report = root / "report.xml"
-    home = root / "live-home"
+    report = project.root / "report.xml"
+    home = project.root / "live-home"
     home.mkdir()
     environment = {
         **os.environ,
         "HOME": str(home),
         "USERPROFILE": str(home),
-        "OMP_CONFORMANCE_LIVE_HOME": str(home),
+        "GUARDRAILS_CONFORMANCE_LIVE_HOME": str(home),
     }
     result = run_text(
         [*command, "run", *junit_arguments(tier, str(report)), "tests/case.test.ts"],
-        cwd=project,
+        cwd=project.path,
         env=environment,
-        timeout=CASE_TIMEOUT_S,
+        timeout=conformance.CASE_TIMEOUT_S,
         check=False,
     )
     try:
@@ -180,42 +141,31 @@ def check_run(
         return False, f"guard evidence missing; {detail}"
     expected = case["expect"]
     if expected == "finding":
-        flagged = any(
-            item.outcome in {"failed", "error"} and case["rule"] in item.reason
-            for item in parsed.cases
-        )
-        return flagged and result.returncode != 0, detail
+        return conformance.flagged(
+            parsed.cases, case["rule"]
+        ) and result.returncode != 0, detail
     if expected == "clean":
         return bool(parsed.cases) and result.returncode == 0 and all(
             item.outcome == "passed" for item in parsed.cases
         ), detail
-    return len(parsed.cases) == 1 and all(
-        getattr(parsed.cases[0], key) == value for key, value in expected.items()
-    ), detail
+    return conformance.matches_record(parsed.cases, expected), detail
 
 
 def check_collection(
-    root: Path,
-    project: Path,
-    config: dict[str, Any],
-    case: dict[str, Any],
-    command: list[str],
-) -> tuple[bool, str]:
+    project: conformance.Project, case: dict[str, Any], command: list[str]
+) -> conformance.Verdict:
     from guardrails.commands.adapters.vitest.tiers import list_tiers
     from guardrails.toolkit.test_report.collection import read_ids
 
-    config["checkers"] = {"adapter_vitest": {"command": command}}
-    out = root / "collections"
-    findings = list_tiers(project, config, ["t1"], out)
-    rules = [finding.rule_id for finding in findings]
+    project.config["checkers"] = {"adapter_vitest": {"command": command}}
+    out = project.root / "collections"
+    reported = list_tiers(project.path, project.config, ["t1"], out)
     ids = read_ids(out / "t1.txt")
-    if case["expect"] == "finding":
-        return case["rule"] in rules, f"rules: {rules}; ids: {ids}"
     expected = [
         item.replace("tests/test_case.py", "tests/case.test.ts")
-        for item in case["expect"]["ids"]
+        for item in ([] if case["expect"] == "finding" else case["expect"]["ids"])
     ]
-    return not findings and ids == expected, f"rules: {rules}; ids: {ids}"
+    return conformance.collection_verdict(case, reported, ids, expected)
 
 
 def run_conformance(
@@ -223,48 +173,26 @@ def run_conformance(
     *,
     repo: Path,
     config: dict[str, Any],
-) -> list[CaseResult]:
-    cases = load_cases()
-    unknown = sorted(set(case_ids) - {case["id"] for case in cases})
-    if unknown:
-        raise ValueError(f"unknown conformance case(s): {', '.join(unknown)}")
-    selected = [case for case in cases if not case_ids or case["id"] in case_ids]
+) -> list[conformance.CaseResult]:
+    selected = conformance.select_cases(case_ids)
     try:
         command, modules = native_installation(repo, config)
     except (OSError, ValueError) as error:
-        return [
-            CaseResult(case["id"], case["rule"], False, str(error)) for case in selected
-        ]
-    results = []
-    for case in selected:
-        try:
-            with tempfile.TemporaryDirectory(
-                prefix="omp-vitest-conformance-"
-            ) as scratch:
-                root = Path(scratch).resolve()
-                project, placed, bound_config = build_project(root, case, modules)
-                kind = case["evidence"]
-                if kind == "source":
-                    passed, detail = check_source(project, bound_config, placed, case)
-                elif kind == "static-cases":
-                    passed, detail = check_static_cases(project, placed, case)
-                elif kind == "run-report":
-                    passed, detail = check_run(root, project, case, command)
-                elif kind == "collection":
-                    passed, detail = check_collection(
-                        root, project, bound_config, case, command
-                    )
-                else:
-                    passed, detail = False, f"unsupported evidence kind: {kind}"
-        except (
-            OSError,
-            ValueError,
-            ModuleNotFoundError,
-            subprocess.SubprocessError,
-        ) as error:
-            passed, detail = False, str(error)
-        results.append(CaseResult(case["id"], case["rule"], passed, detail))
-    return results
+        return conformance.failed_cases(selected, str(error))
+    harness = conformance.Harness(
+        label="the Vitest adapter",
+        prefix="guardrails-vitest-conformance-",
+        build=lambda root, case: build_project(root, case, modules),
+        checks={
+            "source": check_source,
+            "static-cases": check_static_cases,
+            "run-report": lambda project, case: check_run(project, case, command),
+            "collection": lambda project, case: check_collection(
+                project, case, command
+            ),
+        },
+    )
+    return conformance.run_cases(harness, selected)
 
 
 def run_cases(
@@ -273,13 +201,5 @@ def run_cases(
     repo: Path,
     config: dict[str, Any],
 ) -> list[Finding]:
-    return [
-        Finding(
-            result.rule,
-            f"conformance/{result.case_id}",
-            f"the Vitest adapter misclassifies this case ({result.detail})",
-            "fix the Vitest adapter until every canonical case passes",
-        )
-        for result in run_conformance(case_ids, repo=repo, config=config)
-        if not result.passed
-    ]
+    results = run_conformance(case_ids, repo=repo, config=config)
+    return conformance.findings(results, "the Vitest adapter")

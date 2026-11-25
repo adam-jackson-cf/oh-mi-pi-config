@@ -2,12 +2,12 @@
 <testsuites name="pytest tests">
   <testsuite name="pytest" errors="1" failures="0" skipped="2" tests="6" time="0.420">
     <properties>
-      <property name="omp.tier" value="t1"/>
-      <property name="omp.runtime" value="python 3.11.2"/>
-      <property name="omp.revision" value="0123456789abcdef0123456789abcdef01234567"/>
-      <property name="omp.wall_s" value="0.512"/>
-      <property name="omp.exit_code" value="1"/>
-      <property name="omp.guards" value="fast-tier,user-data"/>
+      <property name="guardrails.tier" value="t1"/>
+      <property name="guardrails.runtime" value="python 3.11.2"/>
+      <property name="guardrails.revision" value="0123456789abcdef0123456789abcdef01234567"/>
+      <property name="guardrails.wall_s" value="0.512"/>
+      <property name="guardrails.exit_code" value="1"/>
+      <property name="guardrails.guards" value="fast-tier,user-data"/>
     </properties>
     <testcase classname="tests.test_basket" name="test_total" file="tests/test_basket.py" line="3" time="0.010"/>
     <testcase classname="tests.test_basket.TestPricing" name="test_price[2-4]" file="tests/test_basket.py" line="9" time="0.020"/>

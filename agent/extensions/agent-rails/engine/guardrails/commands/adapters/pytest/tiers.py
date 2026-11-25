@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.commands.adapters.pytest.dialect import NAME
+from guardrails.commands.adapters.pytest.invocation import PLUGIN
 from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding, config_label
@@ -17,7 +18,6 @@ from guardrails.foundation.inventory import as_list, settings
 from guardrails.host.process import run_text
 
 ENGINE_ROOT = Path(__file__).resolve().parents[4]
-PLUGIN = "guardrails.commands.adapters.pytest.plugin"
 SETTINGS = "adapter_pytest"
 NO_TESTS_COLLECTED = 5
 PROPAGATION = "TEST.failure-propagation"
@@ -41,7 +41,7 @@ def collect_command(locations: list[str], selector: str, out_file: Path) -> list
         "no:cacheprovider",
         "-p",
         PLUGIN,
-        f"--omp-collect-out={out_file}",
+        f"--guardrails-collect-out={out_file}",
         *selector_arguments(selector),
         "--",
         *locations,
@@ -72,7 +72,7 @@ def collect_tier(
         ]
     locations = as_list(spec.get("location"))
     timeout = settings(config, SETTINGS).get("collect_timeout_s")
-    with tempfile.TemporaryDirectory(prefix="omp-collect-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="guardrails-collect-") as scratch:
         listing = Path(scratch) / "ids.json"
         command = collect_command(locations, spec["selector"], listing)
         try:

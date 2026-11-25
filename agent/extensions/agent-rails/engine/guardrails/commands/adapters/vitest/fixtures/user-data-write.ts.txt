@@ -1,4 +1,4 @@
 import { test } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-test('live home write', () => { writeFileSync(join(process.env.OMP_CONFORMANCE_LIVE_HOME!, 'forbidden.txt'), 'not user data'); });
+test('live home write', () => { writeFileSync(join(process.env.GUARDRAILS_CONFORMANCE_LIVE_HOME!, 'forbidden.txt'), 'not user data'); });

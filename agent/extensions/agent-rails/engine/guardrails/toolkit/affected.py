@@ -1,3 +1,5 @@
+"""The T2 test files a diff range affects, from the config's ownership areas."""
+
 from __future__ import annotations
 
 import shlex
@@ -36,15 +38,10 @@ class Selection:
     reason: str
 
 
-def section(values: dict[str, Any], key: str) -> dict[str, Any]:
-    value = values.get(key)
-    return value if isinstance(value, dict) else {}
-
-
 def t2_files(paths: list[str], config: dict[str, Any]) -> list[str]:
     locations = adapter_declarations.tier_locations(config).get("t2", [])
     journeys = as_list(
-        section(config_section(config, "tests"), "verification_surface").get(
+        config_section(config_section(config, "tests"), "verification_surface").get(
             "journey_file_pattern"
         )
     )
@@ -57,8 +54,8 @@ def t2_files(paths: list[str], config: dict[str, Any]) -> list[str]:
 
 
 def area_of_test(path: str, config: dict[str, Any]) -> str | None:
-    for pattern, area in section(
-        section(structure_settings(config), "ownership_areas"), "map"
+    for pattern, area in config_section(
+        config_section(structure_settings(config), "ownership_areas"), "map"
     ).items():
         if matches(path, str(pattern)) and isinstance(area, str):
             return area
@@ -66,12 +63,12 @@ def area_of_test(path: str, config: dict[str, Any]) -> str | None:
 
 
 def owner_of(path: str, config: dict[str, Any]) -> str | None:
-    owners = section(structure_settings(config), "owners")
-    files = section(owners, "files")
+    owners = config_section(structure_settings(config), "owners")
+    files = config_section(owners, "files")
     exact = files.get(path)
     if isinstance(exact, str):
         return exact
-    directories = section(owners, "directories")
+    directories = config_section(owners, "directories")
     best = None
     for prefix, owner in directories.items():
         if (
@@ -84,13 +81,15 @@ def owner_of(path: str, config: dict[str, Any]) -> str | None:
 
 
 def is_production(path: str, config: dict[str, Any]) -> bool:
-    layout = section(config_section(config, "tests"), "layout")
+    layout = config_section(config_section(config, "tests"), "layout")
     holders = [
         value
         for value in (layout.get("fixtures_dir"), layout.get("support_dir"))
         if value
     ]
-    scope = as_list(section(config_section(config, "tests"), "coverage").get("scope"))
+    scope = as_list(
+        config_section(config_section(config, "tests"), "coverage").get("scope")
+    )
     return (
         matches_any(path, scope)
         and not is_test_file(path, config)
@@ -130,17 +129,6 @@ def affected(repo: Path, config: dict[str, Any], argv: list[str]) -> Selection:
     except InventoryError as error:
         raise DiffError(str(error)) from error
     return select(changed, inventory, config)
-
-
-def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
-    try:
-        selection = affected(repo, config, argv)
-    except DiffError as error:
-        return [range_finding(RULE, error)]
-    print(f"selection: {selection.reason}", file=sys.stderr)
-    for path in selection.paths:
-        print(path)
-    return []
 
 
 @dataclass(frozen=True)

@@ -4,43 +4,43 @@ import json
 import re
 from pathlib import Path
 
-GUARDS_VARIABLE = "OMP_GUARDRAILS_GO_GUARDS"
-PROTECTED_VARIABLE = "OMP_GUARDRAILS_GO_PROTECTED"
-ALLOWED_VARIABLE = "OMP_GUARDRAILS_GO_ALLOWED"
-JOURNAL_VARIABLE = "OMP_GUARDRAILS_GO_JOURNAL"
+GUARDS_VARIABLE = "GUARDRAILS_GO_GUARDS"
+PROTECTED_VARIABLE = "GUARDRAILS_GO_PROTECTED"
+ALLOWED_VARIABLE = "GUARDRAILS_GO_ALLOWED"
+JOURNAL_VARIABLE = "GUARDRAILS_GO_JOURNAL"
 PATH_SEPARATOR = "\n"
-GUARD_FILE = "zz_omp_guardrails.go"
+GUARD_FILE = "zz_guardrails.go"
 SIGNATURE = re.compile(r"^func (?P<name>\w+)\((?P<params>[^()]*)\) [^\n]*\{$", re.M)
 HOOKS = {
-    "forkExec": ("ompGuardProcess({0})",),
-    "Exec": ("ompGuardProcess({0})",),
-    "Socket": ("ompGuardSocket({0})",),
-    "Open": ("ompGuardOpen({0}, {1})",),
-    "Mkdir": ("ompGuardWrite({0})",),
-    "Rename": ("ompGuardWrite({0})", "ompGuardWrite({1})"),
-    "Unlink": ("ompGuardWrite({0})",),
-    "Rmdir": ("ompGuardWrite({0})",),
-    "Symlink": ("ompGuardWrite({1})",),
-    "Link": ("ompGuardWrite({1})",),
-    "Truncate": ("ompGuardWrite({0})",),
-    "Chmod": ("ompGuardWrite({0})",),
+    "forkExec": ("guardrailsGuardProcess({0})",),
+    "Exec": ("guardrailsGuardProcess({0})",),
+    "Socket": ("guardrailsGuardSocket({0})",),
+    "Open": ("guardrailsGuardOpen({0}, {1})",),
+    "Mkdir": ("guardrailsGuardWrite({0})",),
+    "Rename": ("guardrailsGuardWrite({0})", "guardrailsGuardWrite({1})"),
+    "Unlink": ("guardrailsGuardWrite({0})",),
+    "Rmdir": ("guardrailsGuardWrite({0})",),
+    "Symlink": ("guardrailsGuardWrite({1})",),
+    "Link": ("guardrailsGuardWrite({1})",),
+    "Truncate": ("guardrailsGuardWrite({0})",),
+    "Chmod": ("guardrailsGuardWrite({0})",),
 }
 GUARD_SOURCE = """package syscall
 
 var (
-	ompGuards, _    = Getenv("${GUARDS}")
-	ompProtected, _ = Getenv("${PROTECTED}")
-	ompAllowed, _   = Getenv("${ALLOWED}")
-	ompJournal, _   = Getenv("${JOURNAL}")
+	guardrailsGuards, _    = Getenv("${GUARDS}")
+	guardrailsProtected, _ = Getenv("${PROTECTED}")
+	guardrailsAllowed, _   = Getenv("${ALLOWED}")
+	guardrailsJournal, _   = Getenv("${JOURNAL}")
 )
 
-func ompGuardListed(wanted string) bool {
-	for start := 0; start <= len(ompGuards); {
+func guardrailsGuardListed(wanted string) bool {
+	for start := 0; start <= len(guardrailsGuards); {
 		end := start
-		for end < len(ompGuards) && ompGuards[end] != ',' {
+		for end < len(guardrailsGuards) && guardrailsGuards[end] != ',' {
 			end++
 		}
-		if ompGuards[start:end] == wanted {
+		if guardrailsGuards[start:end] == wanted {
 			return true
 		}
 		start = end + 1
@@ -48,9 +48,9 @@ func ompGuardListed(wanted string) bool {
 	return false
 }
 
-func ompGuardBlock(message string) {
-	if ompJournal != "" {
-		if fd, err := Open(ompJournal, O_WRONLY|O_CREAT|O_APPEND, 0o600); err == nil {
+func guardrailsGuardBlock(message string) {
+	if guardrailsJournal != "" {
+		if fd, err := Open(guardrailsJournal, O_WRONLY|O_CREAT|O_APPEND, 0o600); err == nil {
 			Write(fd, []byte(message+"\\n"))
 			Close(fd)
 		}
@@ -58,38 +58,38 @@ func ompGuardBlock(message string) {
 	panic(message)
 }
 
-func ompGuardProcess(name string) {
-	if ompGuardListed("fast-tier") {
-		ompGuardBlock("TEST.fast-tier-isolation: blocked process start " + name)
+func guardrailsGuardProcess(name string) {
+	if guardrailsGuardListed("fast-tier") {
+		guardrailsGuardBlock("TEST.fast-tier-isolation: blocked process start " + name)
 	}
 }
 
-func ompGuardSocket(domain int) {
-	if (domain == AF_INET || domain == AF_INET6) && ompGuardListed("fast-tier") {
-		ompGuardBlock("TEST.fast-tier-isolation: blocked network socket")
+func guardrailsGuardSocket(domain int) {
+	if (domain == AF_INET || domain == AF_INET6) && guardrailsGuardListed("fast-tier") {
+		guardrailsGuardBlock("TEST.fast-tier-isolation: blocked network socket")
 	}
 }
 
-func ompGuardOpen(path string, mode int) {
+func guardrailsGuardOpen(path string, mode int) {
 	if mode&(O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|O_APPEND) != 0 {
-		ompGuardWrite(path)
+		guardrailsGuardWrite(path)
 	}
 }
 
-func ompGuardWrite(path string) {
-	if !ompGuardListed("user-data") {
+func guardrailsGuardWrite(path string) {
+	if !guardrailsGuardListed("user-data") {
 		return
 	}
-	target := ompGuardClean(ompGuardAbsolute(path))
-	if target == ompJournal {
+	target := guardrailsGuardClean(guardrailsGuardAbsolute(path))
+	if target == guardrailsJournal {
 		return
 	}
-	if ompGuardUnder(target, ompProtected) && !ompGuardUnder(target, ompAllowed) {
-		ompGuardBlock("TEST.user-data-guard: blocked write under the real home directory " + target)
+	if guardrailsGuardUnder(target, guardrailsProtected) && !guardrailsGuardUnder(target, guardrailsAllowed) {
+		guardrailsGuardBlock("TEST.user-data-guard: blocked write under the real home directory " + target)
 	}
 }
 
-func ompGuardAbsolute(path string) string {
+func guardrailsGuardAbsolute(path string) string {
 	if len(path) > 0 && path[0] == '/' {
 		return path
 	}
@@ -100,7 +100,7 @@ func ompGuardAbsolute(path string) string {
 	return directory + "/" + path
 }
 
-func ompGuardClean(path string) string {
+func guardrailsGuardClean(path string) string {
 	parts := []string{}
 	start := 0
 	for index := 0; index <= len(path); index++ {
@@ -130,7 +130,7 @@ func ompGuardClean(path string) string {
 	return cleaned
 }
 
-func ompGuardUnder(target string, roots string) bool {
+func guardrailsGuardUnder(target string, roots string) bool {
 	start := 0
 	for index := 0; index <= len(roots); index++ {
 		if index < len(roots) && roots[index] != '\\n' {

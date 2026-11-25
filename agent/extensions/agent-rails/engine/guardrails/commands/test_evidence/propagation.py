@@ -6,6 +6,7 @@ from typing import Any
 from guardrails.foundation.findings import Finding
 from guardrails.toolkit.test_report.collection import report_findings
 from guardrails.toolkit.test_report.junit import (
+    EXIT_CODE_PROPERTY,
     FAILING,
     Case,
     Report,
@@ -99,7 +100,7 @@ def evaluate(
     report: Report, config: dict[str, Any], exit_code: int | None
 ) -> list[Finding]:
     if exit_code is None:
-        exit_code = as_int(report.properties.get("omp.exit_code"))
+        exit_code = as_int(report.properties.get(EXIT_CODE_PROPERTY))
     if exit_code is None and report.requires_exit_code:
         return [
             Finding(

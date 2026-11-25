@@ -13,9 +13,13 @@ sys.path.insert(
 import pytest
 
 from guardrails.commands.adapters.go.evidence import guard_evidence, load_report
-from guardrails.commands.adapters.go.guard import HOOKS, GuardError, write_overlay
 from guardrails.commands.adapters.go.packages import Package
 from guardrails.commands.adapters.go.report import convert, read_stream, write_junit
+from guardrails.commands.adapters.go.syscall_overlay import (
+    HOOKS,
+    GuardError,
+    write_overlay,
+)
 from guardrails.commands.test_evidence import propagation
 
 pytestmark = pytest.mark.fast
@@ -87,18 +91,18 @@ class OverlayTests(unittest.TestCase):
                 replaced[str(goroot / "src/syscall/zsyscall_fake.go")]
             ).read_text()
             assert (
-                "func Socket(domain, typ, proto int) (fd int, err error) {\n\tompGuardSocket(domain)"
+                "func Socket(domain, typ, proto int) (fd int, err error) {\n\tguardrailsGuardSocket(domain)"
                 in patched
             )
-            assert "\tompGuardWrite(from)\n\tompGuardWrite(to)" in patched
-            assert "\tompGuardWrite(link)" in patched
-            assert "\tompGuardProcess(argv0)" in patched
-            assert "\tompGuardOpen(path, mode)" in patched
+            assert "\tguardrailsGuardWrite(from)\n\tguardrailsGuardWrite(to)" in patched
+            assert "\tguardrailsGuardWrite(link)" in patched
+            assert "\tguardrailsGuardProcess(argv0)" in patched
+            assert "\tguardrailsGuardOpen(path, mode)" in patched
             assert str(goroot / "src/syscall/untouched.go") not in replaced
             guard = Path(
-                replaced[str(goroot / "src/syscall/zz_omp_guardrails.go")]
+                replaced[str(goroot / "src/syscall/zz_guardrails.go")]
             ).read_text()
-            assert 'Getenv("OMP_GUARDRAILS_GO_GUARDS")' in guard
+            assert 'Getenv("GUARDRAILS_GO_GUARDS")' in guard
             assert "TEST.fast-tier-isolation" in guard
             assert "TEST.user-data-guard" in guard
 
@@ -203,9 +207,9 @@ class ReportTests(unittest.TestCase):
         )
         cases = convert(read_stream(text), PACKAGES, [])
         properties = {
-            "omp.tier": "t1",
-            "omp.exit_code": "0",
-            "omp.guards": "fast-tier,user-data",
+            "guardrails.tier": "t1",
+            "guardrails.exit_code": "0",
+            "guardrails.guards": "fast-tier,user-data",
         }
         with tempfile.TemporaryDirectory() as scratch:
             report = Path(scratch, "go.xml")
@@ -213,7 +217,7 @@ class ReportTests(unittest.TestCase):
             parsed = load_report(report)
             assert guard_evidence(report, "t1") == []
             assert [item.message for item in guard_evidence(report, "t2")] == [
-                "run report is missing or invalid: omp.tier is 't1', not 't2'"
+                "run report is missing or invalid: guardrails.tier is 't1', not 't2'"
             ]
         assert [
             (case.id, case.outcome, case.reason, case.duration_s)
@@ -233,7 +237,7 @@ class ReportTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as scratch:
             report = Path(scratch, "go.xml")
-            write_junit(report, cases, {"omp.tier": "t1"}, 0.1)
+            write_junit(report, cases, {"guardrails.tier": "t1"}, 0.1)
             parsed = load_report(report)
         assert [item.rule_id for item in propagation.evaluate(parsed, {}, None)] == [
             "TEST.failure-propagation"

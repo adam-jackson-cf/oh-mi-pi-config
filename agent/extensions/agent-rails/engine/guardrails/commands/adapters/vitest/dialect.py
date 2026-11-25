@@ -3,24 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from guardrails.commands.adapters import contract
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.test_report.junit import Dialect, ReportError, parse_report
+from guardrails.toolkit.test_report.junit import Dialect
 
 DIALECT = Dialect(name="vitest", source_suffix=".ts")
-GUARDS_PROPERTY = "omp.guards"
-TIER_GUARDS = {
-    "t1": ("fast-tier", "user-data"),
-    "t2": ("user-data",),
-    "t3": ("user-data",),
-}
-GUARD_RULES = {
-    "fast-tier": "TEST.fast-tier-isolation",
-    "user-data": "TEST.user-data-guard",
-}
+RERUN = "rerun Vitest with the adapter's junit arguments"
 
 
 def junit_arguments(tier: str, report_path: str) -> list[str]:
-    if tier not in TIER_GUARDS:
+    if tier not in contract.TIER_GUARDS:
         raise ValueError(f"unknown Vitest tier {tier!r}")
     report = Path(report_path).resolve()
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -43,29 +35,4 @@ def junit_arguments(tier: str, report_path: str) -> list[str]:
 
 
 def guard_evidence(report: Path, tier: str) -> list[Finding]:
-    if tier not in TIER_GUARDS:
-        raise ValueError(f"unknown Vitest tier {tier!r}")
-    try:
-        parsed = parse_report(report, DIALECT)
-        if parsed.properties.get("omp.tier") != tier:
-            raise ReportError(f"report does not record tier {tier}")
-    except ReportError as error:
-        return [
-            Finding(
-                "TEST.failure-propagation",
-                str(report),
-                str(error),
-                "rerun Vitest with the adapter's junit arguments",
-            )
-        ]
-    armed = set(parsed.properties.get(GUARDS_PROPERTY, "").split(","))
-    return [
-        Finding(
-            GUARD_RULES[guard],
-            str(report),
-            f"tier {tier} ran without the {guard} guard",
-            "rerun Vitest with the adapter's junit arguments",
-        )
-        for guard in TIER_GUARDS[tier]
-        if guard not in armed
-    ]
+    return contract.guard_evidence(report, tier, DIALECT, RERUN)

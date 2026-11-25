@@ -125,7 +125,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "TEST.no-evasion timeout increases, TEST.growth.justified, TEST.duplicate-path and CODE.* integrity",
     ),
     "affected": Subcommand(
-        ("guardrails.commands.adapters.affected",),
+        ("guardrails.commands.affected",),
         "affected T2 test files for a diff range, from the config's ownership areas",
         prints_data=True,
     ),

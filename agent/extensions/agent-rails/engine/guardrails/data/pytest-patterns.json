@@ -1,0 +1,182 @@
+[
+  {
+    "name": "no-evasion-markers",
+    "id": "TEST.no-evasion",
+    "language": "python",
+    "scope": "tests",
+    "message": "test skips, expects failure or retries instead of passing ({match})",
+    "remediation": {
+      "root_cause": "A skip, expected-failure or retry marker lets a failing or flaky test count as handled instead of fixed.",
+      "fix": "Remove the marker and fix the code or test so it passes on every required run; record a reason-backed exceptions entry only for an external outage."
+    },
+    "rule": {
+      "any": [
+        {
+          "kind": "decorator",
+          "regex": "^@\\s*((pytest\\.)?mark\\.(skip|skipif|xfail|flaky)|(unittest\\.)?(skip|skipIf|skipUnless|expectedFailure)|flaky)\\b"
+        },
+        {
+          "kind": "call",
+          "has": {
+            "field": "function",
+            "regex": "^(pytest\\.(skip|xfail|importorskip)|self\\.skipTest)$"
+          }
+        },
+        {
+          "kind": "assignment",
+          "regex": "^pytestmark\\s*=[\\s\\S]*mark\\.(skip|skipif|xfail|flaky)\\b"
+        }
+      ]
+    }
+  },
+  {
+    "name": "no-self-mocking-assignments",
+    "id": "TEST.no-self-mocking",
+    "language": "python",
+    "scope": "tests",
+    "target": "assigned-attribute-object",
+    "message": "test replaces an attribute of the repo's own code ({target})",
+    "remediation": {
+      "root_cause": "The test rebinds an attribute of owned code, so it checks the replacement rather than the code that ships.",
+      "fix": "Drive the behaviour through the declared public entry point and give the owned dependency an interface the test can pass a real or fake implementation through."
+    },
+    "rule": {
+      "kind": "assignment",
+      "has": {
+        "field": "left",
+        "kind": "attribute"
+      }
+    }
+  },
+  {
+    "name": "no-self-mocking-calls",
+    "id": "TEST.no-self-mocking",
+    "language": "python",
+    "scope": "tests",
+    "target": "first-argument",
+    "message": "test patches or mocks the repo's own code ({target})",
+    "remediation": {
+      "root_cause": "The test patches owned code because the code under test reaches its collaborator directly instead of receiving it.",
+      "fix": "Inject the collaborator through an owned interface, fake only third-party or OS boundaries, and call the public entry point unchanged."
+    },
+    "rule": {
+      "kind": "call",
+      "has": {
+        "field": "function",
+        "regex": "(^|\\.)(patch|patch\\.object|patch\\.dict|patch\\.multiple|setattr|delattr|create_autospec)$"
+      }
+    }
+  },
+  {
+    "name": "no-self-mocking-specs",
+    "id": "TEST.no-self-mocking",
+    "language": "python",
+    "scope": "tests",
+    "target": "keyword:spec,spec_set",
+    "message": "test builds a mock of the repo's own code ({target})",
+    "remediation": {
+      "root_cause": "The test builds a mock specced on owned code, which copies the owned interface instead of exercising it.",
+      "fix": "Use the real owned object through the public entry point and fake only third-party or OS boundaries behind owned interfaces."
+    },
+    "rule": {
+      "kind": "call",
+      "has": {
+        "field": "function",
+        "regex": "(^|\\.)(Mock|MagicMock|AsyncMock|NonCallableMock|NonCallableMagicMock)$"
+      }
+    }
+  },
+  {
+    "name": "no-test-hooks-environment",
+    "id": "TEST.no-test-hooks",
+    "language": "python",
+    "scope": "production",
+    "message": "production code reads a test marker from the environment or loaded modules ({match})",
+    "remediation": {
+      "root_cause": "Production code reads a test marker from the environment or loaded modules, so it behaves differently while tests run.",
+      "fix": "Delete the marker read and make the varying behaviour a production input, such as configuration or an injected dependency, that tests set like any caller."
+    },
+    "rule": {
+      "kind": "string",
+      "regex": "^[rRbBuU]*['\"]([A-Z0-9_]*_)?(PYTEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?['\"]$|^[rRbBuU]*['\"](pytest|unittest)['\"]$",
+      "any": [
+        {
+          "inside": {
+            "kind": "argument_list",
+            "inside": {
+              "kind": "call",
+              "has": {
+                "field": "function",
+                "regex": "(^|\\.)(getenv|environ\\.(get|pop|setdefault)|modules\\.get|find_spec)$"
+              }
+            }
+          }
+        },
+        {
+          "inside": {
+            "kind": "subscript",
+            "has": {
+              "field": "value",
+              "regex": "(^|\\.)(environ|modules)$"
+            }
+          }
+        },
+        {
+          "inside": {
+            "kind": "comparison_operator",
+            "has": {
+              "any": [
+                {
+                  "kind": "attribute"
+                },
+                {
+                  "kind": "identifier"
+                }
+              ],
+              "regex": "(^|\\.)(environ|modules)$"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "no-test-hooks-names",
+    "id": "TEST.no-test-hooks",
+    "language": "python",
+    "scope": "production",
+    "message": "production code declares a test-only hook ({match})",
+    "remediation": {
+      "root_cause": "Production code declares a hook named for tests, which exists only to let tests reach inside.",
+      "fix": "Remove the hook and drive the behaviour through the public entry point, exposing a real production input where tests need control."
+    },
+    "rule": {
+      "kind": "identifier",
+      "regex": "(?i)(^|_)(for_tests?|for_testing|test_hooks?|testing_only|test_only|test_mode)$"
+    }
+  },
+  {
+    "name": "property-seed",
+    "id": "TEST.property-seed",
+    "language": "python",
+    "scope": "tests",
+    "message": "Hypothesis property test neither fixes nor reports its seed ({match})",
+    "remediation": {
+      "root_cause": "The Hypothesis property test runs with a seed that is neither fixed nor reported, so a failure cannot be replayed.",
+      "fix": "Fix or report the seed for every property test through a shared Hypothesis settings profile: @seed, print_blob=True or derandomize=True."
+    },
+    "rule": {
+      "kind": "decorated_definition",
+      "has": {
+        "kind": "decorator",
+        "regex": "^@\\s*(hypothesis\\.)?given\\b"
+      },
+      "not": {
+        "has": {
+          "kind": "decorator",
+          "regex": "^@\\s*(hypothesis\\.)?seed\\b|print_blob\\s*=\\s*True|derandomize\\s*=\\s*True"
+        }
+      }
+    }
+  }
+]

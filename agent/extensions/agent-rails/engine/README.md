@@ -50,7 +50,7 @@ one, and two parts of one layer never import each other.
 | --- | --- |
 | `foundation` | findings, repository path matching, child-process environments, language packs |
 | `context` | the repo config, Git diff ranges and path selection |
-| `toolkit` | test reports, growth snapshots, Python path rules and subcommand dispatch |
+| `toolkit` | test reports, growth snapshots, affected T2 tests, Python path rules and dispatch |
 | `commands` | the CLI, `check`, `init`, every checker and the test-framework adapters |
 
 `tests/test_structure.py` checks these layers with the

@@ -5,8 +5,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from guardrails.commands.adapters.go.process import run_command
-from guardrails.commands.adapters.go.source import SourceError, defined_tests
+from guardrails.commands.adapters.go.syntax import defined_tests
+from guardrails.commands.adapters.go.toolchain import ToolchainError
+from guardrails.host.process import run_text
 
 TIMEOUT_S = 300
 TEST_FILE_KEYS = ("TestGoFiles", "XTestGoFiles")
@@ -72,7 +73,7 @@ def list_packages(
     build: list[str],
     environment: Mapping[str, str],
 ) -> dict[str, Package]:
-    result = run_command(
+    result = run_text(
         [
             *go,
             "list",
@@ -80,13 +81,14 @@ def list_packages(
             *build,
             *patterns,
         ],
-        repo,
-        environment,
-        TIMEOUT_S,
+        cwd=repo,
+        env=environment,
+        timeout=TIMEOUT_S,
+        check=False,
     )
     if result.returncode:
         tail = " ".join((result.stdout + result.stderr).split())[-600:]
-        raise SourceError(f"go list exited {result.returncode}: {tail}")
+        raise ToolchainError(f"go list exited {result.returncode}: {tail}")
     root = repo.resolve()
     packages = {}
     for item in decode_objects(result.stdout):

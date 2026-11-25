@@ -155,15 +155,11 @@ def repeated_remediations(entries: list[dict[str, Any]]) -> list[str]:
 
 
 def adapter_rule_files() -> dict[str, list[dict[str, Any]]]:
-    adapters = ENGINE / "guardrails/commands/adapters"
-    files = {
-        path.relative_to(adapters).as_posix(): [json.loads(path.read_text())]
-        for path in sorted((adapters / "pytest/rules").glob("*.yml"))
+    data = ENGINE / "guardrails/data"
+    return {
+        name: json.loads((data / name).read_text())
+        for name in ("pytest-patterns.json", "javascript-patterns.json")
     }
-    files["vitest/patterns.yml"] = json.loads(
-        (adapters / "vitest/patterns.yml").read_text()
-    )
-    return files
 
 
 def entry_keys(entries: list[dict[str, Any]]) -> set[str]:

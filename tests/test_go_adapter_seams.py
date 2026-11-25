@@ -18,8 +18,9 @@ from test_agentrails_fixture import approval, config, fixture, write_config
 from test_diff_checks import FixtureRepo
 
 from guardrails.commands import cli
-from guardrails.commands.adapters.go.conformance import load_cases, run_conformance
-from guardrails.commands.adapters.go.process import run_command
+from guardrails.commands.adapters.conformance import load_cases
+from guardrails.commands.adapters.go.conformance import run_conformance
+from guardrails.host.process import run_text
 from guardrails.toolkit.test_report.collection import read_ids
 
 pytestmark = pytest.mark.seam
@@ -82,7 +83,13 @@ def shop_module(root: Path) -> tuple[Path, Path]:
     for name, text in MODULE.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         (repo / name).write_text(text)
-    initialised = run_command(["git", "init", "-q", str(repo)], root, os.environ, 60)
+    initialised = run_text(
+        ["git", "init", "-q", str(repo)],
+        cwd=root,
+        env=os.environ,
+        timeout=60,
+        check=False,
+    )
     assert initialised.returncode == 0, initialised.stderr
     write_config(repo, config(**PROFILE))
     return repo, root

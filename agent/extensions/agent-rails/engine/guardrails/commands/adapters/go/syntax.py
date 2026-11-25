@@ -1,32 +1,22 @@
+"""Go source syntax: parsing, test functions, imports and identifier words."""
+
 from __future__ import annotations
 
-import posixpath
 import re
-import shlex
-import shutil
 from collections.abc import Iterator
-from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
-
-from guardrails.foundation.inventory import settings, tests_settings
+from pathlib import PurePosixPath
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
-NAME = "go"
-SETTINGS = "adapter_go"
 SOURCE_SUFFIX = ".go"
 TEST_SUFFIX = "_test.go"
 SKIPPED_PARTS = frozenset({".git", "vendor", "testdata", "node_modules"})
 TEST_NAME = re.compile(r"^(Test|Fuzz|Example)(?![a-z])\w*$")
 TEST_DEFINITION = re.compile(r"^func\s+((?:Test|Fuzz|Example)(?![a-z])\w*)\s*\(", re.M)
-MODULE_LINE = re.compile(r"^module\s+(\S+)", re.M)
 VERSION_ELEMENT = re.compile(r"^v\d+$")
 WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
-
-
-class SourceError(ValueError):
-    pass
 
 
 def parse(text: str) -> SgNode:
@@ -137,91 +127,6 @@ def go_files(paths: list[str]) -> list[str]:
         if path.endswith(SOURCE_SUFFIX)
         and not SKIPPED_PARTS.intersection(PurePosixPath(path).parts)
     })
-
-
-def module_of(repo: Path, path: str) -> tuple[str, str] | None:
-    folder = PurePosixPath(path).parent
-    while True:
-        manifest = repo / folder / "go.mod"
-        if manifest.is_file():
-            match = MODULE_LINE.search(manifest.read_text(encoding="utf-8"))
-            if match is None:
-                raise SourceError(f"{manifest} names no module")
-            return folder.as_posix(), match.group(1)
-        if folder == PurePosixPath("."):
-            return None
-        folder = folder.parent
-
-
-def owned_roots(config: dict[str, Any]) -> tuple[str, ...]:
-    entries = tests_settings(config, "public_entry_points")
-    roots = set()
-    for raw in entries if isinstance(entries, dict) else ():
-        path = str(raw).replace("\\", "/").rstrip("/")
-        if path.endswith(SOURCE_SUFFIX):
-            path = posixpath.dirname(path) or "."
-        roots.add(posixpath.normpath(path))
-    return tuple(sorted(roots))
-
-
-def under(path: str, root: str) -> bool:
-    return root == "." or path == root or path.startswith(root + "/")
-
-
-def owned_imports(repo: Path, config: dict[str, Any]) -> tuple[str, ...]:
-    prefixes = []
-    for root in owned_roots(config):
-        module = module_of(repo, posixpath.join(root, "x.go"))
-        if module is None:
-            continue
-        folder, name = module
-        relative = posixpath.relpath(root, folder)
-        prefixes.append(name if relative == "." else f"{name}/{relative}")
-    return tuple(sorted(prefixes))
-
-
-def owned_import(path: str, prefixes: tuple[str, ...]) -> bool:
-    return any(path == prefix or path.startswith(prefix + "/") for prefix in prefixes)
-
-
-def owned_path(path: str, config: dict[str, Any]) -> bool:
-    return any(under(path, root) for root in owned_roots(config))
-
-
-def command(config: dict[str, Any]) -> list[str]:
-    configured = settings(config, SETTINGS).get("command")
-    if configured is not None:
-        if (
-            not isinstance(configured, list)
-            or not configured
-            or not all(isinstance(part, str) for part in configured)
-        ):
-            raise SourceError(
-                f"checkers.{SETTINGS}.command must be a nonempty argv list"
-            )
-        return configured
-    go = shutil.which("go")
-    if go is None:
-        raise SourceError(
-            f"go is not on PATH; activate the repository's Go or set "
-            f"checkers.{SETTINGS}.command in .agentrails/config.json"
-        )
-    return [go]
-
-
-def selector_arguments(selector: str) -> list[str]:
-    return shlex.split(selector)
-
-
-def package_patterns(locations: list[str]) -> list[str]:
-    patterns = []
-    for location in locations:
-        cleaned = location.strip().rstrip("/") or "."
-        if cleaned == "." or cleaned.startswith(("./", "../", "/")):
-            patterns.append(cleaned if cleaned != "." else "./")
-        else:
-            patterns.append(f"./{cleaned}")
-    return patterns
 
 
 def defined_tests(text: str) -> list[str]:

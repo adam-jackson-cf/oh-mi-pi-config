@@ -12,6 +12,10 @@ from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import approved_targets, tests_settings
 from guardrails.host.process import run_text
 from guardrails.toolkit.test_report.junit import (
+    REVISION_PROPERTY,
+    RUNTIME_PROPERTY,
+    TIER_PROPERTY,
+    WALL_PROPERTY,
     Report,
     ReportError,
     ReportOptions,
@@ -137,15 +141,15 @@ def validity_findings(report: Report, expected_revision: str | None) -> list[Fin
         )
     if report.wall_s is None:
         found.append(
-            invalid(report.source, "no outer wall time (omp.wall_s or root time)")
+            invalid(report.source, f"no outer wall time ({WALL_PROPERTY} or root time)")
         )
-    recorded = report.properties.get("omp.revision", "").strip()
+    recorded = report.properties.get(REVISION_PROPERTY, "").strip()
     if not expected_revision:
         found.append(
             invalid(report.source, "the current revision cannot be determined")
         )
     elif not recorded:
-        found.append(invalid(report.source, "no omp.revision property"))
+        found.append(invalid(report.source, f"no {REVISION_PROPERTY} property"))
     elif recorded != expected_revision:
         found.append(
             invalid(
@@ -153,8 +157,8 @@ def validity_findings(report: Report, expected_revision: str | None) -> list[Fin
                 f"stale: measured {recorded}, current is {expected_revision}",
             )
         )
-    if not report.properties.get("omp.runtime", "").strip():
-        found.append(invalid(report.source, "no omp.runtime property"))
+    if not report.properties.get(RUNTIME_PROPERTY, "").strip():
+        found.append(invalid(report.source, f"no {RUNTIME_PROPERTY} property"))
     return found
 
 
@@ -222,7 +226,7 @@ def evaluate(
     expected_revision: str | None,
 ) -> BudgetResult:
     result = BudgetResult(validity_findings(report, expected_revision))
-    runtime = report.properties.get("omp.runtime", "").strip()
+    runtime = report.properties.get(RUNTIME_PROPERTY, "").strip()
     if result.findings or not runtime:
         return result
     machine = probe_machine(runtime)
@@ -239,7 +243,7 @@ def evaluate(
 
 
 def report_tier(report: Report, options: ReportOptions) -> str:
-    return options.tier or report.properties.get("omp.tier", "").strip() or "t1"
+    return options.tier or report.properties.get(TIER_PROPERTY, "").strip() or "t1"
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:

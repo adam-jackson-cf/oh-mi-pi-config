@@ -1,13 +1,1 @@
-{
-  "overrides": [
-    {
-      "files": [
-        "agent/extensions/agent-rails/engine/guardrails/commands/adapters/pytest/rules/*.yml",
-        "agent/extensions/agent-rails/engine/guardrails/commands/adapters/vitest/patterns.yml"
-      ],
-      "options": {
-        "parser": "json"
-      }
-    }
-  ]
-}
+{}

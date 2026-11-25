@@ -119,7 +119,7 @@ class JunitNormalisationTests(unittest.TestCase):
         ]
         assert [case.duration_s for case in report.cases] == [0.12, 0.03, 0.4]
         assert report.wall_s == 1.4
-        assert report.properties["omp.runtime"] == "python 3.12.4"
+        assert report.properties["guardrails.runtime"] == "python 3.12.4"
         assert report.declared == {"tests": 3, "failures": 0, "errors": 0}
 
     def test_pytest_like_outcomes_reasons_and_retries_are_normalised(self) -> None:
@@ -141,7 +141,7 @@ class JunitNormalisationTests(unittest.TestCase):
         assert report.cases[2].file == "src/cli.test.ts"
         assert report.wall_s == 0.912
         assert report.declared["tests"] == 3
-        assert report.properties["omp.runtime"] == "node 22.3.0"
+        assert report.properties["guardrails.runtime"] == "node 22.3.0"
 
     def test_vitest_like_skips_and_retry_properties_are_normalised(self) -> None:
         cases = fixture("vitest-mixed.xml", GENERIC).cases
@@ -285,15 +285,15 @@ class BudgetTests(unittest.TestCase):
             "stale": ("pytest-clean.xml", REVISION, "f" * 40, "stale"),
             "no revision": (
                 "pytest-clean.xml",
-                'name="omp.revision"',
+                'name="guardrails.revision"',
                 'name="other"',
-                "omp.revision",
+                "guardrails.revision",
             ),
             "no runtime": (
                 "pytest-clean.xml",
-                'name="omp.runtime"',
+                'name="guardrails.runtime"',
                 'name="other"',
-                "omp.runtime",
+                "guardrails.runtime",
             ),
             "untimed": (
                 "pytest-clean.xml",

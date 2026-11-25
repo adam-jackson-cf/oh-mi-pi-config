@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import math
 import shlex
 import shutil
 import subprocess
@@ -14,6 +13,7 @@ from guardrails.commands.adapters.bun_test.dialect import (
     native_cases,
     write_entry,
 )
+from guardrails.commands.adapters.contract import PROPAGATION, collect_timeout
 from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
@@ -22,7 +22,6 @@ from guardrails.host.process import run_text
 
 NAME = "bun_test"
 SETTINGS = "adapter_bun_test"
-RULE = "TEST.failure-propagation"
 
 
 def selector_arguments(selector: str) -> list[str]:
@@ -50,20 +49,6 @@ def command(config: dict[str, Any]) -> list[str]:
     return [bun]
 
 
-def collect_timeout(config: dict[str, Any]) -> float:
-    timeout = settings(config, SETTINGS).get("collect_timeout_s", 120)
-    if (
-        isinstance(timeout, bool)
-        or not isinstance(timeout, (int, float))
-        or not math.isfinite(timeout)
-        or timeout <= 0
-    ):
-        raise ValueError(
-            f"{SETTINGS}.collect_timeout_s must be a positive finite number"
-        )
-    return float(timeout)
-
-
 def selected_ids(report: Path) -> list[str]:
     root = ElementTree.parse(report).getroot()
     ids = []
@@ -89,8 +74,8 @@ def collect_tier(
             raise ValueError(
                 f"the bun_test adapter needs a bun test selector for tier {tier}"
             )
-        timeout = collect_timeout(config)
-        with tempfile.TemporaryDirectory(prefix="omp-bun-collect-") as scratch:
+        timeout = collect_timeout(config, SETTINGS)
+        with tempfile.TemporaryDirectory(prefix="guardrails-bun-collect-") as scratch:
             report = Path(scratch) / "ids.xml"
             entry = Path(scratch) / "collect.preload.mjs"
             journal = Path(scratch) / "collect.journal.jsonl"
@@ -134,7 +119,7 @@ def collect_tier(
     ) as error:
         return [
             Finding(
-                RULE,
+                PROPAGATION,
                 f"tiers.{tier}",
                 str(error),
                 "fix the tier's selector or location in tests.adapters[].tiers, or the "

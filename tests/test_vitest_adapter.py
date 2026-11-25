@@ -18,7 +18,8 @@ sys.path.insert(
 import pytest
 
 from guardrails.commands.adapters import vitest
-from guardrails.commands.adapters.vitest import mutation, tiers
+from guardrails.commands.adapters.javascript import stryker
+from guardrails.commands.adapters.vitest import tiers
 from guardrails.commands.test_evidence.mutation import load_report
 from guardrails.context.config.section_schema import CHECKER_SECTIONS
 
@@ -110,7 +111,7 @@ class VitestAdapterTests(unittest.TestCase):
                     },
                     "status": status,
                 }
-                for index, status in enumerate(mutation.STATUSES)
+                for index, status in enumerate(stryker.STATUSES)
             ]
             source.write_text(
                 json.dumps({
@@ -118,9 +119,9 @@ class VitestAdapterTests(unittest.TestCase):
                     "files": {"src/total.ts": {"mutants": mutants}},
                 })
             )
-            assert mutation.write_report(repo, source, out) == []
+            assert stryker.write_report(repo, source, out) == []
             parsed = load_report(out)
-            assert len(parsed) == len(mutation.STATUSES)
+            assert len(parsed) == len(stryker.STATUSES)
             assert {item.status for item in parsed} == {
                 "killed",
                 "survived",
@@ -134,13 +135,13 @@ class VitestAdapterTests(unittest.TestCase):
             source.write_text(
                 json.dumps({"files": {"src/total.ts": {"mutants": mutants}}})
             )
-            assert mutation.write_report(repo, source, out)
+            assert stryker.write_report(repo, source, out)
 
     def test_mutation_tool_names_exact_version(self) -> None:
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             assert vitest.run(Path.cwd(), {}, ["mutation-tool"]) == []
-        assert f"{mutation.TOOL}@{mutation.VERSION}" in out.getvalue()
+        assert f"{stryker.TOOL}@{stryker.VERSION}" in out.getvalue()
 
 
 if __name__ == "__main__":

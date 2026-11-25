@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import importlib
-import importlib.util
 from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
@@ -10,6 +9,14 @@ from guardrails.foundation.inventory import matches_any, tests_settings
 
 PACKAGE = "guardrails.commands.adapters"
 TIER_KEYS = ("t1", "t2", "t3")
+# Every adapter under PACKAGE by name, with the module (under PACKAGE) that collects its
+# static test cases. The other modules under PACKAGE are parts the adapters share.
+CATALOGUE = {
+    "bun_test": "javascript.cases",
+    "go": "go.cases",
+    "pytest": "pytest.cases",
+    "vitest": "javascript.cases",
+}
 
 
 @dataclass(frozen=True)
@@ -107,6 +114,8 @@ def adapter_part(name: str, part: str) -> ModuleType:
 
 
 def installed(name: str) -> bool:
-    if not name.isidentifier() or not name.islower():
-        return False
-    return importlib.util.find_spec(module_name(name)) is not None
+    return name in CATALOGUE
+
+
+def case_collector(name: str) -> ModuleType:
+    return importlib.import_module(f"{PACKAGE}.{CATALOGUE[name]}")

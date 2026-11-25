@@ -1,13 +1,9 @@
 from __future__ import annotations
 
+from guardrails.commands.adapters.contract import TIER_GUARDS
 from guardrails.commands.adapters.pytest.dialect import junit_arguments
 
 PLUGIN = "guardrails.commands.adapters.pytest.plugin"
-TIER_GUARDS = {
-    "t1": ("fast-tier", "user-data"),
-    "t2": ("user-data",),
-    "t3": ("user-data",),
-}
 
 
 def tier_arguments(tier: str, report_path: str) -> list[str]:
@@ -15,7 +11,7 @@ def tier_arguments(tier: str, report_path: str) -> list[str]:
     return [
         "-p",
         PLUGIN,
-        f"--omp-guard={guards}",
-        f"--omp-tier={tier}",
+        f"--guardrails-guard={guards}",
+        f"--guardrails-tier={tier}",
         *junit_arguments(report_path),
     ]

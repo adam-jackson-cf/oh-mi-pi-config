@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from guardrails.commands.adapters.vitest.lint import Vocabulary, lint as shared_lint
+from guardrails.commands.adapters.javascript.lint import Vocabulary, lint as shared_lint
 from guardrails.foundation.findings import Finding
 
 BUN = Vocabulary(

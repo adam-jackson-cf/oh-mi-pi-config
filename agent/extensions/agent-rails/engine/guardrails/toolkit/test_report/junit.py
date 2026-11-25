@@ -10,6 +10,12 @@ from guardrails.context.config import adapter_declarations
 from guardrails.foundation.inventory import settings
 
 FAILING = frozenset({"failed", "error"})
+TIER_PROPERTY = "guardrails.tier"
+GUARDS_PROPERTY = "guardrails.guards"
+RUNTIME_PROPERTY = "guardrails.runtime"
+REVISION_PROPERTY = "guardrails.revision"
+WALL_PROPERTY = "guardrails.wall_s"
+EXIT_CODE_PROPERTY = "guardrails.exit_code"
 
 
 class ReportError(Exception):
@@ -194,7 +200,7 @@ def parse_text(text: str, dialect: Dialect, source: str) -> Report:
         for item in property_items(holder):
             if item.get("name"):
                 properties[item.get("name", "")] = item.get("value", item.text or "")
-    wall = properties.get("omp.wall_s", root.get("time"))
+    wall = properties.get(WALL_PROPERTY, root.get("time"))
     return Report(
         source,
         cases,

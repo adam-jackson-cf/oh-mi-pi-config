@@ -20,15 +20,13 @@ from test_agentrails_fixture import config, write_config
 from test_bun_test_adapter import PROFILE
 
 from guardrails.commands import cli
-from guardrails.commands.adapters.bun_test.conformance import (
-    load_cases,
-    run_conformance,
-)
+from guardrails.commands.adapters.bun_test.conformance import run_conformance
 from guardrails.commands.adapters.bun_test.dialect import (
     DIALECT,
     guard_evidence,
     junit_arguments,
 )
+from guardrails.commands.adapters.conformance import load_cases
 from guardrails.commands.test_evidence import propagation
 from guardrails.toolkit.test_report.collection import read_ids
 from guardrails.toolkit.test_report.junit import parse_report

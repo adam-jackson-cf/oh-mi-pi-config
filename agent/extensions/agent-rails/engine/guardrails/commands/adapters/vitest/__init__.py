@@ -6,27 +6,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters.contract import TIER_GUARDS, output_finding
 from guardrails.foundation.findings import Finding
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 NAME = "vitest"
-TIER_GUARDS = {
-    "t1": ("fast-tier", "user-data"),
-    "t2": ("user-data",),
-    "t3": ("user-data",),
-}
 WRITING_ACTIONS = frozenset({"tiers", "junit-args", "mutation-report"})
-
-
-def output_finding(repo: Path, out: object) -> Finding | None:
-    if Path(str(out)).resolve().is_relative_to(repo.resolve()):
-        return Finding(
-            "GUARDRAILS.output-outside-repo",
-            str(out),
-            "adapter evidence must be outside the repository",
-            "choose an external temporary directory",
-        )
-    return None
 
 
 def parser() -> argparse.ArgumentParser:
@@ -68,14 +53,14 @@ def tier_arguments(tier: str, report_path: str) -> list[str]:
 def affected_arguments(
     repo: Path, config: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
-    from guardrails.commands.adapters.affected import TierCommand, print_affected
-    from guardrails.commands.adapters.vitest.cases import SUFFIXES
+    from guardrails.commands.adapters.javascript import cases
     from guardrails.commands.adapters.vitest.tiers import selector_arguments
+    from guardrails.toolkit.affected import TierCommand, print_affected
 
     def t2_arguments(selector: object, paths: list[str]) -> list[str]:
         return [*selector_arguments(str(selector)), "--", *paths]
 
-    command = TierCommand(NAME, SUFFIXES, t2_arguments)
+    command = TierCommand(NAME, cases.SUFFIXES, t2_arguments)
     return print_affected(repo, config, command, base, head)
 
 
@@ -123,10 +108,10 @@ def affected_action(
 def mutation_tool_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
-    from guardrails.commands.adapters.vitest.mutation import TOOL, VERSION
+    from guardrails.commands.adapters.javascript import stryker
 
     print(
-        f"{TOOL}@{VERSION} (tier t3; JSON reporter; run with the repository's locked toolchain)"
+        f"{stryker.TOOL}@{stryker.VERSION} (tier t3; JSON reporter; run with the repository's locked toolchain)"
     )
     return []
 
@@ -134,7 +119,7 @@ def mutation_tool_action(
 def mutation_report_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
-    from guardrails.commands.adapters.vitest.mutation import write_report
+    from guardrails.commands.adapters.javascript import stryker
     from guardrails.foundation.inventory import settings
 
     source = options.input or Path(
@@ -142,7 +127,7 @@ def mutation_report_action(
             "mutation_report", "reports/mutation/mutation.json"
         )
     )
-    return write_report(repo, repo / source, options.out)
+    return stryker.write_report(repo, repo / source, options.out)
 
 
 def conformance_action(

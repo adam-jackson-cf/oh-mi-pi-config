@@ -22,6 +22,7 @@ sys.path.insert(
 
 import pytest
 
+from guardrails.commands.adapters.conformance import fixture_case, load_cases
 from guardrails.commands.adapters.vitest import conformance
 from guardrails.commands.adapters.vitest.dialect import (
     DIALECT,
@@ -36,7 +37,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
 
-RUNTIME = ENGINE / "guardrails/commands/adapters/vitest/runtime.ts"
+RUNTIME = ENGINE / "guardrails/commands/adapters/javascript/node_guard/install.ts"
 
 
 class VitestRuntimeCase(unittest.TestCase):
@@ -121,8 +122,8 @@ class VitestRuntimeTests(VitestRuntimeCase):
             report = Path(scratch) / "run.xml"
             assert guard_evidence(report, "t1")[0].rule_id == "TEST.failure-propagation"
             report.write_text(
-                '<testsuite><properties><property name="omp.tier" value="t1"/>'
-                '<property name="omp.guards" value="user-data"/></properties></testsuite>'
+                '<testsuite><properties><property name="guardrails.tier" value="t1"/>'
+                '<property name="guardrails.guards" value="user-data"/></properties></testsuite>'
             )
             assert [finding.rule_id for finding in guard_evidence(report, "t1")] == [
                 "TEST.fast-tier-isolation"
@@ -130,11 +131,12 @@ class VitestRuntimeTests(VitestRuntimeCase):
             assert guard_evidence(report, "t2")[0].rule_id == "TEST.failure-propagation"
 
     def test_every_canonical_case_has_a_frozen_typescript_fixture(self) -> None:
-        cases = conformance.load_cases()
+        cases = load_cases()
         assert len({case["id"] for case in cases}) == len(cases)
         for case in cases:
             with self.subTest(case=case["id"]):
-                assert conformance.fixture_source(case["id"]).strip()
+                fixture = fixture_case(case["id"])
+                assert conformance.fixture_source(fixture).strip()
         assert conformance.fixture_source("owned-package").strip()
 
     def test_conformance_never_silently_skips_a_missing_native_installation(
@@ -150,7 +152,7 @@ class VitestRuntimeTests(VitestRuntimeCase):
                     ["not-a-case"], repo=repo, config=conformance.BASE_CONFIG
                 )
         assert [result.case_id for result in results] == [
-            case["id"] for case in conformance.load_cases()
+            case["id"] for case in load_cases()
         ]
         assert all(
             not result.passed and "installed locally" in result.detail

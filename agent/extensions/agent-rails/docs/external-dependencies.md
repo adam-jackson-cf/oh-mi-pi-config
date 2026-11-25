@@ -32,7 +32,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | `AGENT` env var | omp runtime | Stripped from every repo command |
 | `OMP_WORKTREE_DIR` | omp runtime | Overrides `worktree.base` in the guard |
 | `OMP_CI_RUNNERS` | omp runtime | Overrides the `ci-runners.json` path for `ci_runner.py` |
-| `OMP_REVISION` | Repo test runs | Revision stamped into adapter test evidence |
+| `GUARDRAILS_REVISION` | Repo test runs | Revision stamped into adapter test evidence |
 | `PI_CODING_AGENT_DIR` | omp runtime | Agent dir holding the decision store and review state |
 | `TYPESAFE_API_KEY` | omp runtime | Key omp's typesafe provider sends |
 | `TYPESAFE_BASE_URL` | omp runtime | Jev Inspector route; gate judgments refuse it |
@@ -50,7 +50,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Lint config | `.oxlintrc.json` | Complexity limits, anti-slop rules |
 | Anti-slop plugin | `tools/oxlint/anti-slop` | Custom oxlint rules for extension TS |
 | Markdown lint | `.markdownlint-cli2.jsonc` | 160-column limit for `skills/**` |
-| Prettier | `.prettierrc.json` | Engine rule YAML parsed as JSON |
+| Prettier | `.prettierrc.json` | Pins Prettier defaults for data files |
 | Git allowlist | `.gitignore` | Tracks extension and tests |
 
 ## Scripts and CI

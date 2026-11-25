@@ -14,7 +14,8 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.adapters.vitest import cases, lint
+from guardrails.commands.adapters.javascript import cases, lint
+from guardrails.commands.adapters.vitest.lint import VITEST
 from guardrails.foundation.findings import Finding
 from guardrails.toolkit.growth import Snapshot, duplicate_findings, growth_findings
 
@@ -38,11 +39,11 @@ def findings(
 ) -> list[Finding]:
     rules = [
         rule
-        for rule in lint.load_rules()
+        for rule in lint.load_patterns()
         if rule.scope
         == ("tests" if lint.is_test(path, profile, "vitest") else "production")
     ]
-    return lint.file_findings(path, source, rules, ROOTS, lint.VITEST)
+    return lint.file_findings(path, source, rules, ROOTS, VITEST)
 
 
 class StaticCases(unittest.TestCase):
@@ -361,12 +362,12 @@ class SourceLint(unittest.TestCase):
     def test_root_package_ownership_does_not_turn_locals_or_external_modules_into_owned_imports(
         self,
     ) -> None:
-        rules = [rule for rule in lint.load_rules() if rule.scope == "tests"]
+        rules = [rule for rule in lint.load_patterns() if rule.scope == "tests"]
         source = """import { external } from 'third-party';
         let local = 0; local = 1; const state = {value: 0}; state.value = 1;
         vi.mock('third-party'); vi.spyOn(external, 'run'); vi.spyOn(process, 'exit');"""
         found = lint.file_findings(
-            "tests/case.test.ts", source, rules, (".", "owned-app"), lint.VITEST
+            "tests/case.test.ts", source, rules, (".", "owned-app"), VITEST
         )
         assert found == []
         owned = lint.file_findings(
@@ -374,14 +375,14 @@ class SourceLint(unittest.TestCase):
             "import * as core from '../src/core'; core.run = replacement;",
             rules,
             (".", "owned-app"),
-            lint.VITEST,
+            VITEST,
         )
         assert [item.rule_id for item in owned] == ["TEST.no-self-mocking"]
 
 
 class PatternContract(unittest.TestCase):
     def test_yaml_patterns_cover_required_rules(self) -> None:
-        rules = lint.load_rules()
+        rules = lint.load_patterns()
         assert {rule.rule_id for rule in rules} == {
             "TEST.no-self-mocking",
             "TEST.no-test-hooks",

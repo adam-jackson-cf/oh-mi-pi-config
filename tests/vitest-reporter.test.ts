@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
 import GuardrailsReporter from "../agent/extensions/agent-rails/engine/guardrails/commands/adapters/vitest/reporter.ts";
-import type { GuardSettings } from "../agent/extensions/agent-rails/engine/guardrails/commands/adapters/vitest/runtime.ts";
+import type { GuardSettings } from "../agent/extensions/agent-rails/engine/guardrails/commands/adapters/javascript/node_guard/install.ts";
 
 const scratches: string[] = [];
 const exitCode = process.exitCode ?? 0;
@@ -78,20 +78,20 @@ describe("Vitest guardrails reporter", () => {
     reporter.onInit({ projects: [first] });
     reporter.onTestRunStart([{ project: first }]);
     const [guards, setup] = first.config.setupFiles;
-    assert.match(guards ?? "", /vitest\/guards\.ts$/);
+    assert.match(guards ?? "", /vitest\/setup\.ts$/);
     assert.equal(setup, "./setup.ts");
     assert.equal(first.config.setupFiles.length, 2);
     assert.equal(first.config.sequence.setupFiles, "list");
     assert.equal(first.config.cache, false);
     assert.equal(first.config.fsModuleCache, false);
     assert.equal(first.config.env["KEEP"], "1");
-    const settings = first.provided.get("omp.guardrails");
+    const settings = first.provided.get("guardrails.settings");
     assert.ok(settings);
     assert.equal(settings.tier, "t1");
     assert.ok(first.config.env["HOME"]?.startsWith(settings.allowed[0] ?? "-"));
     const second = project();
     reporter.onTestRunStart([{ project: second }]);
-    assert.ok(second.provided.has("omp.guardrails"));
+    assert.ok(second.provided.has("guardrails.settings"));
   });
 
   test("records every outcome, suite error and guard violation in the JUnit report", () => {
@@ -115,8 +115,8 @@ describe("Vitest guardrails reporter", () => {
     );
     const xml = readFileSync(report, "utf8");
     assert.match(xml, /<testsuite tests="9" failures="2" errors="4"/);
-    assert.match(xml, /name="omp.guards" value="fast-tier"/);
-    assert.match(xml, /name="omp.exit_code" value="1"/);
+    assert.match(xml, /name="guardrails.guards" value="fast-tier"/);
+    assert.match(xml, /name="guardrails.exit_code" value="1"/);
     assert.match(xml, /file="src\/cart.test.ts" classname="src\/cart.test.ts" name="suite &gt; passes" time="0.25"><properties><property name="retries" value="1"\/><\/properties><\/testcase>/);
     assert.match(xml, /<failure message="expected 1 &amp; got 2"\/>/);
     assert.match(xml, /<skipped message="later"\/>/);
@@ -133,7 +133,7 @@ describe("Vitest guardrails reporter", () => {
     const empty = new GuardrailsReporter({ tier: "t2", report: reportPath() });
     empty.onInit({ projects: [] });
     empty.onTestRunEnd([]);
-    assert.match(readFileSync(empty.options.report, "utf8"), /name="omp.exit_code" value="1"/);
+    assert.match(readFileSync(empty.options.report, "utf8"), /name="guardrails.exit_code" value="1"/);
     process.exitCode = exitCode;
     const clean = new GuardrailsReporter({ tier: "t2", report: reportPath() });
     clean.onInit({ projects: [] });
@@ -141,7 +141,7 @@ describe("Vitest guardrails reporter", () => {
       ...module,
       children: { ...module.children, allSuites: () => [] },
     })));
-    assert.match(readFileSync(clean.options.report, "utf8"), /name="omp.exit_code" value="0"/);
+    assert.match(readFileSync(clean.options.report, "utf8"), /name="guardrails.exit_code" value="0"/);
     assert.equal(process.exitCode ?? 0, exitCode);
   });
 });

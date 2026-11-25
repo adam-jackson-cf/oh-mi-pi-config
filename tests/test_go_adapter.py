@@ -17,8 +17,9 @@ import guardrails.commands.adapters.go.lint as go_lint
 from guardrails.commands.adapters.go.cases import collect
 from guardrails.commands.adapters.go.mutation import normalise
 from guardrails.commands.adapters.go.packages import build_arguments
-from guardrails.commands.adapters.go.source import imports, package_patterns, parse
+from guardrails.commands.adapters.go.syntax import imports, parse
 from guardrails.commands.adapters.go.tiers import flag_value, listed_names, top_level
+from guardrails.commands.adapters.go.toolchain import package_patterns
 from guardrails.context.config.adapter_declarations import installed
 from guardrails.toolkit.growth import Snapshot, growth_findings
 

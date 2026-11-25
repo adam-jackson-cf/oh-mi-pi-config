@@ -105,11 +105,7 @@ class RequiredExtraTests(unittest.TestCase):
         assert spec is not None
         assert spec.loader is not None
         seams = importlib.util.module_from_spec(spec)
-        environment = {
-            key: value
-            for key, value in os.environ.items()
-            if key != "OMP_GUARDRAILS_REQUIRE_PYTEST_EXTRA"
-        }
+        environment = dict(os.environ)
         with (
             mock.patch.object(importlib.util, "find_spec", return_value=None),
             mock.patch.dict(os.environ, environment, clear=True),
@@ -167,17 +163,17 @@ class StandardLibraryTests(unittest.TestCase):
         assert receipt.outcome == "error"
         assert "TEST.fast-tier-isolation" in receipt.reason
         assert cases["tests/test_basket.py::test_flaky_total"].retries == 1
-        assert report.properties["omp.tier"] == "t1"
-        assert report.properties["omp.runtime"] == "python 3.11.2"
+        assert report.properties["guardrails.tier"] == "t1"
+        assert report.properties["guardrails.runtime"] == "python 3.11.2"
         assert report.wall_s == 0.512
 
     def test_subtests_the_suite_counts_are_not_read_as_a_truncated_report(
         self,
     ) -> None:
         tallied = subtest_report(
-            '<property name="omp.subtests.tests" value="7"/>'
-            '<property name="omp.subtests.failures" value="1"/>'
-            '<property name="omp.subtests.errors" value="0"/>'
+            '<property name="guardrails.subtests.tests" value="7"/>'
+            '<property name="guardrails.subtests.failures" value="1"/>'
+            '<property name="guardrails.subtests.errors" value="0"/>'
         )
         assert tallied.declared == {"tests": 2, "failures": 0, "errors": 0}
         assert propagation.truncation_findings(tallied) == []
@@ -296,8 +292,10 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
 
 
 def adapter_lint_rules() -> list[dict[str, Any]]:
-    folder = ENGINE / "guardrails/commands/adapters/pytest/rules"
-    return [json.loads(path.read_text()) for path in sorted(folder.glob("*.yml"))]
+    patterns: list[dict[str, Any]] = json.loads(
+        (ENGINE / "guardrails/data/pytest-patterns.json").read_text()
+    )
+    return patterns
 
 
 class ExtraTests(unittest.TestCase):

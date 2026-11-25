@@ -58,12 +58,7 @@ def framework_collectors(config: dict[str, Any]) -> list[FrameworkCollector]:
     for name in adapter_declarations.names(config):
         if not adapter_declarations.installed(name):
             raise ValueError(f"adapter {name!r} is not installed")
-        try:
-            module = adapter_declarations.adapter_part(name, "cases")
-        except ModuleNotFoundError as error:
-            raise ValueError(
-                f"adapter {name!r} has no static test-case collector"
-            ) from error
+        module = adapter_declarations.case_collector(name)
         found.append(
             FrameworkCollector(
                 name,
@@ -201,7 +196,7 @@ def check(repo: Path, config: dict[str, Any], diff: DiffRange) -> list[Finding]:
                 GROWTH,
                 config_label("tests"),
                 str(error),
-                "declare installed adapters that ship 'cases.collect' and 'cases.SUFFIXES'",
+                "declare only installed adapters in tests.adapters",
             )
         ]
     cache: dict[str, CollectedFile | ValueError] = {}

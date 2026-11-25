@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import math
 import shlex
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters.contract import PROPAGATION, collect_timeout
 from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
@@ -15,7 +15,7 @@ from guardrails.foundation.inventory import as_list, settings
 from guardrails.host.process import run_text
 
 NAME = "vitest"
-RULE = "TEST.failure-propagation"
+SETTINGS = "adapter_vitest"
 
 
 def selector_arguments(selector: str) -> list[str]:
@@ -23,7 +23,7 @@ def selector_arguments(selector: str) -> list[str]:
 
 
 def command(repo: Path, config: dict[str, Any]) -> list[str]:
-    configured = settings(config, "adapter_vitest").get("command")
+    configured = settings(config, SETTINGS).get("command")
     if configured is not None:
         if (
             not isinstance(configured, list)
@@ -74,17 +74,10 @@ def collect_tier(
             raise ValueError(
                 f"the vitest adapter needs a native Vitest selector for tier {tier}"
             )
-        timeout = settings(config, "adapter_vitest").get("collect_timeout_s", 120)
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, (int, float))
-            or not math.isfinite(timeout)
-            or timeout <= 0
-        ):
-            raise ValueError(
-                "adapter_vitest.collect_timeout_s must be a positive finite number"
-            )
-        with tempfile.TemporaryDirectory(prefix="omp-vitest-collect-") as scratch:
+        timeout = collect_timeout(config, SETTINGS)
+        with tempfile.TemporaryDirectory(
+            prefix="guardrails-vitest-collect-"
+        ) as scratch:
             listing = Path(scratch) / "ids.json"
             argv = [
                 *command(repo, config),
@@ -119,7 +112,7 @@ def collect_tier(
     except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
         return [
             Finding(
-                RULE,
+                PROPAGATION,
                 f"tiers.{tier}",
                 str(error),
                 "fix the tier's selector or location in tests.adapters[].tiers, or the "

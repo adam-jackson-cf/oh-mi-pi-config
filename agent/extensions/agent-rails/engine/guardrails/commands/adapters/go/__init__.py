@@ -6,26 +6,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from guardrails.commands.adapters.go.run import TIER_GUARDS
+from guardrails.commands.adapters.contract import (
+    PROPAGATION,
+    TIER_GUARDS,
+    output_finding,
+)
+from guardrails.commands.adapters.go.run import run_tier
 from guardrails.foundation.findings import Finding
 
-NAME = "go"
-PROPAGATION = "TEST.failure-propagation"
-OUTPUT_RULE = "GUARDRAILS.output-outside-repo"
 WRITING_ACTIONS = frozenset({"tiers", "run", "mutation-report"})
-
-
-def output_finding(repo: Path, out: object) -> Finding | None:
-    target = Path(str(out)).expanduser()
-    target = (target if target.is_absolute() else repo / target).resolve()
-    if target.is_relative_to(repo.resolve()):
-        return Finding(
-            OUTPUT_RULE,
-            str(out),
-            "adapter evidence must be outside the repository",
-            "choose an external temporary directory",
-        )
-    return None
 
 
 def parser() -> argparse.ArgumentParser:
@@ -76,7 +65,6 @@ def run_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     from guardrails.commands.adapters.go.evidence import report_finding
-    from guardrails.commands.adapters.go.run import run_tier
 
     try:
         code = run_tier(repo, config, options.tier, options.out)
@@ -105,7 +93,7 @@ def evidence_action(
 def affected_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
-    from guardrails.commands.adapters.go.affected import affected_arguments
+    from guardrails.commands.adapters.go.tiers import affected_arguments
 
     return affected_arguments(repo, config, options.base, options.head)
 

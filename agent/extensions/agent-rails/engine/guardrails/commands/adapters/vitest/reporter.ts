@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { GuardSettings } from './runtime.ts';
+import type { GuardSettings } from '../javascript/node_guard/install.ts';
 
 interface ReporterOptions {
   tier: string;
@@ -138,7 +138,7 @@ export default class GuardrailsReporter {
   }
 
   configureProjects(projects: VitestProject[]): void {
-    const setup = fileURLToPath(new URL('./guards.ts', import.meta.url));
+    const setup = fileURLToPath(new URL('./setup.ts', import.meta.url));
     const settings = this.settings;
     if (!settings) throw new Error('Vitest evidence was not initialised');
     for (const project of projects) {
@@ -149,7 +149,7 @@ export default class GuardrailsReporter {
       project.config.env = { ...project.config.env, ...this.environment };
       project.config.cache = false;
       project.config.fsModuleCache = false;
-      project.provide('omp.guardrails', settings);
+      project.provide('guardrails.settings', settings);
     }
   }
 
@@ -172,9 +172,9 @@ export default class GuardrailsReporter {
     if (exitCode) process.exitCode = 1;
     const wall = (performance.now() - this.started) / 1000;
     const properties: [string, string | number][] = [
-      ['omp.tier', this.options.tier], ['omp.guards', [...guards].join(',')],
-      ['omp.runtime', `node ${process.version}; vitest`], ['omp.revision', process.env['OMP_REVISION'] ?? ''],
-      ['omp.wall_s', wall], ['omp.exit_code', exitCode],
+      ['guardrails.tier', this.options.tier], ['guardrails.guards', [...guards].join(',')],
+      ['guardrails.runtime', `node ${process.version}; vitest`], ['guardrails.revision', process.env['GUARDRAILS_REVISION'] ?? ''],
+      ['guardrails.wall_s', wall], ['guardrails.exit_code', exitCode],
     ];
     const xml = `<?xml version="1.0" encoding="UTF-8"?><testsuite tests="${run.records.length}" failures="${run.failed}" errors="${run.errors.length}" time="${wall}"><properties>${properties.map(([key, value]) => property(key, value)).join('')}</properties>${run.records.join('')}</testsuite>\n`;
     fs.writeFileSync(this.options.report, xml);

@@ -1,7 +1,0 @@
-package tests
-
-import "testing"
-
-func TestRoundingKeepsCents(t *testing.T) {
-	t.Skip("xfail: known defect")
-}

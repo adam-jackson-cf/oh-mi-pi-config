@@ -29,7 +29,6 @@ from test_agentrails_fixture import (
 )
 
 from guardrails.commands import cli
-from guardrails.commands.adapters import affected
 from guardrails.commands.diffs import (
     coverage_ratchet,
     golden_record,
@@ -37,6 +36,7 @@ from guardrails.commands.diffs import (
     identity_artefacts,
     timeouts,
 )
+from guardrails.toolkit import affected
 
 pytestmark = pytest.mark.seam
 

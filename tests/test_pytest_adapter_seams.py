@@ -183,10 +183,8 @@ def shop_repository(root: Path, test_source: str = SHOP_TEST) -> Path:
 
 class ExtraTests(unittest.TestCase):
     def test_every_conformance_case_passes(self) -> None:
-        from guardrails.commands.adapters.pytest.conformance import (
-            load_cases,
-            run_conformance,
-        )
+        from guardrails.commands.adapters.conformance import load_cases
+        from guardrails.commands.adapters.pytest.conformance import run_conformance
 
         results = run_conformance([])
         assert len(results) == len(load_cases())
@@ -338,10 +336,10 @@ class ExtraTests(unittest.TestCase):
                 ["git", "-C", str(repo), "rev-parse", "HEAD"], timeout=60
             ).stdout.strip()
             parsed = parse_report(report, DIALECT)
-            assert parsed.properties["omp.revision"] == head
-            assert parsed.properties["omp.tier"] == "t1"
-            assert parsed.properties["omp.exit_code"] == "0"
-            assert parsed.properties["omp.runtime"].startswith("python 3.")
+            assert parsed.properties["guardrails.revision"] == head
+            assert parsed.properties["guardrails.tier"] == "t1"
+            assert parsed.properties["guardrails.exit_code"] == "0"
+            assert parsed.properties["guardrails.runtime"].startswith("python 3.")
             assert [case.id for case in parsed.cases] == [
                 "tests/test_shop.py::test_price_doubles"
             ]
@@ -377,7 +375,7 @@ class ExtraTests(unittest.TestCase):
                     "no:cacheprovider",
                     "-p",
                     "guardrails.commands.adapters.pytest.plugin",
-                    "--omp-guard=user-data",
+                    "--guardrails-guard=user-data",
                     "-n",
                     "2",
                     "tests",
@@ -416,7 +414,7 @@ class ExtraTests(unittest.TestCase):
             assert result.returncode == 0, result.stdout + result.stderr
             parsed = parse_report(report, DIALECT)
             assert propagation.evaluate(parsed, SHOP_PROFILE, None) == []
-            assert parsed.properties["omp.subtests.tests"] == "3"
+            assert parsed.properties["guardrails.subtests.tests"] == "3"
 
     def test_unittest_suites_take_tier_markers_and_run_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
@@ -541,8 +539,8 @@ class StandardLibraryCliTests(unittest.TestCase):
                 str(report),
             )
             assert code == 0
-            assert "--omp-guard=fast-tier,user-data" in out
-            assert "--omp-tier=t1" in out
+            assert "--guardrails-guard=fast-tier,user-data" in out
+            assert "--guardrails-tier=t1" in out
             assert f"--junitxml={report}" in out
             for inside in ("reports/t1.xml", str(Path(scratch) / "t1.xml")):
                 code, out = run_cli(

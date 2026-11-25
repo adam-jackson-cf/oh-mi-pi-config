@@ -7,10 +7,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
-FAST_TIER = "fast-tier"
-USER_DATA = "user-data"
-GUARDS = (FAST_TIER, USER_DATA)
-RULES = {FAST_TIER: "TEST.fast-tier-isolation", USER_DATA: "TEST.user-data-guard"}
+from guardrails.commands.adapters.contract import FAST_TIER, GUARD_RULES, USER_DATA
 
 PROCESS_EVENTS = frozenset({
     "subprocess.Popen",
@@ -121,7 +118,7 @@ def violation(event: str, args: tuple[Any, ...]) -> str | None:
 
 
 def fast_tier_violation(event: str, args: tuple[Any, ...]) -> str | None:
-    rule = RULES[FAST_TIER]
+    rule = GUARD_RULES[FAST_TIER]
     if event in PROCESS_EVENTS:
         return (
             f"{rule}: the fast tier may not start a process ({event} {describe(args)})"
@@ -154,7 +151,7 @@ def user_data_violation(event: str, args: tuple[Any, ...]) -> str | None:
     for path in written_paths(event, args):
         if is_protected(path):
             return (
-                f"{RULES[USER_DATA]}: a test may not change user data under the real home "
+                f"{GUARD_RULES[USER_DATA]}: a test may not change user data under the real home "
                 f"directory ({event} {path!r}); write under the test's temporary directory"
             )
     return None
