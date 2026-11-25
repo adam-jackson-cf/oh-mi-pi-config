@@ -88,6 +88,16 @@ messages.
   points rather than filling a quota.
     - Put the answer, outcome, or decision in `K1`, together with the minimum
     context needed to understand it and essential verification.
+    - For each key decision, explain it from a concrete scenario before the options:
+      - Scenario: one representative case, taken from the work where possible (a real
+      case ID, file or code shape), that shows the situation the decision governs.
+      Name what the code or user does in plain terms.
+      - Today: what the system does in that scenario now, and the observed evidence for it.
+      - Why it matters: the consequence if the decision is left as it is.
+      - Options: for each option, what changes in that same scenario and its cost or
+      risk. Mark the recommended option and give its reason.
+      - Never present a decision as a label, a rule ID, or a one-line choice that only
+      makes sense to someone who did the work.
     - For each key recommendation, include the reason it follows from the
     evidence and the consequence for the user's objective.
     - Distinguish observed facts, inferences, and proposed actions when their
