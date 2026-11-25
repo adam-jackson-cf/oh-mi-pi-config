@@ -18,4 +18,6 @@ if [[ "$found_go" != "go$go_version" ]]; then
 fi
 bun install --frozen-lockfile
 uv sync --locked
+# The rails run the engine with uv run --project; sync it here, while setup is online.
+uv sync --locked --project agent/extensions/agent-rails/engine
 git config core.hooksPath .githooks

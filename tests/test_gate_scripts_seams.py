@@ -516,6 +516,13 @@ def test_install_quality_gates_installs_the_locked_dependencies_and_the_hook(
         ["go", "env", "GOVERSION"],
         ["bun", "install", "--frozen-lockfile"],
         ["uv", "sync", "--locked"],
+        [
+            "uv",
+            "sync",
+            "--locked",
+            "--project",
+            "agent/extensions/agent-rails/engine",
+        ],
     ]
     hooks = run_text(
         ["git", "-C", str(root), "config", "--get", "core.hooksPath"],
