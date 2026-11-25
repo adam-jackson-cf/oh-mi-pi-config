@@ -84,7 +84,10 @@ tracked() {
 
 # Imported upstream skills are third-party content copied verbatim (agent/extensions/dynaflows/CONFIG.md);
 # their own repository lints them, so no gate here formats or lints them.
-imported_skills=(':(exclude,glob)agent/extensions/dynaflows/skills/setup-repo-proofs/**')
+imported_skills=(
+  ':(exclude,glob)agent/extensions/dynaflows/skills/setup-repo-proofs/**'
+  ':(exclude,glob)agent/extensions/dynaflows/skills/test-guidance/**'
+)
 
 code_files=()
 tracked "$scratch/code" "*.js" "*.jsx" "*.mjs" "*.cjs" "*.ts" "*.tsx" "*.mts" "*.cts" \

@@ -40,6 +40,7 @@ source = [
 omit = [
   "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
   "agent/extensions/dynaflows/skills/setup-repo-proofs/*",
+  "agent/extensions/dynaflows/skills/test-guidance/*",
   "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
 ]
 
@@ -71,6 +72,7 @@ mypy_path = [
 exclude = [
   "^agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/",
   "^agent/extensions/dynaflows/skills/setup-repo-proofs/",
+  "^agent/extensions/dynaflows/skills/test-guidance/",
   "^agent/skills/omp-config-optimise/experiments/[^/]+/fixtures/",
   "^tests/fixtures/",
   "/build/",
@@ -111,6 +113,7 @@ exclude = [
 extend-exclude = [
   "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures",
   "agent/extensions/dynaflows/skills/setup-repo-proofs",
+  "agent/extensions/dynaflows/skills/test-guidance",
   "agent/skills/omp-config-optimise/experiments/*/fixtures",
   "tests/fixtures",
 ]

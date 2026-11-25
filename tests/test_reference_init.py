@@ -239,7 +239,7 @@ class DraftSectionTests(InitCase):
     def test_the_template_is_engine_data_holding_the_setup_sections(self) -> None:
         assert tuple(sections_draft.template()) == sections_draft.SETUP_SECTIONS
         assert (REFERENCE / "guardrails/data/config-template.json").is_file()
-        assert not (REFERENCE / "guardrails/commands/init/test-profile.md").exists()
+        assert not list((REFERENCE / "guardrails/commands/init").glob("*.md"))
 
     def test_the_repo_config_seeds_the_draft_and_its_values_are_kept(self) -> None:
         values = config(

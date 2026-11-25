@@ -10,7 +10,7 @@ disable-model-invocation: true
 # Workflow
 
 Supporting references: [delivery principles](references/delivery-principles.md),
-[structure and naming](references/structure-and-naming.md), [test enforcement](references/test-enforcement.md),
+[structure and naming](references/structure-and-naming.md),
 [proofs](references/proofs.md), [task briefs](references/task-briefs.md), [verify loop](references/verify-loop.md),
 [patterns](references/patterns.md), [freeze](references/freeze.md), [prove](references/prove.md),
 [structure review](references/structure-review.md), [blind label](references/blind-label.md),

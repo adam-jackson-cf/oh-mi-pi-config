@@ -90,7 +90,7 @@ The Q&A is fixed in [questionnaire.ts](lib/questionnaire.ts), version 1. It neve
 `config-check --list-rules` and `--list-questions` give the rule and judgment choices.
 `/agentrails configure` also repairs a config refused only for an older questionnaire version.
 
-## The imported setup skill
+## The imported skills
 
 `skills/setup-repo-proofs` is the upstream skill from `xSolutions365/skills`
 (`plugins/setup-repo-proofs`), copied verbatim at commit `7137100`. Only `hide` and
@@ -112,6 +112,14 @@ It differs from the rails in three known ways:
 3. Run state and hooks. The skill appends `/.proofs/` to `.git/info/exclude` and runs
    `git config core.hooksPath .githooks`. Under the rails the extension writes the exclude line,
    and `/agentrails onboard` offers the hooks path to the owner.
+
+`skills/test-guidance` is the upstream skill from `xSolutions365/skills`
+(`plugins/test-guidance`), copied verbatim at commit `7137100` in the same way; `IMPORTED_SKILLS`
+lists it too. It analyses the repository's tests and, after the owner signs its plan, installs a
+testing skill in the repository (by default `.agents/skills/testing-approach/`) that agents follow at
+task time. It installs no hook, CI job or checker and writes no rails config: the agent translates
+its output into the `tests` section (see [Tests](#tests)). The test rules' guidance lives in their
+catalogue remediation, which every finding prints.
 
 ## Rails scope
 
@@ -247,6 +255,23 @@ global mode in `judgments/<judgment>/thresholds.json`.
   `run_events.nightly_scheduler` may be `{"none": true}`. Each such exemption needs an
   `exemption` approval; an exempt T3 has no adapter tier.
 - Approval text never sits in `tests`: it lives in `approvals`.
+
+skill://test-guidance writes no config. The agent translates its output into `tests`:
+
+| test-guidance output | `tests` keys |
+| --- | --- |
+| Tier map lines | `tiers.<tier>.command`, each adapter's `selector` and `location` |
+| Tier budgets and deferrals | `fast_tier_budget`; the owner approves each machine's budget |
+| Commands and checks (local, merge, scheduled) | `run_events`, `command_notes` |
+| Public entry points | `public_entry_points` |
+| Layout, fixtures and support | `layout` |
+| Coverage floors | `coverage` |
+| Boundary launch and required environments | `environments` |
+| Isolation (HOME, XDG, process and network guards) | `guards` |
+
+`verification_surface` and `identity_artefacts` have no test-guidance output: record the
+repository's values, or `{"none": true}` with an owner `exemption` approval. Each mechanism gap
+the skill reports (a tier with no complete command, an unselected test file) goes to the owner.
 
 ## Checkers
 

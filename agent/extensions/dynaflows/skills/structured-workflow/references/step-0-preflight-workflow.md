@@ -34,7 +34,7 @@ Confirm the repo is in dynaflows structured mode, resolve its record and select 
 8. An investigation report seeds Frame of a separately requested implementation; it is not permission to implement.
 9. Route these requests on:
    - refactors and bugs: [delivery principles](delivery-principles.md);
-   - intermittent failures: `skill://test-guidance/references/flakes.md`;
+   - intermittent failures: `skill://test-guidance/assets/templates/installed/references/flaky-tests.md`;
    - changing dynaflows itself: the design directive in [AGENTS.md](../../../AGENTS.md);
    - `orchestrate`: frame, delegate independent units and prove each unit;
    - `workflowz`: native `workpool()` for independent fan-out;

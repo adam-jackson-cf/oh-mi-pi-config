@@ -8,9 +8,9 @@ Repair the reproduced failure class, not merely the reported value.
 
 - Frame: record actual versus expected behaviour and representative failure-class criteria.
   Read [delivery principles](delivery-principles.md).
-- Spike: reproduction is mandatory. For intermittent failures read `skill://test-guidance/references/flakes.md`;
+- Spike: reproduction is mandatory. For intermittent failures read `skill://test-guidance/assets/templates/installed/references/flaky-tests.md`;
   control causes, never suppress evidence.
-- Plan: read [proofs](proofs.md) and `skill://test-guidance/references/case-selection.md`.
+- Plan: read [proofs](proofs.md) and `skill://test-guidance/assets/templates/installed/references/writing-tests.md#choosing-cases`.
 - Plan: each proof reproduces the failure and is linked from the affected feature-map entry.
 - Plan: extend an existing scenario only in a small dedicated file; otherwise add a dedicated proof file and list every
   needed shared fixture. Whole files are frozen.

@@ -123,8 +123,14 @@ class DeliveryPolicyTests(unittest.TestCase):
         assert [
             word for word in house_style["banned_words"] if f"`{word}`" in text
         ] == []
-        for source in house_style["sources"][:2]:
-            assert (ROOT / source["source"].removeprefix("oh-mi-pi-config ")).is_file()
+        local = [
+            source["source"].removeprefix("oh-mi-pi-config ")
+            for source in house_style["sources"]
+            if source["source"].startswith("oh-mi-pi-config agent/")
+        ]
+        assert len(local) == 3
+        for path in local:
+            assert (ROOT / path).is_file(), path
 
 
 if __name__ == "__main__":

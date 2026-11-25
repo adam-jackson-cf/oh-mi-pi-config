@@ -32,9 +32,9 @@ Tags separate deterministic enforcement, agent judgment and guidance; a judgment
 ## Regression fixes
 
 - Name the broken rule beyond the one exposing input, and repair its root cause, not a special case. Judged by dynaflows/regression-coverage.
-- Report whether behavioral coverage protected that rule; select coverage with `skill://test-guidance/references/case-selection.md`. Guidance only.
+- Report whether coverage protected that rule (`skill://test-guidance/assets/templates/installed/references/writing-tests.md#choosing-cases`). Guidance only.
 
 ## Verification scaling
 
 - Scale verification to risk: focused for narrow changes, broader for shared or user-facing behaviour. Guidance only.
-- Follow `skill://test-guidance/references/before-commit.md` for the generic verification procedure. Guidance only.
+- Follow `skill://test-guidance/assets/templates/installed/SKILL.md#every-task` for the generic verification procedure. Guidance only.

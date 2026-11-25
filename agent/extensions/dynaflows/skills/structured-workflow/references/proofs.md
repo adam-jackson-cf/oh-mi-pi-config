@@ -2,8 +2,8 @@
 
 ## Binding policy and profile
 
-- In dynaflows structured mode, [test-guidance](skill://test-guidance) is binding and overrides repo-local
-  test skills and AGENTS.md test rules during coexistence. The profile may tighten, never relax, it.
+- In dynaflows structured mode, the testing guidance [test-guidance](skill://test-guidance) installed in the
+  repository is binding. The profile may tighten, never relax, it.
 - The profile is the record's `profile.md`: `~/.omp/repos/<owner>/<name>/profile.md`, keyed by origin,
   gitignored and never committed. Never look for a repo-local profile or name a harness directory
   inside the repo. Repo paths in settings are repo-relative.
@@ -26,7 +26,7 @@
   owner's stated decision and per-machine reference.
 - Rails run the record's `checks.commit`, then harness checks, including the staged-change diff rules in
   `guardrails check`, `report-check` and `budget-check` on the fast-tier report. CI runs the CI command only and never measures test timing.
-  Never bypass these checks or repo hooks. See [test enforcement](test-enforcement.md).
+  Never bypass these checks or repo hooks. Each test rule's finding prints its own remediation.
 
 ## Freeze and implementation ownership
 

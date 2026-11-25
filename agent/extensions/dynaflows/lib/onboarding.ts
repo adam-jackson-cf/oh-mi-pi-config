@@ -62,7 +62,8 @@ export function onboardingInstruction(slug: string, root: string, gaps: string[]
 			"entrypoint its hook runs, ci the entrypoint its CI job runs with the full T1 and T2 suite, audit its dependency audit;",
 		"   - checkers, structure and houseStyle: the settings the engine needs (the extension's CONFIG.md and engine/guardrails/data/config-template.json).",
 		"     Rule IDs come from `guardrails config-check --list-rules`, never from the skill's assets/guardrail-rules.json.",
-		"2. Read skill://test-guidance and run it against this repository. Record the tests section with the agentrails_config tool.",
+		"2. Read skill://test-guidance and run it against this repository. It writes no rails config: translate its tier map, adoption choice and " +
+			"signed plan into the tests section schema (the extension's CONFIG.md, Tests) and record it with the agentrails_config tool.",
 		`   A draft from \`guardrails init --repo ${root} --out <a file outside the repository>\` may seed these sections.`,
 		"3. Do not edit .git/info/exclude or set core.hooksPath: the extension keeps /.agentrails/ and /.proofs/ out of Git, and /agentrails onboard asks the owner about the hooks path.",
 		"4. When every section is recorded, ask the owner to run /agentrails onboard again: it runs a short Q&A and writes .agentrails/config.json.",

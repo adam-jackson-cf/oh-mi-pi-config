@@ -29,7 +29,7 @@ CORE_SKILLS = (
 
 # Skills copied verbatim from their upstream repository. Only their frontmatter differs; the
 # quality gates and the reference width cap leave their text as upstream wrote it.
-IMPORTED_SKILLS = frozenset({"setup-repo-proofs"})
+IMPORTED_SKILLS = frozenset({"setup-repo-proofs", "test-guidance"})
 
 # The engine's own rule catalogue is the only rule authority for the rails. The imported
 # setup-repo-proofs catalogue (assets/guardrail-rules.json) is the target repository's.
@@ -86,17 +86,18 @@ def unresolved_links(source: Path) -> list[str]:
 
 
 class SkillReferenceTests(unittest.TestCase):
-    def test_repository_setup_is_independent_of_the_assistant(self) -> None:
-        directory = PACKAGE_SKILLS / "setup-repo-proofs"
+    def test_imported_skills_are_independent_of_the_assistant(self) -> None:
         forbidden = re.compile(
             r"\b(?:omp|dynaflows|agent-rails|agentrails|harness)\b", re.IGNORECASE
         )
-        for source in sorted(directory.rglob("*.md")):
-            with self.subTest(source=source.relative_to(ROOT)):
-                assert forbidden.search(source.read_text(encoding="utf-8")) is None
-        entry = (directory / "SKILL.md").read_text(encoding="utf-8")
-        assert "hide: true" in entry
-        assert "disable-model-invocation: true" in entry
+        for name in sorted(IMPORTED_SKILLS):
+            directory = skill_directory(name)
+            for source in sorted(directory.rglob("*.md")):
+                with self.subTest(source=source.relative_to(ROOT)):
+                    assert forbidden.search(source.read_text(encoding="utf-8")) is None
+            entry = (directory / "SKILL.md").read_text(encoding="utf-8")
+            assert "hide: true" in entry
+            assert "disable-model-invocation: true" in entry
 
     def test_rails_never_read_the_imported_setup_catalogue(self) -> None:
         sources = [

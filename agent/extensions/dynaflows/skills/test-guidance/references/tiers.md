@@ -1,66 +1,42 @@
-# Test tiers and run events
+# Tiers
 
 ## Objective
 
-Assign each test one tier and report green only for the event actually exercised.
+Define how the repository's tiers, tags, budgets and deferrals are recorded, selected and rendered in the installed index.
 
-## Start here
+## Guidance
 
-- These rules are guidance. The repo test profile supplies values and may tighten them.
-- The calling workflow supplies the repo test profile's location.
-  If it is unknown, ask once; never guess a profile from a repo-local skill.
-  Read its values using the shipped [profile template](../assets/templates/test-profile.md) field names.
-  Require every profile value; absent, empty, placeholder, n/a, TBD or unapproved none is missing.
-  Only Verification surface, Nightly scheduler and Identity-bearing artefacts allow exemptions,
-  each with an owner-approved reason and approval reference.
-- Start with tiers, [case selection](case-selection.md) and its [scenario rubric](case-selection.md#scenario-rubric),
-  naming/layout and outcome tests; add property tests for pure cores.
-  Read the surface runbook for mapped features, then before-commit and suite-budget before delivery.
-  Read determinism, statistics, flakes and suite-review when their named topic applies.
-- Report missing profile or surface values to the calling workflow and follow repo delivery policy.
-  Continue only work not dependent on the missing values.
-- With a valid surface exemption, use outcome tests; do not invent an application surface.
-- During setup, check that any profile intended for version control is not ignored, using `git check-ignore`.
-  Re-include its exact path when necessary; never force-add it.
-
-## Membership
-
-- T1 local fast: outcome tests through the public entry point, using only in-process storage (unique temp directory
-  or SQLite file), and property tests on pure cores.
-  A T1 test, including its setup and teardown, never starts a subprocess or opens a network connection;
-  a test that needs either belongs in T2.
-- T2 boundary: real process, build, transport, server-database or loopback seams, and scripted feature-map journeys.
-- T3 scheduled: agent exploration over the feature map, live paid or LLM calls, soak, sweeps, security/performance
-  phase-exit checks, formal checks, mutation testing and feature-map drift. Never move tests here to evade a budget.
-- A public entry point is the interface a caller outside the owning package or feature uses: CLI entry, API handler
-  or exported package API. Read each package's entry point from Tiers. Reach internals through it,
-  except property tests on pure cores.
-  If the changed area's public entry point is missing, ask once for the owner-approved entry point;
-  do not write tests against a guessed private function.
-- Map tiers onto existing repo tiers, never create parallel ones. Tier by what a test drives, not duration.
-  Tier selectors are disjoint and complete: each test file belongs to exactly one tier and every test file
-  is selected. Check with the runner's collect-only listing per tier.
-- Probe readiness at the first selected test, never collection. Use Environments' require flag so missing environments fail.
-- Run boundary suites through their entry point. Select affected T2 using Ownership areas' Affected T2 test selection.
-  Hand an unmapped T2 file's missing mapping to the workflow that owns setup before claiming green.
-  Unknown changed-production-code ownership is different: run all T2 and report that selection.
-
-## Run events
-
-- Commit: static checks, all T1, affected T2 boundary tests (seams and journeys).
-- CI: all T1 and T2 before merge. Local runs never replace this gate.
-- Nightly: T1, T2 and T3 on scheduler-enumerated active branches, as Run events records.
-  If Nightly scheduler is exempt, report no nightly run; do not imply a scheduler exists.
-- Without a CI command report `no CI event`, not CI green; also report the missing profile value.
-  Name the event and commands exercised, never an unqualified all-tier pass.
-
-## Assertion ownership
-
-- Require a journey only when the user outcome crosses a process, build or UI boundary.
-  Otherwise point the feature map to the T1 outcome test, including library repos.
-- T1 owns exact values reachable through its public entry point or a pure-core property.
-  A journey owns the mapped user end state across the boundary, not a duplicate parser/computation assertion.
-  It may own an exact end-state value only when no T1 path reaches that value.
-  For a pure-core bug, the property asserts computed values; the journey asserts their user-visible consequence.
-  Seams assert only what crosses the boundary, never error prose.
-- Give each assertion one owner. On a move, move fixtures and remove the superseded copy.
+- **Vocabulary.** Runbooks say T1, T2 and T3 and the tags `boundary`, `live`, `exploratory`, `mutation` and `load`, plus
+  `deferred` for a deferral. The index maps each repository tier mechanism (marker, file-name suffix, build tag or folder)
+  onto a tag; a mechanism that names speed alone (such as a `slow` marker) is a conflict.
+- **Budgets.** A tier's budget is the wall-clock time its whole run may take on its schedule. Read it from the repository,
+  first that exists: a check that compares measured run times with a limit and fails when one is over (a whole-tier or
+  per-test limit, per machine when the check keeps them per machine), with its limits and that check as the source; a
+  documented limit for the tier; the timeout of a CI job that runs that tier and nothing else (a job shared with other
+  tiers or checks sets no tier budget). A timeout that stops a run, per invocation, package or test (such as a
+  pytest-timeout or `go test -timeout` value), is a hang guard, not a budget. Record the source. A limit a check enforces
+  is a repository fact: never propose changing it. Otherwise Step 2 asks the owner, with defaults of 2 minutes for T1
+  and 15 minutes for T2. T3 has no budget.
+- **Deferrals.** A test whose design tier's run would break that tier's budget, after its cost is fixed, is deferred to
+  the next schedule as writing-tests states. Record each existing one: a test that is T1 or T2 by design but runs only on
+  a later schedule (a release or on-demand job, or a marker every earlier command excludes), with the repository's
+  stated reason or `reason not recorded`. Running a deferred test later is not a conflict; a marker naming speed alone
+  still is. Under `merge` or `full`, adding the `deferred` tag and its reason to those test files is an optional row,
+  default no. Never defer a test or lift a deferral without the owner.
+- **Tier commands.** When no single invocation selects every test of a tier, the tier line records the run form of the
+  selection Step 3 collected (the same selector without the collect-only option); when only a list of files or packages,
+  or an exclusion naming them, selects a tier, the line lists them and adds `new files: ask the user where they go`
+  (`new packages` when packages are listed). A tier's command leaves out its deferred tests, and the deferred line
+  selects them. No option adds or edits a tier command, a command surface or the runner's collection settings. A tier
+  with no complete command and each test file no tier selects is a mechanism gap: Tier facts record it, and the result
+  lists it as a follow-up for the repository's owner. Until collected, its tier line names that path.
+- **`tier_map`** renders one line per tier and tag:
+  `- T<n> (<tag, or untagged>; repository <mechanism> `<name>`): selected by <selector>; run `<command>` <when, as
+  writing-tests states, with the job that runs it>; budget <budget> (<source>).`
+  A tier with deferred tests adds `- T<n> deferred (<tag>): selected by <selector>; run `<command>` <when the later job runs>.`
+  A tier with no tests reads `- T<n>: no tests yet; ask the user where the first one goes.`
+  A per-test limit a check enforces adds `; per test <limit> (<check>)` to its tier's line. When a check reads approved
+  deferrals from a record, add `- Deferral approvals: recorded in <path> as <entry form>.`
+- **Deferral decisions.** Each deferral adds a `Repository decisions` bullet: `- Deferred T<n>: <path> (<reason>; <cost>
+  against the <budget> budget); runs with <job>; approved <date, or "existing repository choice">.` When a check reads
+  approved deferrals from a record, the approval goes there in that record's form, and the bullet ends `; approval in <path>`.

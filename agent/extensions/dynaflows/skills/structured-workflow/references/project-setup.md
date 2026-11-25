@@ -9,7 +9,7 @@ Establish the approved verification surface and the repo's record before guardra
 - Run [generic setup](skill://setup-repo-proofs) with [harness setup](harness-setup.md) deltas at each step.
 - Records are local and never committed. The PR holds only independent repo changes that never mention omp.
 - Frame: identify the stack, protected work, missing controls and owners. Read `skill://setup-repo-proofs`,
-  `skill://test-guidance/references/verification-surface.md` and the record's `profile.md` when present.
+  `skill://test-guidance/assets/templates/installed/references/boundary-tests.md` and the record's `profile.md` when present.
 - Frame: trigger surface setup lazily for user-visible work without a surface; an owner-approved no-runnable-app
   exemption does not trigger it. Pick the setup modes as [harness setup](harness-setup.md#step-0-safety-and-modes) defines.
 - Spike: build a scratch lever and journey. Execute a deliberately broken variant to show the intended failure, and a

@@ -1,71 +1,60 @@
 ---
 name: "test-guidance"
-description: "Use when creating, changing, moving or deleting tests, chasing flakes, controlling suite size or run time, or drawing claims from test evidence."
+description: "Use when setting up how a repository writes and maintains its tests, from an analysis of its existing test suite."
 hide: true
 disable-model-invocation: true
 ---
 
-# Task
+# Workflow
 
-## 1. Start here
+Supporting references: [suite-signals](references/suite-signals.md), [placement](references/placement.md), [tiers](references/tiers.md)
 
-- **Purpose**: Assign tiers, run events and repo test profile values.
+### Step 0: Map the repository's testing homes
+
+- **Purpose**: Establish the Git target and record where it already keeps testing rules, commands, helpers and agent procedures.
 - Where this skill is silent, use judgement: keep existing content, make no irreversible write,
   ask the user once when the choice changes the outcome, and state the choice in the result.
-- These are generic testing guidelines. The repo test profile may tighten them; the calling workflow supplies its location.
-- Runbook: [Start here](references/tiers.md)
+- Change no repository content before Step 5.
+- Workflow: [references/step-0-map-workflow.md](references/step-0-map-workflow.md)
 
-## 2. Choose what to test
+### Step 1: Compare rules statically
 
-- **Purpose**: Select realistic behaviour cases without duplicates.
-- Runbook: [Choose what to test](references/case-selection.md)
+- **Purpose**: Record which approach rules the repository states, contradicts or lacks, and how its tests practise them.
+- Read files and search only; run nothing.
+- Workflow: [references/step-1-compare-workflow.md](references/step-1-compare-workflow.md)
 
-## 3. Name and place
+### Step 2: Choose adoption
 
-- **Purpose**: Name tests and place fixtures under their owner.
-- Runbook: [Name and place](references/naming-and-layout.md)
+- **Purpose**: Let the owner choose how much of the approach to adopt, from facts, before any test run.
+- **STOP**: Gates every test run and plan on the owner's option, migration breadth and conflict decisions.
+- Workflow: [references/step-2-adoption-workflow.md](references/step-2-adoption-workflow.md)
 
-## 4. Write an outcome test
+### Step 3: Run the baseline in place
 
-- **Purpose**: Drive caller-visible outcomes through public entry points.
-- Runbook: [Write an outcome test](references/outcome-tests.md)
+- **Purpose**: Record each tier's selection, and the full suite results when the plan can change code.
+- Workflow: [references/step-3-baseline-workflow.md](references/step-3-baseline-workflow.md)
 
-## 5. Write a property test
+### Step 4: Sign the implementation plan
 
-- **Purpose**: Prove pure-core properties with generated inputs.
-- Runbook: [Write a property test](references/property-tests.md)
+- **Purpose**: Show every object the run will write, where and why, as one plan.
+- **STOP**: Gates every repository change on the owner's approval of the plan.
+- Workflow: [references/step-4-plan-workflow.md](references/step-4-plan-workflow.md)
 
-## 6. Test determinism
+### Step 5: Apply and verify
 
-- **Purpose**: Prove replay, seed and host parity.
-- Runbook: [Test determinism](references/determinism.md)
+- **Purpose**: Write the approved rows in place and show the suite, the stated commands and every route still work.
+- Never stage, commit or push.
+- Workflow: [references/step-5-apply-workflow.md](references/step-5-apply-workflow.md)
 
-## 7. Test behaviour and statistics
+## Output
 
-- **Purpose**: Support behavioural and measured claims.
-- Runbook: [Test behaviour and statistics](references/behaviour-and-statistics.md)
+### Result Format
 
-## 8. Use the verification surface
-
-- **Purpose**: Drive isolated journeys and maintain the feature map.
-- Runbook: [Use the verification surface](references/verification-surface.md)
-
-## 9. Chase a flaky test
-
-- **Purpose**: Reproduce and remove intermittent failure causes.
-- Runbook: [Chase a flaky test](references/flakes.md)
-
-## 10. Review and prune
-
-- **Purpose**: Retain meaningful coverage and remove brittle duplicates.
-- Runbook: [Review and prune](references/suite-review.md)
-
-## 11. Before committing
-
-- **Purpose**: Complete required gates and report actual event results.
-- Runbook: [Before committing](references/before-commit.md)
-
-## 12. Control suite growth and time
-
-- **Purpose**: Keep singly owned tests within approved local budgets.
-- Runbook: [Control suite growth and time](references/suite-budget.md)
+- `Target and choice`: repository, stack, adoption option and migration breadth.
+- `Rule map`: per rule group, the stated, contradicted and missing rules and the practice verdict, with one line of evidence.
+- `Applied`: each applied row with its path and action, including pointers and the symlink.
+- `Not adopted`: declined rules, conflicts kept in the repository's favour and rejected rows, and a note that this skill
+  installed no hook, CI job or checker.
+- `Verification`: results beside the baseline, route checks, and the target's `git status` and `git diff --stat`.
+- `Follow-up`: under breadth `none`, the ranked migration candidates as tasks for the installed skill; at any breadth,
+  each mechanism gap as a task for the repository's owner; else `none`.

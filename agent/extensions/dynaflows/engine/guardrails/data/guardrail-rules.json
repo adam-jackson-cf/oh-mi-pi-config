@@ -375,7 +375,7 @@
       "summary": "Enforce the target's explicit file, folder, and symbol naming conventions.",
       "remediation": {
         "root_cause": "The new path or symbol was named without applying the target's declared naming conventions, so names drift from the house style.",
-        "fix": "Rename the new path segment or symbol to the declared convention and update every reference; change the convention only through an owner-approved record edit."
+        "fix": "Rename the new path segment or symbol to the declared convention and update every reference; change the convention only through an owner-approved config change. When the convention is unclear, follow the sibling naming patterns of neighbouring files and symbols."
       },
       "reference": [
         {
@@ -399,7 +399,7 @@
       "summary": "Place tests with their declared behavior owner and test tier.",
       "remediation": {
         "root_cause": "The test was written next to the code being changed rather than with the behaviour owner and tier declared for it.",
-        "fix": "Move the test under its declared behaviour owner and tier location, keep its selectors valid, and merge it with any existing test of the same behaviour there."
+        "fix": "Move the test under its declared behaviour owner and tier location, keep its selectors valid, and merge it with any existing test of the same behaviour there. Map every T2 file to its ownership area, and keep fixtures and support code under the configured layout directories."
       },
       "reference": [
         {
@@ -429,7 +429,7 @@
       "summary": "Block a local commit when the fast tier exceeds the machine's approved wall-clock limit.",
       "remediation": {
         "root_cause": "The fast tier grew slow because tests in it do real waiting, heavy setup or work that belongs in a slower tier.",
-        "fix": "Profile the fast tier, move slow behaviour to the tier built for it, and remove waits and repeated setup from fast tests; never raise the machine's approved limit to pass."
+        "fix": "Profile the fast tier, move slow behaviour to the tier built for it, and remove waits and repeated setup from fast tests; never raise the machine's approved limit to pass. Derive a first whole-tier limit or a raise only from at least five repeated local runs on the same machine, and include those measurements in the owner approval request."
       },
       "reference": [
         {
@@ -460,7 +460,7 @@
       "summary": "Block a local commit when a fast-tier test exceeds the machine's approved per-test limit.",
       "remediation": {
         "root_cause": "A fast-tier test does work that is too slow for the fast tier, such as real waits, large inputs or repeated setup.",
-        "fix": "Make the slow test fast by removing waits and shrinking inputs to the outcome it proves, or move it to the tier whose budget fits its work."
+        "fix": "Make the slow test fast by removing waits and shrinking inputs to the outcome it proves, or move it to the tier whose budget fits its work. Derive a first limit or a raise only from at least five repeated local runs on the same machine and record it only with owner approval; CI does not measure test timing."
       },
       "reference": [
         {
@@ -487,7 +487,7 @@
       "summary": "Require every added test function to name the behavior it proves.",
       "remediation": {
         "root_cause": "A test was added without a stated behaviour, which usually means it covers code paths rather than an outcome a user can observe.",
-        "fix": "Name each added test after the behaviour it proves; delete tests that prove no distinct behaviour instead of renaming them to fit."
+        "fix": "Name each added test after the behaviour it proves; delete tests that prove no distinct behaviour instead of renaming them to fit. A behaviour name has at least two meaningful words besides filler, and one name covers all its parameter rows; when reviewing a change set, check up to 20 new names against their assertions and, when more than 2 are vacuous, check every new name."
       },
       "reference": [
         {
@@ -515,7 +515,7 @@
       "summary": "Reject new tests duplicating an existing call path and assertion.",
       "remediation": {
         "root_cause": "A new test repeats an existing test's call path and assertion, so the suite grows without proving anything new.",
-        "fix": "Remove the duplicate or merge its distinct inputs into the existing test of that path, keeping one test per outcome class."
+        "fix": "Remove the duplicate or merge its distinct inputs into the existing test of that path, keeping one test per outcome class. A new test is a duplicate when it drives the same normalized call path and makes the same normalized assertion; shared setup alone is not duplication."
       },
       "reference": [
         {
@@ -2019,7 +2019,7 @@
       "summary": "A failed prerequisite cannot be reported as a passing gate.",
       "remediation": {
         "root_cause": "A gate step swallows a failed prerequisite, so a broken setup can report success.",
-        "fix": "Make each gate step return the failing prerequisite's exit status and stop the run, so no later step can report a pass."
+        "fix": "Make each gate step return the failing prerequisite's exit status and stop the run, so no later step can report a pass. A required check that is missing, skipped, timed out, failed for infrastructure reasons or collected zero tests is a failure, never a pass."
       },
       "reference": [
         {
@@ -2046,7 +2046,7 @@
       "summary": "Bound subprocess calls in tests and keep failure output diagnosable.",
       "remediation": {
         "root_cause": "Tests start subprocesses without a deadline or without capturing output, so hangs block the suite and failures are unreadable.",
-        "fix": "Give every test subprocess call an explicit timeout and capture its output for the failure message, through one owned helper."
+        "fix": "Give every test subprocess call an explicit timeout and capture its output for the failure message, through one owned helper. Give every synchronous subprocess call and every process wait or communicate call a positive timeout, and bound every async process wait, in shared fixtures too."
       },
       "reference": [
         {
@@ -2069,7 +2069,7 @@
       "summary": "Reject tests that mock, stub, fake or patch the repository's own code.",
       "remediation": {
         "root_cause": "Tests replace the repository's own code, so they prove the mock instead of the behaviour.",
-        "fix": "Exercise owned code through its real interface and replace only external boundaries; give an owned dependency an interface the test can implement."
+        "fix": "Exercise owned code through its real interface and replace only external boundaries; give an owned dependency an interface the test can implement. Never runtime-patch the repository's own modules; put recorded or local substitutes for external services behind the production adapter."
       },
       "reference": [
         {
@@ -2117,7 +2117,7 @@
       "summary": "Reject test-only flags, hooks and production symbols that only tests use.",
       "remediation": {
         "root_cause": "Production code reads a test marker or carries a symbol that only tests use, so the tested path differs from the shipped path.",
-        "fix": "Remove the marker read or test-only symbol and drive the behaviour through production inputs: configuration, dependency injection or the public entry point."
+        "fix": "Remove the marker read or test-only symbol and drive the behaviour through production inputs: configuration, dependency injection or the public entry point. Never add test-only flags, environment variables, hooks or marker names to production code."
       },
       "reference": [
         {
@@ -2144,7 +2144,7 @@
       "summary": "Reject skips, focused-only runs, retries to green and longer timeouts.",
       "remediation": {
         "root_cause": "Tests are skipped, focused, retried or given longer timeouts to get a green run, so failures stay hidden.",
-        "fix": "Remove the evasion and fix the cause of the failure or flake; record an owner-approved exception only for an external outage."
+        "fix": "Remove the evasion and fix the cause of the failure or flake; record an owner-approved exception only for an external outage. Never add unapproved skip, xfail, focus/only or flaky/retry markers, rerun until green, or raise a timeout in a changed test to get a pass."
       },
       "reference": [
         {
@@ -2177,7 +2177,7 @@
       "summary": "Fail any T1 test that starts a process or opens a network connection.",
       "remediation": {
         "root_cause": "A fast-tier test starts a process or opens a network connection, so it depends on the host and becomes slow and flaky.",
-        "fix": "Replace the process or network boundary with an owned interface and a fake in fast tests, or move the test to the tier that allows real I/O."
+        "fix": "Replace the process or network boundary with an owned interface and a fake in fast tests, or move the test to the tier that allows real I/O. A fast-tier test, including its setup and teardown, never starts a subprocess or opens a network connection."
       },
       "reference": [
         {
@@ -2203,7 +2203,7 @@
       "summary": "Fail the test session when a live user file changes.",
       "remediation": {
         "root_cause": "A test writes to a live user file because paths come from the real home or configuration directories.",
-        "fix": "Make the code under test take its data location as input and give tests a temporary directory, so no test can reach real user data."
+        "fix": "Make the code under test take its data location as input and give tests a temporary directory, so no test can reach real user data. Run tests with HOME and XDG directories pointed at a temporary directory; any change to a file under the real user home is a failure."
       },
       "reference": [
         {
@@ -2227,7 +2227,7 @@
       "summary": "Require strict, disjoint tier selectors that together select every test file.",
       "remediation": {
         "root_cause": "Tier selectors overlap, are loose or leave test files unselected, so some tests run twice or never.",
-        "fix": "Define strict, disjoint selectors per tier that together select every test file, and update them in the change that adds a test location."
+        "fix": "Define strict, disjoint selectors per tier that together select every test file, and update them in the change that adds a test location. Each test file belongs to exactly one tier; confirm every tier's selection with the runner's collect-only listing."
       },
       "reference": [
         {
@@ -2250,7 +2250,7 @@
       "summary": "Reject new coverage exclusions and unapproved floor or exclusion changes.",
       "remediation": {
         "root_cause": "Coverage exclusions or floors were changed to make a run pass instead of testing the code.",
-        "fix": "Remove the new exclusion or restore the floor and add outcome tests for the uncovered code; change floors only through an owner approval."
+        "fix": "Remove the new exclusion or restore the floor and add outcome tests for the uncovered code; change floors only through an owner approval. Add no coverage exclusions or no-cover pragmas; lowering a floor or changing exclusion configuration needs a recorded owner approval."
       },
       "reference": [
         {
@@ -2275,7 +2275,7 @@
       "summary": "Require a change-record entry naming every changed golden file.",
       "remediation": {
         "root_cause": "A golden file changed without a change-record entry, so expected output moved without a stated reason.",
-        "fix": "Add a change-record entry naming each changed golden file and the behaviour change behind it, or revert the golden change."
+        "fix": "Add a change-record entry naming each changed golden file and the behaviour change behind it, or revert the golden change. Change a golden only for an intended rule change, and name every changed golden file and the first divergent step in the change record."
       },
       "reference": [
         {
@@ -2302,7 +2302,7 @@
       "summary": "Keep identity-bearing artefacts unchanged in test-only work.",
       "remediation": {
         "root_cause": "Test-only work changed identity-bearing artefacts, so test changes alter what the product is.",
-        "fix": "Revert the identity artefact changes from the test-only work and make them in a product change of their own."
+        "fix": "Revert the identity artefact changes from the test-only work and make them in a product change of their own. When no production file changed, every identity-bearing artefact the config lists stays byte-identical."
       },
       "reference": [
         {
@@ -2327,7 +2327,7 @@
       "summary": "Require property tests to set or report their seed.",
       "remediation": {
         "root_cause": "Property tests run with a random seed that is neither fixed nor reported, so failures cannot be reproduced.",
-        "fix": "Set a fixed seed or report the seed on every run through one shared property-test configuration."
+        "fix": "Set a fixed seed or report the seed on every run through one shared property-test configuration. Reproduce a failure from its reported seed and shrink path, and keep the shrunk counterexample as a named example test."
       },
       "reference": [
         {
@@ -2353,7 +2353,7 @@
       "summary": "Fail when a mutation of changed code leaves every test green.",
       "remediation": {
         "root_cause": "A mutation of changed code leaves every test green, so the tests do not observe that code's outcome.",
-        "fix": "Add or strengthen an outcome test that fails for the mutant, asserting the observable result of the changed code."
+        "fix": "Add or strengthen an outcome test that fails for the mutant, asserting the observable result of the changed code. The nightly T3 run mutates changed code; a surviving, untested or unfinished mutant in changed behaviour is a failure to close with an outcome or property case."
       },
       "reference": [
         {
@@ -2384,7 +2384,7 @@
       "summary": "Require test file names to match the profile patterns without ticket, version or date tokens.",
       "remediation": {
         "root_cause": "Test file names carry tickets, versions or dates, or ignore the profile patterns, so names describe history instead of behaviour.",
-        "fix": "Rename the test file for the behaviour it proves using the profile's pattern, and drop ticket, version and date tokens."
+        "fix": "Rename the test file for the behaviour it proves using the profile's pattern, and drop ticket, version and date tokens. Mirror the owning module or feature in the file name and follow the names of sibling test files."
       },
       "reference": [
         {
@@ -2436,7 +2436,7 @@
       "summary": "Require every repo config value, allowing only four owner-approved exemptions.",
       "remediation": {
         "root_cause": "The repo config is missing required values or carries unapproved exemptions, so checks run with gaps.",
-        "fix": "Record every required config value and get an owner exemption approval for each of the four exemptable fields left as {none: true}."
+        "fix": "Record every required config value and get an owner exemption approval for each of the four exemptable fields left as {none: true}. An empty or stand-in value counts as missing, and each exemption needs an owner-approved reason with its approval reference."
       },
       "reference": [
         {
@@ -2464,7 +2464,7 @@
       "summary": "Require one feature-map document per feature with exactly the four fixed sections.",
       "remediation": {
         "root_cause": "A feature map is missing or does not follow the fixed four sections, so features cannot be linked to their proofs.",
-        "fix": "Write one feature-map document per feature with exactly the four fixed sections, and keep it updated with the feature."
+        "fix": "Write one feature-map document per feature with exactly the four fixed sections, and keep it updated with the feature. Its four H2 sections are Sub-features, How to get to it (user POV), Driving it with followed by the lever name, and Gotchas; fix every stale link."
       },
       "reference": [
         {
@@ -2486,7 +2486,7 @@
       "summary": "Require journeys to match the profile pattern and drive the lever.",
       "remediation": {
         "root_cause": "Journeys do not match the profile pattern or bypass the lever, so they do not prove the product as users drive it.",
-        "fix": "Rename journeys to the profile pattern and drive each one through the lever's public commands."
+        "fix": "Rename journeys to the profile pattern and drive each one through the lever's public commands. Each journey file matches the configured journey file pattern and runs through the test runner."
       },
       "reference": [
         {
@@ -2511,7 +2511,7 @@
       "summary": "Self-test the lever: visible doctor failure, own-process cleanup and surviving evidence.",
       "remediation": {
         "root_cause": "The lever cannot prove its own isolation: its doctor failure is hidden, it leaks processes or loses evidence.",
-        "fix": "Make the lever self-test pass: show doctor failures, clean up every process it starts and keep run evidence after exit."
+        "fix": "Make the lever self-test pass: show doctor failures, clean up every process it starts and keep run evidence after exit. The lever prints the doctor-failure marker, kills only its own process group, uses per-instance ports and data, leaves no processes or ports behind and keeps the evidence directory after cleanup."
       },
       "reference": [
         {
