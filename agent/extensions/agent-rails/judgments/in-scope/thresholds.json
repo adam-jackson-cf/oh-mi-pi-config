@@ -197,7 +197,7 @@
     "provenance": "innovation-council labelled blind to scores in 5 omp headless runs (20, 20, 20, 20, 19 cases; peers reported disagreement on 23); claude arbitrated every case, agreed on 96 and overrode 3 (IS041 0->1, IS090 1->0, IS092 1->0). Owner may override with human rows.",
     "redaction": "secret-like strings, base64 runs of 40+ characters and email addresses replaced with [REDACTED]; 2026-11-21: device serials, a tailnet address, a node id, home paths and host names in case states and label notes were pseudonymised (owner/agent home, DEVICESERIALn, 100.64.0.10, nuc-host, nuc, mac-a)"
   },
-  "tuning": "python3 -B agent/skills/jev-actions/scripts/tune_threshold.py judgments/in-scope/scores.csv --min-precision 0.8 --min-recall 0.9 --beta 2 --repeats 5 [--conservative] [--calibration --errors]; zero-minimum info run with --min-precision 0 --min-recall 0",
+  "tuning": "python3 -B agent/extensions/agent-rails/skills/jev-actions/scripts/tune_threshold.py judgments/in-scope/scores.csv --min-precision 0.8 --min-recall 0.9 --beta 2 --repeats 5 [--conservative] [--calibration --errors]; zero-minimum info run with --min-precision 0 --min-recall 0",
   "scoring": "judge_batch via omp 19.0.1 headless with a config overlay setting modelRoles.judge to typesafe/jev-1.14.0 and an empty judge fallback chain; key injected by infisical run; batch status reported model typesafe/jev-1.14.0, 99 done, 0 failed",
   "assumptions": [
     "Minimums 0.8/0.9 and the cost rule are assumed, not owner-confirmed.",

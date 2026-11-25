@@ -152,7 +152,7 @@
         },
         "calibration": "Not recomputed after the 2026-11-21 re-score; gates read raw scores; probabilities are not shown as confidence."
       },
-      "tuning": "python3 -B agent/skills/jev-actions/scripts/tune_threshold.py scores.csv --min-precision 0.8 --min-recall 0.9 --beta 2 --repeats 5 --errors --json"
+      "tuning": "python3 -B agent/extensions/agent-rails/skills/jev-actions/scripts/tune_threshold.py scores.csv --min-precision 0.8 --min-recall 0.9 --beta 2 --repeats 5 --errors --json"
     }
   },
   "error_analysis": {
