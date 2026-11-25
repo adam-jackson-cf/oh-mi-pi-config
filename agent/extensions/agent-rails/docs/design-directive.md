@@ -33,9 +33,9 @@ separate proof command; the repo's tests prove its checkers and `guardrails`' te
 harness checkers.
 
 **6-9. Clean cutovers, regression repair, measured claims and flaky tests.** The judged rules in
-[`rules/`](../rules/) hold these: [clean cutover](../rules/agent-rails-clean-cutovers.md),
-[regression coverage](../rules/agent-rails-regression-coverage.md),
-[measured claim](../rules/agent-rails-measured-claims.md) and [flaky test](../rules/agent-rails-flakes.md).
+[`rules/`](../rules/) hold these: [clean cutover](../rules/clean-cutovers.md),
+[regression coverage](../rules/regression-coverage.md),
+[measured claim](../rules/measured-claims.md) and [flaky test](../rules/flakes.md).
 
 ## How the rails run
 

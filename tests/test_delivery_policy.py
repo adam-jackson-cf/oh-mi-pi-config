@@ -24,7 +24,7 @@ QUESTION = re.compile(r"^question: >-\n((?:  \S.*\n?)+)", re.M)
 
 
 def rule_question(name: str) -> str:
-    path = RULES / f"agent-rails-{name}.md"
+    path = RULES / f"{name}.md"
     assert path.is_file(), path
     frontmatter = FRONTMATTER.match(path.read_text(encoding="utf-8"))
     assert frontmatter, path
@@ -84,9 +84,7 @@ class DeliveryPolicyTests(unittest.TestCase):
                 assert_policy_line(line, rules, native_rules, decisions)
 
     def test_judged_rules_carry_their_guidance_and_question(self) -> None:
-        names = sorted(
-            path.stem.removeprefix("agent-rails-") for path in RULES.glob("*.md")
-        )
+        names = sorted(path.stem for path in RULES.glob("*.md"))
         assert names == [
             "clean-cutovers",
             "flakes",
@@ -96,7 +94,7 @@ class DeliveryPolicyTests(unittest.TestCase):
         for name in names:
             with self.subTest(rule=name):
                 assert "?" in rule_question(name)
-                text = (RULES / f"agent-rails-{name}.md").read_text(encoding="utf-8")
+                text = (RULES / f"{name}.md").read_text(encoding="utf-8")
                 assert "skill://" not in text
 
     def test_style_lists_have_one_canonical_data_home(self) -> None:

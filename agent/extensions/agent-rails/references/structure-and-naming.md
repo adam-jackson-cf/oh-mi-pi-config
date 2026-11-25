@@ -76,4 +76,4 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 - Each restructure leaves build and tests passing, without re-export shims or aliases. Guidance only.
 - Domain folders share a tier and never import each other; move shared parts down. Enforced by STRUCT.sibling-isolation (guardrails structure, path-check).
 - Dissolve grab-bags: a file moves under its one owner, or to the shared tier. Enforced by STRUCT.single-owner-placement (guardrails structure, path-check).
-- Apply [clean cutovers](../rules/agent-rails-clean-cutovers.md) to each move; then delete migration scaffolding. Guidance only.
+- Apply [clean cutovers](../rules/clean-cutovers.md) to each move; then delete migration scaffolding. Guidance only.
