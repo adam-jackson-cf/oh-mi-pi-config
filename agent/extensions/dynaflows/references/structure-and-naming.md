@@ -1,8 +1,8 @@
 # Structure and naming
 
 A path shows its owner and dependency direction; a name says what a thing holds or does, with one name per concept.
-[house-style.json](../../../engine/guardrails/data/house-style.json) holds the language-neutral word lists,
-`v<N>` patterns and the plural allowlist. Extension-selected [language and tooling packs](../../../engine/guardrails/foundation/conventions.py)
+[house-style.json](../engine/guardrails/data/house-style.json) holds the language-neutral word lists,
+`v<N>` patterns and the plural allowlist. Extension-selected [language and tooling packs](../engine/guardrails/foundation/conventions.py)
 own ecosystem casing, fixed names and test layout. Judgment decisions live in `judgments/structure-naming/thresholds.json`;
 every `structure_review()` finding blocks merge.
 
@@ -76,4 +76,4 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 - Each restructure leaves build and tests passing, without re-export shims or aliases. Guidance only.
 - Domain folders share a tier and never import each other; move shared parts down. Enforced by STRUCT.sibling-isolation (guardrails structure, path-check).
 - Dissolve grab-bags: a file moves under its one owner, or to the shared tier. Enforced by STRUCT.single-owner-placement (guardrails structure, path-check).
-- Apply [clean cutovers](delivery-principles.md#clean-cutovers) to each move; then delete migration scaffolding. Guidance only.
+- Apply [clean cutovers](../rules/dynaflows-clean-cutovers.md) to each move; then delete migration scaffolding. Guidance only.

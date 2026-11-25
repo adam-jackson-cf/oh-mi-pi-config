@@ -9,12 +9,13 @@ installation guide or an exhaustive reference.
 
 The [dynaflows design directive](agent/extensions/dynaflows/AGENTS.md#design-directive) holds the
 design principles; `agent/AGENTS.md` holds the response rules and `agent/RULES.md` the session
-rules. The dynaflows package owns
-[delivery principles](agent/extensions/dynaflows/skills/structured-workflow/references/delivery-principles.md)
-and [structure and naming](agent/extensions/dynaflows/skills/structured-workflow/references/structure-and-naming.md),
-and bundles the skills it calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and
-`jev-actions`. `git-tool` owns Git, PR, CI and merge authority, with its merge, CI and recovery
-runbook.
+rules. The dynaflows package owns its judged rules (`agent/extensions/dynaflows/rules/`), three
+references its refusals cite
+([structure and naming](agent/extensions/dynaflows/references/structure-and-naming.md),
+[proofs and merge](agent/extensions/dynaflows/references/proofs-and-merge.md) and
+[judgments](agent/extensions/dynaflows/references/judgments.md)), and bundles the skills it
+calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and `jev-actions`. `git-tool` owns Git,
+PR, CI and merge authority, with its merge, CI and recovery runbook.
 
 `agent/config.yml` routes work through named `modelRoles`, so model choice
 follows the job rather than ad hoc selectors. It also defines runtime defaults
@@ -110,7 +111,7 @@ enforced judgment acts from the moment it ships; a judge failure refuses, except
 through. A shadow judgment is asked and logged but never acts. Every answer, deterministic check
 result and rail refusal lands in one SQLite decision store, `~/.omp/agent/dynaflows/dynaflows.db`;
 `guardrails shadow-review` labels and measures what it holds.
-[Rail judgments](agent/extensions/dynaflows/skills/structured-workflow/references/judgments.md#rail-judgments)
+[Rail judgments](agent/extensions/dynaflows/references/judgments.md#rail-judgments)
 lists each rail, its outcomes and the owner's `$approve` line.
 
 Repository checks follow the test tiers. The repo config declares
@@ -139,9 +140,8 @@ not `.githooks` or the hook differs from the expected text. Run the formatters w
 `bash scripts/run-ci-quality-gates.sh --tier commit --fix`.
 
 Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
-bundled workflow guidance and judged rules. Its [workflow
-skill](agent/extensions/dynaflows/skills/structured-workflow/SKILL.md) is available as
-`skill://structured-workflow`.
+judged rules, plain references and bundled skills. It builds in no workflow: agents satisfy the
+gates however they work.
 Subagent edit paths must be absolute and cannot escape enclosing Git roots through symlinks, and
 `git worktree add` targets must sit at `<worktree.base>/<repo>/<slug>` (`OMP_WORKTREE_DIR` overrides
 the base). `skill://git-tool` owns Git, PR, CI and merge authority.
@@ -364,7 +364,8 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
-- `agent/extensions/dynaflows/skills/` — the workflow skill and the skills it bundles.
+- `agent/extensions/dynaflows/skills/` — the skills the extension bundles.
+- `agent/extensions/dynaflows/references/` — the plain references its refusal texts cite.
 - `agent/extensions/dynaflows/skills/jev-actions/` — TypeSafe Jev judgment design, threshold
   tuning and calibration.
 - `agent/extensions/dynaflows/judgments/` — calibrated judgments behind `decide()`; the

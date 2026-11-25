@@ -17,10 +17,13 @@ PACKAGE = ROOT / "agent/extensions/dynaflows"
 
 PACKAGE_SKILLS = PACKAGE / "skills"
 
-WORKFLOW = PACKAGE_SKILLS / "structured-workflow"
+# Plain docs the refusal texts cite by path: no skill owns them.
+PACKAGE_REFERENCES = (
+    *sorted((PACKAGE / "references").glob("*.md")),
+    PACKAGE / "engine/guardrails/commands/adapters/README.md",
+)
 
 CORE_SKILLS = (
-    "structured-workflow",
     "test-guidance",
     "setup-repo-proofs",
     "jev-actions",
@@ -133,6 +136,7 @@ class SkillReferenceTests(unittest.TestCase):
             PACKAGE / "index.ts",
             PACKAGE / "AGENTS.md",
             PACKAGE / "engine/workflows.py",
+            *PACKAGE_REFERENCES,
             *(ROOT / "agent/agents").glob("*.md"),
             *(ROOT / "agent/rules").glob("*.md"),
             *(PACKAGE / "rules").glob("*.md"),
@@ -185,6 +189,21 @@ class SkillReferenceTests(unittest.TestCase):
         for name in CORE_SKILLS:
             for source in sorted(skill_directory(name).rglob("*.md")):
                 unresolved.extend(unresolved_links(source))
+        if unresolved:
+            self.fail("\n".join(unresolved))
+
+    def test_package_reference_links_resolve_locally(self) -> None:
+        assert {path.name for path in PACKAGE_REFERENCES} == {
+            "judgments.md",
+            "proofs-and-merge.md",
+            "structure-and-naming.md",
+            "README.md",
+        }
+        unresolved = [
+            failure
+            for source in PACKAGE_REFERENCES
+            for failure in unresolved_links(source)
+        ]
         if unresolved:
             self.fail("\n".join(unresolved))
 

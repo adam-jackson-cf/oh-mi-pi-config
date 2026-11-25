@@ -7,7 +7,7 @@ conformance run rather than by review.
 
 ## When this applies
 
-Harness setup Step 3 routes here when the engine has no adapter for the target's test framework.
+Onboarding needs one when the engine has no adapter for the target's test framework.
 The adapter produces the normalised evidence the framework-agnostic shared checkers read.
 
 ## Interface
@@ -16,7 +16,7 @@ An adapter does only these six things. No framework is assumed.
 
 1. **Run report.** Emit a JUnit XML report for every tier run.
 2. **Tier listing.** List the collected test IDs per tier, without running
-   them, using the adapter's selectors in the profile's `adapters` entry. Also collect test cases
+   them, using the adapter's selectors in the config's `tests.adapters` entry. Also collect test cases
    statically from source (`cases.collect(path, text)`): each case's test ID
    with a fingerprint of its normalised calls and assertions, and each test
    function's descriptive behavior name (Python function name or JS/TS test
@@ -30,7 +30,7 @@ An adapter does only these six things. No framework is assumed.
 4. **Source patterns.** Supply `ast-grep` YAML rules for the framework's mock,
    patch, skip, focus, retry and seed idioms (`TEST.no-self-mocking`,
    `TEST.no-test-hooks`, `TEST.no-evasion`, `TEST.property-seed`). "Owned code"
-   means the packages owning the profile's `public_entry_points`. For
+   means the packages owning the config's `tests.public_entry_points`. For
    `TEST.no-test-hooks`, report production reads of test markers (environment
    reads and loaded-module or runner-global checks), never marker-shaped strings
    held as data, and also report production symbols that only tests use. Each
@@ -43,18 +43,18 @@ An adapter does only these six things. No framework is assumed.
    reasons, retry markers, empty-collection exit codes) into the shared run
    report schema. Normalisation lives in the adapter, never in a shared checker.
 
-An adapter belongs to a test framework, not a tier. The record's `profile.md` lists one
-`adapters` entry per framework the repo uses; each names its adapter and gives, per tier it
+An adapter belongs to a test framework, not a tier. The config's `tests.adapters` lists one
+entry per framework the repo uses; each names its adapter and gives, per tier it
 takes part in, the framework's native `selector` and the `location` handed to it. Every tier
 may hold tests from several frameworks, and `guardrails adapter <name> <action>` runs one
-adapter. Per-repo values go in the record, never in adapter code.
+adapter. Per-repo values go in the config, never in adapter code.
 
 ## Conformance spec
 
 The conformance cases are framework-agnostic: each names an input situation and
 the verdict every adapter must produce. The canonical list is the pytest
 adapter's
-[`conformance/cases.json`](../../../engine/guardrails/commands/adapters/pytest/conformance/cases.json).
+[`conformance/cases.json`](pytest/conformance/cases.json).
 It includes, for example:
 
 - a test patches an owned module → `TEST.no-self-mocking`;
@@ -83,12 +83,12 @@ It includes, for example:
 - The harness runs the adapter against the target from outside its tree; JUnit
   and other evidence go to a temporary directory outside the worktree.
 - **Generalisation (rule of two):** keep framework-specific choices that only
-  the first repo needs in that repo's record settings. Generalise the adapter's
+  the first repo needs in that repo's config. Generalise the adapter's
   code only when a second repo uses the same framework, and only once it still
   passes every conformance case.
 
 ## Done when
 
 - The adapter implements all six interface items and reads per-repo values from
-  the record's `profile.md`.
+  the config's `tests` section.
 - Every conformance case is a frozen fixture, and the conformance run passes.

@@ -8,9 +8,9 @@ disable-model-invocation: true
 
 # Task
 
-Every section applies in both dynaflows modes unless it is marked **Structured mode only**.
-The mode is the repo's dynaflows `mode`, `minimal` or `structured`. In minimal mode rails refuse
-`gh pr merge` and pushes to the default branch: the agent opens the PR and the owner merges it.
+The rails run one governed state. In a repository with an accepted config, agents branch, open the
+PR and merge it when green, as the config's `autonomy` allows. A repository still onboarding has its
+bootstrap PR merged by the owner. Pushes to the default branch are always refused.
 
 ## Authority and safety
 
@@ -36,14 +36,12 @@ The mode is the repo's dynaflows `mode`, `minimal` or `structured`. In minimal m
 
 ## Wait for CI
 
-- **Structured mode only.**
 - **Purpose**: Get required CI green on the exact PR head, or escalate the incident.
 - **When**: A PR is ready, or its head changed.
 - Runbook: [CI waits](references/merge-and-recover.md#ci-waits-errors-and-fallbacks)
 
 ## Merge and recover
 
-- **Structured mode only.**
 - **Purpose**: Merge a ready PR on its exact head, or revert a red default branch.
 - **When**: Merging a PR, or recovering a red default branch.
 - Runbook: [Merge and recover](references/merge-and-recover.md)

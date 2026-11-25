@@ -1,6 +1,6 @@
 # Dynaflows
 
-Dynaflows is the omp extension that runs the structured workflow, its rails, judgments and checks.
+Dynaflows is the omp extension that runs the agent rails, their judgments and checks.
 
 ## Design directive
 

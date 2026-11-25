@@ -6,7 +6,10 @@
   },
   "overrides": [
     {
-      "filter": ["agent/extensions/dynaflows/skills/**"],
+      "filter": [
+        "agent/extensions/dynaflows/skills/**",
+        "agent/extensions/dynaflows/references/**",
+      ],
       "config": {
         "MD013": {
           "line_length": 160,

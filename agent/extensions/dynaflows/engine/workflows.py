@@ -92,8 +92,8 @@ PROOF_FIELDS = frozenset({
 })
 FEATURE_MAP_SETUP = (
     "the repo config declares no tests.verification_surface.feature_map_path; proofs must be "
-    "outcome tests linked from the feature map, so set the map up first "
-    "(skill://structured-workflow/references/project-setup.md). "
+    "outcome tests linked from the feature map, so record the map in the config's tests "
+    "section first (oh-mi-pi-config agent/extensions/dynaflows/references/proofs-and-merge.md). "
     "A PR with no behaviour change freezes no proofs"
 )
 

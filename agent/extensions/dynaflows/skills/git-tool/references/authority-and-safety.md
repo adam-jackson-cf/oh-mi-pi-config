@@ -1,17 +1,17 @@
 # Authority and safety
 
-This runbook applies in both dynaflows modes. Merge authority, CI and recovery are structured mode only and live
-in [merge-and-recover](merge-and-recover.md).
+This runbook applies to every Git action. Merge authority, CI and recovery live in
+[merge-and-recover](merge-and-recover.md).
 
 ## Repo config
 
 A repo's **config**, when present, is `.agentrails/config.json` in its main checkout, kept out of git and shared by
 its worktrees. [The config contract](../../../CONFIG.md) defines its sections, writers and the
 [`autonomy`](../../../CONFIG.md#autonomy) and [`ci`](../../../CONFIG.md#ci) policy.
-A config is not a prerequisite for ordinary Git work; its declared policy still applies.
+In a repository with a GitHub origin and no valid config, the rails refuse commits, pushes, PRs and merges
+until the owner runs `/agentrails onboard`; while it onboards, the owner merges the bootstrap PR.
 
-The assigned writer commits, pushes, writes the description and opens the PR.
-In minimal mode the owner merges it; in structured mode main merges it under
+The assigned writer commits, pushes, writes the description and opens the PR. Main merges it under
 [merge authority](merge-and-recover.md#merge-authority).
 
 ## Model and owner authority
@@ -20,8 +20,8 @@ In minimal mode the owner merges it; in structured mode main merges it under
   Only same-branch writes contend: independent units run independently.
   - Short-lived `agent/*` branches are the trunk-based unit; target same-day merge. A unit waits only on a unit it builds on.
   - Land multi-phase work incrementally behind a flag with a stated removal criterion; never long-lived or stacked branches.
-- Granted in every repository, subject to its config's `autonomy`: create `agent/*` branches, commit,
-  push them to the existing GitHub primary remote and open PRs. An `ask` action waits for the owner's
+- Granted in every governed repository, subject to its config's `autonomy`: create `agent/*` branches,
+  commit, push them to the existing GitHub primary remote and open PRs. An `ask` action waits for the owner's
   `$approve autonomy:<action>:<subject>` line.
   This grant overrides recommend-before-acting for these actions only.
 - Remote/default resolution belongs to [branch-and-integrate](branch-and-integrate.md).
@@ -33,11 +33,20 @@ In minimal mode the owner merges it; in structured mode main merges it under
 
 ## Who writes the config
 
-The repo config holds its commands, checker settings, test profile, exceptions and approvals. It is never committed and
-never part of a PR. Agent tools never write it: rails refuse every edit, write, eval or shell write to a `.agentrails`
-path, and re-read the config on every action. Each section has one writer, listed in the
-[config contract](../../../CONFIG.md#sections-and-writers); exceptions and approvals come only from the owner's
-`$approve` and `$revoke` lines.
+The repo config holds its policy, commands, checker settings, test profile, exceptions and approvals. It is never
+committed and never part of a PR. Agents never edit it: rails refuse every edit, write, eval or shell write to a
+`.agentrails` path, and re-read the config on every action. Each section has one writer
+([config contract](../../../CONFIG.md#sections-and-writers)):
+
+| Sections | Writer |
+| --- | --- |
+| `repo`, `onboarding` | The owner's `/agentrails onboard` |
+| `autonomy`, `ci`, `gates`, `judgments`, `mergePolicies`, `afterMerge` | The owner's Q&A (`onboard` or `configure`) |
+| `commands`, `checkers`, `structure`, `houseStyle`, `tests` | The `agentrails_config` tool after its skill; owner-confirmed once onboarded |
+| `exceptions`, `approvals` | The owner's `$approve` and `$revoke` lines only |
+| The whole file | The owner's `/agentrails import` |
+
+To change a section, ask the owner for its writer.
 
 ## Git safety
 

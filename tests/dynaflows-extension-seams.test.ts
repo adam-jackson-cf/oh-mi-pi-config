@@ -206,6 +206,32 @@ describe("dynaflows extension", () => {
 		} finally { h.cleanup(); }
 	});
 
+	test("a commit refused with dependency-audit findings carries the triage evidence fields and the judgments reference", async () => {
+		const h = harness();
+		try {
+			let output = "src/x.py: lint finding";
+			const exec = h.api.exec.bind(h.api);
+			h.api.exec = async (command, args, options) => {
+				const [name] = repoCommand(command, args);
+				if (name === "commit-check") return { code: 1, killed: false, stdout: output, stderr: "" };
+				return exec(command, args, options);
+			};
+			h.config({ commands: { commit: ["commit-check"] } });
+			h.govern();
+			let reason = reasonOf(await h.call("bash", { command: "git commit -m x" }));
+			assert.ok(reason.includes("src/x.py: lint finding") && !reason.includes("triage_advisories"), reason);
+			output = "SECURITY.dependency-audit uv.lock:urllib3@2.0.0:GHSA-xxxx fixed in 2.0.7";
+			reason = reasonOf(await h.call("bash", { command: "git commit -m x" }));
+			for (const field of ["dependency_audit_findings(repo)", "triage_advisories(found, evidence)", "advisory_text", "advisory_source",
+				"scope_source", "code_search", "fix_options", "blocked_fix", "constraint_source"]) {
+				assert.ok(reason.includes(field), `${field}: ${reason}`);
+			}
+			const reference = reason.match(/See (\S+)#dependency-advisories\./)?.[1];
+			assert.ok(reference && existsSync(reference), reason);
+			assert.ok(readFileSync(reference, "utf8").includes("## Dependency advisories"));
+		} finally { h.cleanup(); }
+	});
+
 	test("dynaflows commits need no message shape, but must be the call's only change over a fully staged index", async () => {
 		const h = harness();
 		try {
@@ -500,6 +526,8 @@ test("dynaflows merge requires prove()'s result file to say pass for the exact h
 		assert.ok((await h.call("bash", { command: "gh pr merge 3" }))?.reason?.includes("--match-head-commit"));
 		const missing = await h.call("bash", { command });
 		assert.ok(reasonOf(missing).includes(`no prove() pass for ${head}`), String(missing?.reason));
+		const proofsReference = reasonOf(missing).match(/then merge \((\S+proofs-and-merge\.md)\)/)?.[1];
+		assert.ok(proofsReference && existsSync(proofsReference), "the refusal cites the proofs and merge reference by path");
 		assert.ok(reasonOf(missing).includes(join(".git", "omp-prove", `${head}.result.json`)), String(missing?.reason));
 		const result = join(h.root, ".git/omp-prove", `${head}.result.json`);
 		mkdirSync(dirname(result), { recursive: true });
