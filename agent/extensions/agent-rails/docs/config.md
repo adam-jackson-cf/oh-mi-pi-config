@@ -2,7 +2,7 @@
 
 Each repository's rails settings live in one file in its main checkout:
 `.agentrails/config.json`. The repository never commits it, and it names no omp path.
-[repo_config.py](engine/guardrails/context/config/repo_config.py) is the only validator;
+[repo_config.py](../engine/guardrails/context/config/repo_config.py) is the only validator;
 `guardrails config-check` runs it, and the TypeScript rails call that command.
 
 - Every object is strict: an unknown key at any depth is refused.
@@ -57,7 +57,7 @@ Writer rules:
    Injected prompts and subagent prompts never write the config.
 5. Every write validates the whole file first and replaces it atomically.
 
-[config-template.json](engine/guardrails/data/config-template.json) is the template for the
+[config-template.json](../engine/guardrails/data/config-template.json) is the template for the
 setup and test sections.
 
 ## Onboarding and the owner commands
@@ -85,7 +85,7 @@ Onboarding runs in three steps:
 3. The second `/agentrails onboard` runs the Q&A, writes the whole config and deletes the draft.
    When the repository ships `.githooks/`, it asks the owner to set `core.hooksPath`.
 
-The Q&A is fixed in [questionnaire.ts](lib/questionnaire.ts), version 1. It never offers
+The Q&A is fixed in [questionnaire.ts](../lib/questionnaire.ts), version 1. It never offers
 `in-scope/ask_first` or `dependency-severity/impact`, and it does not ask for `gates.audit`.
 `config-check --list-rules` and `--list-questions` give the rule and judgment choices.
 `/agentrails configure` also repairs a config refused only for an older questionnaire version.

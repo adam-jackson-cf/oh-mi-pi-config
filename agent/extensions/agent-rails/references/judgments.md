@@ -31,7 +31,7 @@ Load `<extension>/engine/workflows.py` in an eval cell; it needs `judge()`. `tri
 ## Effective mode
 
 - A decision's global `mode` in `thresholds.json` is `enforced` (acts) or `shadow` (logged, never acts).
-- The repo config's [`judgments`](../CONFIG.md#judgments) overrides only soften it: each question runs
+- The repo config's [`judgments`](../docs/config.md#judgments) overrides only soften it: each question runs
   at the lower of the two, off < shadow < enforced. A missing key follows the global mode.
 - An off question is never asked or logged; with every question off, `decide()` returns
   `{"judgment": name, "off": true}`. `decisions` rows record the effective mode.

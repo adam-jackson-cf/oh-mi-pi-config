@@ -2,11 +2,11 @@
 
 What `freeze()`, `prove()` and `structure_review()` require, and how a merge uses their results.
 Load them in an eval cell: `%load <extension>/engine/workflows.py`. Policy comes from the repo's
-[config](../CONFIG.md), `.agentrails/config.json` in its main checkout, never from the repo tree.
+[config](../docs/config.md), `.agentrails/config.json` in its main checkout, never from the repo tree.
 
 ## Binding test policy
 
-- The config's `tests` section is the binding test profile; the [Tests](../CONFIG.md#tests) section
+- The config's `tests` section is the binding test profile; the [Tests](../docs/config.md#tests) section
   defines its keys. Agents never write the config.
 - A proof is an outcome test or a deterministic lever journey, linked from a feature-map document
   under `tests.verification_surface.feature_map_path`. Live paid or LLM calls and T3 exploration are

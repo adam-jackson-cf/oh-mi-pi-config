@@ -171,7 +171,7 @@ Owner exceptions and approvals live in its `exceptions` and `approvals`
 sections. `guardrails config-check` validates the file
 ([repo_config.py](guardrails/context/config/repo_config.py) is the validator); the
 section template is [config-template.json](guardrails/data/config-template.json).
-The [config contract](../CONFIG.md) defines every section, its writer and its rules.
+The [config contract](../docs/config.md) defines every section, its writer and its rules.
 
 Each checker module's docstring lists its settings and defaults. Defaults grant
 nothing: an unset allowlist approves no path, and an unset rule scope covers

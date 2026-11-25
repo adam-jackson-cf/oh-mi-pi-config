@@ -108,7 +108,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
-| Repo config | `<main checkout>/.agentrails/` | `config.json` per `CONFIG.md`; agents never write |
+| Repo config | `<main checkout>/.agentrails/` | per `docs/config.md`; agents never write |
 | NUC configs | `~/.local/share/ci-gate/configs/<owner>/<name>/` | Imported `config.json` |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
 | Review state | `~/.omp/agent/agent-rails-reviews.json` | Reviewed revision; agents never write |
