@@ -18,9 +18,11 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Session branch | omp core | `getBranch()` owner messages build the `in-scope` state |
 | Turn-end event | omp core | `session_stop` block reason starts the obligation follow-up turn |
 | Turn-end cleanup | omp core | `agent_end` without `willContinue` deletes a consumed handoff |
-| omp settings registry | `package.json` | `lookup("ttsr.disabledRules")`; mode toggles rules |
+| omp settings registry | `package.json` | `lookup` pins settings; never `ttsr.disabledRules` |
 | Pinned settings | omp core | Session start pins commit, github, task merge, handler timeout |
 | Commit prelude off | `agent/config.yml` | `commit.enabled: false` before a session |
+| Owner command | omp core | `/agentrails` onboard, configure, export, import, status |
+| Interactive UI | omp core | `ctx.hasUI`: the Q&A and other prompting subcommands need it |
 | omp tools | omp core | `bash`, `edit`, `ast_edit`, `write`, `eval`, `read`, `xd://`, `skill://` |
 | omp eval kernel | omp core | Runs `workflows.py`; gives `agent`, `wait`, `judge` |
 | Bun runtime | omp core | `Bun.YAML` reads `rails.yml`; `Bun.Glob` matches globs; `bun:sqlite` |
@@ -100,14 +102,14 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
 | Config skill | `agent/skills/omp-config-optimise` | Defers merges to `git-tool` |
-| Readme | `readme.md` | Layout, rails scope, CI runners |
+| Readme | `readme.md` | Layout, rails scope, config, store and review paths, CI runners |
 
 ## Machine state and repo configs
 
 | Dependency | Location | What it does for the extension |
 | --- | --- | --- |
 | Repo config | `<main checkout>/.agentrails/` | `config.json` per `CONFIG.md`; agents never write |
-| NUC configs | `~/.local/share/ci-gate/configs/` | `ci_gate.py config-import` writes them |
+| NUC configs | `~/.local/share/ci-gate/configs/<owner>/<name>/` | Imported `config.json` |
 | Runner roles | `~/.omp/ci-runners.json` | Commands for `ci_runner.py` |
 | Review state | `~/.omp/agent/agent-rails-reviews.json` | Reviewed revision; agents never write |
 | Handoff | `<worktree>/HANDOFF.md` | Excluded in `info/exclude`; never committed |

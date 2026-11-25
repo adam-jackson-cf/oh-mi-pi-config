@@ -178,8 +178,8 @@
   ],
   "label_guide": {
     "labelled_version": "b38b04aab5d74a264cd52a0fc59770953f3df57a951170a5dfbd7bc5eed58352",
-    "current_version": "51488d6a96a5797e5e0cf3837db152b8b4b127a5c3037c80683f711fa6aa4ae7",
-    "change": "2026-11-25 (S7a): rewritten for one mode before any relabel: inputs are config and change; Y2 lists the fixed guards; Y3 and N3 read config gates, ci and judgments instead of the mode; Y4 covers config settings and autonomy asks; Y5 lists the bundled skills (git-tool, test-guidance, setup-repo-proofs); T2 replays commits against the config converted from the 2026-11-21 record snapshot. Every label was made under labelled_version; council_queue lists the cases the rewrite affects"
+    "current_version": "f535b9956b909375d75f2b7968182271b422c6787b60fe2f1c73be028dc6ff28",
+    "change": "2026-11-25 (S7a): rewritten for one mode before any relabel: inputs are config and change; Y2 lists the fixed guards; Y3 and N3 read config gates, ci and judgments instead of the mode; Y4 covers config settings and autonomy asks; Y5 lists the bundled skills (git-tool, test-guidance, setup-repo-proofs); T2 replays commits against the config converted from the 2026-11-21 record snapshot. Every label was made under labelled_version; council_queue lists the cases the rewrite affects. 2026-11-25 (S7b): T2 names the record's merge permission instead of its retired field name; wording only, no rule changed"
   },
   "wired": true,
   "council_queue": {

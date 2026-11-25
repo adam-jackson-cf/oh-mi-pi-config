@@ -173,6 +173,28 @@ is missing or invalid is refused with the onboarding text, naming the slug and t
 problems; `workflows.py` refuses with the same route to `/agentrails onboard`. Rails and
 `workflows.py` strip the harness's `AGENT` variable from every repo command they run.
 
+The owner manages the config with `/agentrails`, an owner slash command that agents cannot run.
+Subcommands that prompt need an interactive omp session.
+
+| Command | Does |
+| --- | --- |
+| `/agentrails onboard` | Starts onboarding; run again, runs the fixed Q&A and writes the config |
+| `/agentrails configure` | Re-runs the Q&A on a valid config |
+| `/agentrails export <file>` | Writes the valid config to a file outside every Git work tree |
+| `/agentrails import <file>` | Validates an exported file against the origin, then writes it |
+| `/agentrails status` | Shows the config state, its problems and the onboarding draft |
+
+| State | Path |
+| --- | --- |
+| Repo config | `<main checkout>/.agentrails/config.json` |
+| Onboarding draft | `<git-common-dir>/agentrails/draft.json` |
+| Decision store | `~/.omp/agent/agent-rails/agent-rails.db` |
+| Restart reviews | `~/.omp/agent/agent-rails-reviews.json` |
+| NUC `ci-gate` config | `~/.local/share/ci-gate/configs/<owner>/<name>/config.json` on the NUC |
+
+The NUC copy comes from `/agentrails export` on the Mac, then `ci_gate.py config-import <file>` on
+the NUC; `XDG_DATA_HOME` replaces `~/.local/share` when set.
+
 ## Normal workflow
 
 1. Start from the relevant tracked policy, configuration, skill, or extension
@@ -375,7 +397,7 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
   Its own tests prove every rule it implements.
 - `agent/extensions/agent-rails/CONFIG.md` — the per-repo config contract: sections, writers and
   rules.
-- `agent/extensions/agent-rails/lib/` — the mode guards, rails runtime, Git paths and the repo
+- `agent/extensions/agent-rails/lib/` — the guards, rails runtime, Git paths and the repo
   config resolver.
 - `agent/extensions/agent-rails/rails.yml` — the tool and command mappings the rails read: edit tools,
   path fields and the Git-write and `askFirst` command patterns.

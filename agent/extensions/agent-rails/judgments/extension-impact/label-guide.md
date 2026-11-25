@@ -40,7 +40,7 @@ Yes when the change alters:
 
 - T1. Any one changed behaviour that reaches the repository makes the label 1.
 - T2. Judge the change as if applied today to this config. Configs are converted from a 2026-11-21
-  record snapshot (every gate on, autonomy from the record's agentMerge); older commits are replayed
+  record snapshot (every gate on, autonomy from the record's merge permission); older commits are replayed
   against it. A change to how the record was read counts under Y1 for the config field converted
   from it.
 - T3. A clipped diff: judge visible hunks, file paths and the subject. A runtime file
