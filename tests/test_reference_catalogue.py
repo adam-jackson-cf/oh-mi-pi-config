@@ -397,10 +397,11 @@ class ChildEnvironmentTests(unittest.TestCase):
             os.environ, {"AGENT": "agent-name", "GIT_DIR": "x", "KEEP": "1"}
         ):
             repo_env = child_env.repo_environment()
-            clean = child_env.clean_environment(["KEEP"])
+            clean = child_env.clean_environment()
         assert "AGENT" not in repo_env
         assert (repo_env["GIT_DIR"], repo_env["KEEP"]) == ("x", "1")
-        assert not {"AGENT", "GIT_DIR", "KEEP"} & set(clean)
+        assert not {"AGENT", "GIT_DIR"} & set(clean)
+        assert clean["KEEP"] == "1"
         assert "AGENT" not in child_env.repo_environment({"AGENT": "a", "PATH": "/bin"})
 
 

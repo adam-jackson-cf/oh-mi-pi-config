@@ -232,13 +232,12 @@ def adapter_problems(tests: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 ExemptionCheck = Callable[[dict[str, Any], str, list[tuple[str, str]]], None]
-UnknownKey = Callable[[str, str], str]
 
 
 @dataclass(frozen=True)
 class SectionRules:
     exemption: ExemptionCheck
-    unknown_key: UnknownKey
+    unknown_key_problem: str
 
 
 def child_key(key: str, name: str) -> str:
@@ -275,7 +274,7 @@ def check_section(
         return
     names = {child.removesuffix(OPTIONAL_MARK): child for child in spec}
     for extra in sorted(set(value) - set(names)):
-        problems.append((child_key(key, extra), rules.unknown_key(key, extra)))
+        problems.append((child_key(key, extra), rules.unknown_key_problem))
     for name, child in names.items():
         if child.endswith(OPTIONAL_MARK) and name not in value:
             continue

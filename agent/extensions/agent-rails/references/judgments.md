@@ -100,7 +100,7 @@ Run `guardrails shadow-review` from `<extension>/engine` with `uv run --project 
 | `inspector <judgment> [--verdict V] <out.jev.json>` | Jev Inspector session files rebuilt from payloads |
 
 `--machine nuc` reads the NUC's store read-only over `ssh`. The council labels first, the agent arbitrates and the owner may override.
-`blind_label(batch_files, rubric_path, labels, labellers=("scout", "reviewer"))` runs two blind read-only sessions and returns
+`blind_label(batch_files, rubric_path, labels)` runs two blind read-only sessions (scout and reviewer) and returns
 `agreed`, `disputed` and `failed` lists; it writes no labels.
 
 ## Dependency advisories

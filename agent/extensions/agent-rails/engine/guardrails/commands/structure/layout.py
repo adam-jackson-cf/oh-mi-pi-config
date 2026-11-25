@@ -247,9 +247,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         with scope.checkout(repo, selected) as root:
             found.extend(
                 scope.restrict(
-                    import_graph_findings(
-                        root, config, [], inventory=selected.inventory
-                    ),
+                    import_graph_findings(root, config, inventory=selected.inventory),
                     paths,
                     selected.existing_paths,
                 )

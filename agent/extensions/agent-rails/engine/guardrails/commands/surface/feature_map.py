@@ -78,7 +78,7 @@ def slug(heading: str) -> str:
     return text.replace(" ", "-")
 
 
-def resolve_link(repo: Path, doc: str, target: str) -> tuple[str | None, str]:
+def resolve_link(doc: str, target: str) -> tuple[str | None, str]:
     path_part, _, anchor = target.partition("#")
     if not path_part:
         return None, anchor
@@ -98,12 +98,12 @@ def resolve_link(repo: Path, doc: str, target: str) -> tuple[str | None, str]:
     return "/".join(parts) or ".", anchor
 
 
-def linked_files(repo: Path, doc: str, text: str) -> set[str]:
+def linked_files(doc: str, text: str) -> set[str]:
     linked = set()
     for target in parse(text).links:
         if SCHEME.match(target):
             continue
-        resolved, _ = resolve_link(repo, doc, target)
+        resolved, _ = resolve_link(doc, target)
         if resolved and resolved != "..":
             linked.add(resolved)
     return linked
@@ -119,7 +119,7 @@ def link_findings(repo: Path, doc: str, document: Document) -> list[Finding]:
     for target in document.links:
         if SCHEME.match(target):
             continue
-        resolved, anchor = resolve_link(repo, doc, target)
+        resolved, anchor = resolve_link(doc, target)
         if resolved == ".." or (
             resolved is not None and not (repo / resolved).exists()
         ):

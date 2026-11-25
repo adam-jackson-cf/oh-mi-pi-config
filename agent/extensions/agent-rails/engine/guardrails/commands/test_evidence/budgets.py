@@ -78,17 +78,11 @@ def cpu_model() -> str:
     return platform.processor() or "unknown-cpu"
 
 
-def machine_id(
-    runtime: str,
-    *,
-    system: str | None = None,
-    architecture: str | None = None,
-    cpu: str | None = None,
-) -> str:
+def machine_id(runtime: str) -> str:
     values = (
-        system if system is not None else platform.system(),
-        architecture if architecture is not None else platform.machine(),
-        cpu if cpu is not None else cpu_model(),
+        platform.system(),
+        platform.machine(),
+        cpu_model(),
         " ".join(runtime.split()),
     )
     return "m-" + hashlib.sha256("\n".join(values).encode()).hexdigest()[:12]
@@ -226,13 +220,12 @@ def evaluate(
     report: Report,
     config: dict[str, Any],
     expected_revision: str | None,
-    machine: Machine | None = None,
 ) -> BudgetResult:
     result = BudgetResult(validity_findings(report, expected_revision))
     runtime = report.properties.get("omp.runtime", "").strip()
     if result.findings or not runtime:
         return result
-    machine = machine or probe_machine(runtime)
+    machine = probe_machine(runtime)
     limits = approved_limits(config, machine)
     if limits is None:
         result.notes.append(baseline_prompt(report, machine))

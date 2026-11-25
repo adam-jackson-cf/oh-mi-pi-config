@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from functools import cache
@@ -22,10 +21,6 @@ def data_bytes() -> bytes:
 def load_house_style() -> dict[str, Any]:
     style: dict[str, Any] = json.loads(data_bytes())
     return style
-
-
-def digest() -> str:
-    return hashlib.sha256(data_bytes()).hexdigest()
 
 
 def stem(name: str) -> str:

@@ -26,28 +26,6 @@
       ]
     },
     {
-      "id": "PREFIX.candidates",
-      "kind": "bespoke",
-      "applicability": "always",
-      "evidence_kind": "local_ci",
-      "contract": {
-        "base_and_head_required": true,
-        "added_or_moved_member_required": true,
-        "candidate_only_owner_judgment_required": true
-      },
-      "summary": "Extract sibling prefix clusters for concept-owner judgment, not a blocking check.",
-      "remediation": {
-        "root_cause": "Sibling files share a name prefix, which often means an unnamed concept is spread across several files without an owner.",
-        "fix": "Decide whether the prefix names one concept; if it does, gather the members under one owning folder or module named for that concept, otherwise rename the members for their distinct roles."
-      },
-      "reference": [
-        {
-          "subcommand": "prefix-candidates",
-          "module": "guardrails.commands.structure.prefix_candidates"
-        }
-      ]
-    },
-    {
       "id": "STRUCT.dependency-direction",
       "kind": "bespoke",
       "applicability": "always",
@@ -311,7 +289,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "candidates": "PREFIX.candidates clusters: sibling .py files in one folder (not __init__.py, not test files, conftest.py or files under a tests or test folder; not hidden, node_modules, vendor, third_party, __pycache__, dist, build or examples folders, nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
+        "candidates": "prefix clusters: sibling .py files in one folder (not __init__.py, not test files, conftest.py or files under a tests or test folder; not hidden, node_modules, vendor, third_party, __pycache__, dist, build or examples folders, nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
         "pair_features": {
           "import_edge": "either member imports the other",
           "shared_reader": "another owned .py file, tests included, imports both",

@@ -33,6 +33,108 @@ FIXTURE = json.loads(
 )
 
 
+TEST_LAYOUT = {"tests": {"layout": {"test_file_patterns": ["test_*.py", "*_test.py"]}}}
+
+
+def prefixes(paths: list[str], added: set[str]) -> list[str]:
+    return [
+        found["prefix"]
+        for found in prefix_folder.groups(sorted(paths), added, TEST_LAYOUT)
+    ]
+
+
+@pytest.mark.fast
+class PrefixGroupTests(unittest.TestCase):
+    def test_an_added_member_groups_siblings_sharing_a_leading_token(self) -> None:
+        paths = [
+            "src/shop/grading/coverage_offline.py",
+            "src/shop/grading/coverage_store.py",
+            "src/shop/grading/prefix_grade.py",
+            "src/shop/grading/prefix_store.py",
+            "src/shop/readers.py",
+        ]
+        added = {
+            "src/shop/grading/coverage_offline.py",
+            "src/shop/grading/prefix_grade.py",
+        }
+        found = prefix_folder.groups(paths, added, TEST_LAYOUT)
+        assert [item["prefix"] for item in found] == ["coverage", "prefix"]
+        for item, producer in zip(
+            found, ["coverage_offline", "prefix_grade"], strict=True
+        ):
+            source = f"src/shop/grading/{producer}.py"
+            store = f"src/shop/grading/{item['prefix']}_store.py"
+            assert item["folder"] == "src/shop/grading"
+            assert item["members"] == sorted([source, store])
+            assert item["added_or_moved"] == [source]
+
+    def test_a_prefix_naming_the_folder_is_skipped_but_a_child_folder_is_not(
+        self,
+    ) -> None:
+        paths = [
+            "src/shop/grading/coverage/records.py",
+            "src/shop/grading/coverage_offline.py",
+            "src/shop/grading/coverage_store.py",
+            "src/shop/gradings/grading_producer.py",
+            "src/shop/gradings/grading_store.py",
+        ]
+        added = {
+            "src/shop/grading/coverage_offline.py",
+            "src/shop/gradings/grading_producer.py",
+        }
+        assert prefixes(paths, added) == ["coverage"]
+
+    def test_tests_init_modifiers_short_tokens_and_skipped_folders_make_no_group(
+        self,
+    ) -> None:
+        paths = [
+            "src/shop/test_coverage.py",
+            "src/shop/test_prefix.py",
+            "src/shop/coverage_test.py",
+            "src/shop/prefix_test.py",
+            "src/shop/__init__.py",
+            "src/shop/init_store.py",
+            "src/shop/base_reader.py",
+            "src/shop/base_writer.py",
+            "src/shop/io_reader.py",
+            "src/shop/io_writer.py",
+            "src/shop/tests/audit_writer.py",
+            "src/shop/tests/audit_store.py",
+            "src/shop/.cache/audit_writer.py",
+            "src/shop/.cache/audit_store.py",
+            "src/skill/SKILL.md",
+            "src/skill/audit_writer.py",
+            "src/skill/audit_store.py",
+            "src/shop/conftest.py",
+            "src/shop/conftest_store.py",
+        ]
+        assert prefixes(paths, set(paths)) == []
+
+    def test_the_leading_name_token_is_the_prefix(self) -> None:
+        paths = ["src/shop/cross_mode.py", "src/shop/cross_mode_metrics.py"]
+        (found,) = prefix_folder.groups(
+            paths, {"src/shop/cross_mode_metrics.py"}, TEST_LAYOUT
+        )
+        assert found["prefix"] == "cross"
+        assert found["members"] == paths
+
+    def test_single_member_and_partial_words_do_not_make_a_group(self) -> None:
+        paths = [
+            "src/shop/prefix_grade.py",
+            "src/shop/prefixed_store.py",
+            "src/shop/standalone.py",
+        ]
+        assert prefixes(paths, set(paths)) == []
+
+    def test_an_unrelated_addition_does_not_activate_an_existing_group(self) -> None:
+        paths = [
+            "src/shop/grading/coverage_offline.py",
+            "src/shop/grading/coverage_store.py",
+            "src/shop/grading/unrelated.py",
+        ]
+        assert prefixes(paths, {"src/shop/grading/unrelated.py"}) == []
+
+
 @pytest.mark.fast
 class PrefixFolderScoreTests(unittest.TestCase):
     def test_a_pair_score_weights_each_relationship_and_caps_co_change(self) -> None:
@@ -204,6 +306,16 @@ class PrefixFolderCommandTests(unittest.TestCase):
                 "prove",
             )
         ]
+
+    def test_a_moved_file_counts_as_added_and_a_modified_one_does_not(self) -> None:
+        repo, _, base = self.repository(FIXTURE["cases"][0])
+        (repo / "src/shop/grading/scorer.py").rename(
+            repo / "src/shop/grading/coverage_scorer.py"
+        )
+        head = self.commit(repo, {"src/shop/grading/coverage_store.py": "RECORD = 2\n"})
+        assert prefix_folder.added_or_moved(repo, base, head) == {
+            "src/shop/grading/coverage_scorer.py"
+        }
 
     def test_unreadable_commits_are_a_finding(self) -> None:
         repo, base, _ = self.repository(FIXTURE["cases"][0])

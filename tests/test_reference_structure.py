@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 import unittest
 from pathlib import Path
@@ -38,7 +37,6 @@ class HouseStyleVerdictTests(unittest.TestCase):
         assert VERDICTS["house_style_version"] == data["version"]
         assert len(data["sources"]) >= 5
         assert data["banned_words"] == sorted(set(data["banned_words"]))
-        assert re.search(r"^[0-9a-f]{64}$", house_style.digest())
 
     def test_banned_words(self) -> None:
         for word in VERDICTS["banned_words"]["banned"]:
@@ -156,7 +154,7 @@ class EngineLayerTests(unittest.TestCase):
             for path in (ROOT / ENGINE_SOURCE_ROOT).rglob("*.py")
         )
         found = [
-            *import_graph.run(ROOT, ENGINE_LAYERS, [], inventory=paths),
+            *import_graph.run(ROOT, ENGINE_LAYERS, inventory=paths),
             *(
                 finding
                 for path in paths

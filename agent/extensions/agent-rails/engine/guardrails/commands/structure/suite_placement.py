@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from guardrails.context.config import adapter_declarations
+from guardrails.context.config.adapter_declarations import tier_locations
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
@@ -43,10 +43,6 @@ UNOWNED_T2 = (
 )
 
 TEST_PLACEMENT = "TEST.placement"
-
-
-def tier_locations(config: dict[str, Any]) -> dict[str, list[str]]:
-    return adapter_declarations.tier_locations(config)
 
 
 def framework_names(tree: ast.Module) -> tuple[bool, set[str], set[str]]:

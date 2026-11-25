@@ -213,8 +213,8 @@ class Sections(unittest.TestCase):
         tests = copy.deepcopy(fixture("minimal.json")["tests"])
         tests["fast_tier_budget"]["machines"][0]["approval"] = "ADR-0008"
         assert repo_config.validate_section("tests", tests) == [
-            "tests.fast_tier_budget.machines[0].approval: is refused: owner approvals "
-            "live only in the approvals section"
+            "tests.fast_tier_budget.machines[0].approval: is not a config key; remove "
+            "it or fix its spelling"
         ]
         assert repo_config.validate_section("tests", []) == ["tests: must be an object"]
 

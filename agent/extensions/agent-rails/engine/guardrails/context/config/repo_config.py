@@ -399,6 +399,9 @@ def _leaf(check: LeafCheck) -> Validator:
     return validate_leaf
 
 
+UNKNOWN_KEY_PROBLEM = "is not a config key; remove it or fix its spelling"
+
+
 def _strict(
     required: Mapping[str, Validator], optional: Mapping[str, Validator] | None = None
 ) -> Validator:
@@ -409,7 +412,7 @@ def _strict(
             problems.append((path, "must be an object"))
             return
         for extra in sorted(set(value) - set(allowed)):
-            problems.append((f"{path}.{extra}", config_unknown_key(path, extra)))
+            problems.append((f"{path}.{extra}", UNKNOWN_KEY_PROBLEM))
         for name, validator in allowed.items():
             if name in value:
                 validator(value[name], f"{path}.{name}", problems)
@@ -460,16 +463,9 @@ def _unique(
         seen.add(key)
 
 
-def config_unknown_key(key: str, extra: str) -> str:
-    del key
-    if extra == "approval":
-        return "is refused: owner approvals live only in the approvals section"
-    return "is not a config key; remove it or fix its spelling"
-
-
 def check_config_exemption(value: dict[str, Any], key: str, problems: Problems) -> None:
     for extra in sorted(set(value) - {"none"}):
-        problems.append((f"{key}.{extra}", config_unknown_key(key, extra)))
+        problems.append((f"{key}.{extra}", UNKNOWN_KEY_PROBLEM))
     if value.get("none") is not True:
         problems.append((
             f"{key}.none",
@@ -477,7 +473,7 @@ def check_config_exemption(value: dict[str, Any], key: str, problems: Problems) 
         ))
 
 
-CONFIG_RULES = profile.SectionRules(check_config_exemption, config_unknown_key)
+CONFIG_RULES = profile.SectionRules(check_config_exemption, UNKNOWN_KEY_PROBLEM)
 
 
 def _with_prefix(prefix: str, found: Problems) -> Problems:

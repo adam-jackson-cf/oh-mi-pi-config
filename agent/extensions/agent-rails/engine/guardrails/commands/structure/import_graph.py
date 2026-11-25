@@ -197,7 +197,6 @@ def owner_findings(
 def run(
     repo: Path,
     config: dict[str, Any],
-    argv: list[str],
     *,
     inventory: list[str] | None = None,
 ) -> list[Finding]:

@@ -47,6 +47,7 @@
         "src/shop/grading/tests/coverage_check.py": "from ..coverage_store import RECORD\n",
         "src/shop/grading/conftest.py": "from .coverage_store import RECORD\n"
       },
+      "config": {"tests": {"layout": {"test_file_patterns": ["test_*.py"]}}},
       "findings": []
     },
     {
@@ -93,6 +94,15 @@
       "head": {
         "src/shop/grading/coverage_offline.py": "from .coverage_store import RECORD\n\n\ndef offline():\n    return RECORD\n\nVERSION = 2\n"
       },
+      "findings": []
+    },
+    {
+      "name": "excluded paths make no cluster",
+      "head": {
+        "generated/coverage_store.py": "RECORD = 1\n",
+        "generated/coverage_offline.py": "from .coverage_store import RECORD\n"
+      },
+      "config": {"checkers": {"check": {"exclude": ["generated"]}}},
       "findings": []
     }
   ]

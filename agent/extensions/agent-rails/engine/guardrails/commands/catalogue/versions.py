@@ -36,7 +36,6 @@ class VersionError(ValueError):
 class Requirement:
     name: str
     clauses: tuple[tuple[str, str], ...]
-    text: str
 
     def admits(self, version: str) -> bool:
         return all(clause_admits(op, wanted, version) for op, wanted in self.clauses)
@@ -53,7 +52,7 @@ def parse_requirement(text: str) -> Requirement:
         raise VersionError(f"cannot parse requirement {text!r}")
     rest = body[match.end() :].strip()
     if rest.startswith("@"):
-        return Requirement(canonical_name(match.group(1)), (), text)
+        return Requirement(canonical_name(match.group(1)), ())
     rest = rest.strip("()").strip()
     clauses = []
     for part in filter(None, (item.strip() for item in rest.split(","))):
@@ -61,7 +60,7 @@ def parse_requirement(text: str) -> Requirement:
         if clause is None:
             raise VersionError(f"cannot parse specifier {part!r} in {text!r}")
         clauses.append((clause.group(1), clause.group(2)))
-    return Requirement(canonical_name(match.group(1)), tuple(clauses), text)
+    return Requirement(canonical_name(match.group(1)), tuple(clauses))
 
 
 def release_of(version: str) -> tuple[int, ...]:

@@ -113,10 +113,6 @@ def structure_settings(config: dict[str, Any]) -> dict[str, Any]:
     return config_section(config, "structure")
 
 
-def house_style_version(config: dict[str, Any]) -> object:
-    return config_section(config, "houseStyle").get("version")
-
-
 def config_exceptions(config: dict[str, Any]) -> list[dict[str, Any]]:
     """The owner-approved exceptions: {rule, path, check?, reason, approvedBy, approvedAt}."""
     entries = config.get("exceptions")

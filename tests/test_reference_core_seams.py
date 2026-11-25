@@ -17,7 +17,7 @@ import pytest
 from test_agentrails_fixture import fixture
 from test_reference_core import CONTRACT_SUBCOMMANDS, ROOT, CliCase
 
-from guardrails.context.config import repo_config
+from guardrails.context.config import adapter_declarations, repo_config
 from guardrails.toolkit import dispatch
 
 pytestmark = pytest.mark.seam
@@ -129,8 +129,8 @@ class ConfigCliTests(CliCase):
         config = fixture()
         self.write_config(config)
         with unittest.mock.patch.object(
-            dispatch,
-            "declared_adapters",
+            adapter_declarations,
+            "names",
             return_value=["framework_without_adapter"],
         ):
             code, _, err = self.run_cli(

@@ -19,50 +19,6 @@ from types import ModuleType
 from typing import Any, Required, TypedDict, TypeGuard, Unpack
 from urllib.parse import quote, urlsplit
 
-__all__ = [
-    "FreezeOptions",
-    "FreezeRequest",
-    "FreezeResult",
-    "Judgment",
-    "Lineage",
-    "Placement",
-    "ProveBlockedError",
-    "ProveOptions",
-    "ProveRequest",
-    "StructureJudgment",
-    "WorkflowError",
-    "advisory_key",
-    "assess_advisory",
-    "blind_label",
-    "decide",
-    "dependency_audit_findings",
-    "deterministic_checks",
-    "effective_judgment",
-    "freeze",
-    "gate_policy",
-    "decision_context",
-    "judgment_config",
-    "judgment_error",
-    "judgment_record",
-    "load_judgment",
-    "load_manifest",
-    "malicious_assessment",
-    "malicious_package",
-    "not_onboarded_reason",
-    "outcome",
-    "owner_report",
-    "parse_dependency_audit",
-    "prove",
-    "rate_advisory",
-    "read_config",
-    "require_direct_judge_route",
-    "require_judge_model",
-    "result_path",
-    "run_check",
-    "structure_review",
-    "triage_advisories",
-]
-
 MAX_AGENTS = 16
 MAX_PROOFS = 16
 CHECK_TIMEOUT = 900
@@ -122,7 +78,6 @@ INFRASTRUCTURE_ERRORS = (
 Baselines = dict[Path, set[str] | Exception]
 
 
-MAX_SAFE_INTEGER = 9007199254740991
 # Harness variables the omp runtime exports to its tools. Repo commands must behave as they do
 # without the harness, so run_check removes them at the exec boundary.
 HARNESS_ENV = ("AGENT",)
@@ -749,7 +704,6 @@ def _execute(
     """Reuse each tree's setup; reset tracked files and remove non-baseline entries."""
     tree, location, run = placement.tree, placement.location, placement.run
     record: dict[str, Any] = {
-        "tree": location,
         "location": location,
         "ok": None,
         "output": "",
@@ -868,27 +822,19 @@ class FreezeResult(tuple[Path, str]):
 
 
 def _doctor_marker(config: dict[str, Any]) -> str | None:
-    """tests.verification_surface.doctor_marker from the repo config; an absent or placeholder value skips."""
+    """tests.verification_surface.doctor_marker from the repo config; an absent or exempt surface skips."""
     tests = config.get("tests")
     surface = tests.get("verification_surface") if isinstance(tests, dict) else None
     marker = surface.get("doctor_marker") if isinstance(surface, dict) else None
-    if not isinstance(marker, str) or re.fullmatch(
-        r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", marker, re.IGNORECASE | re.DOTALL
-    ):
-        return None
-    return marker
+    return marker if isinstance(marker, str) else None
 
 
 def _feature_map_path(config: dict[str, Any]) -> str | None:
     """verification_surface.feature_map_path (repo-relative, no trailing slash), or None when the
-    config declares none, exempts the surface or leaves a placeholder."""
+    config declares none or exempts the surface."""
     surface = _surface()[0].surface(config)
     value = surface.get("feature_map_path") if surface is not None else None
-    if not isinstance(value, str) or re.fullmatch(
-        r"\s*(<.*>|none\b.*|n/?a|tbd)?\s*", value, re.IGNORECASE | re.DOTALL
-    ):
-        return None
-    return value.strip().rstrip("/") or None
+    return value.strip().rstrip("/") if isinstance(value, str) else None
 
 
 def _unmapped_proof_files(
@@ -951,7 +897,7 @@ def _unproven_map_docs(
         if name and _map_document(map_path, name, indexes)
     ):
         text = _git(repo, "show", f"{head}:{doc}")
-        if not feature_map.linked_files(repo, doc, text) & proof_files:
+        if not feature_map.linked_files(doc, text) & proof_files:
             unproven.append(doc)
     return unproven
 
@@ -998,7 +944,6 @@ class FreezeRequest:
     """freeze()'s validated arguments."""
 
     slug: str
-    proofs: list[dict[str, Any]]
     base: str | None
     setup: list[str] | None
     previous: tuple[StrPath, str] | None
@@ -1097,7 +1042,7 @@ def _freeze_request(
         for k, v in revise.items()
     ):
         raise WorkflowError("revise must map proof IDs to nonblank reasons")
-    return FreezeRequest(slug, proofs, base, setup, previous, revise, max_checks)
+    return FreezeRequest(slug, base, setup, previous, revise, max_checks)
 
 
 def _lineage(root: Path, request: FreezeRequest) -> Lineage:
@@ -1316,7 +1261,6 @@ def deterministic_checks(
     head_tree: Path,
     manifest: dict[str, Any],
     roots: tuple[StrPath, ...] = (),
-    baselines: Baselines | None = None,
 ) -> dict[str, Any]:
     """Run every frozen proof at head: frozen bytes unchanged, then HEAD_RUNS passing runs, or for a
     journey proof JOURNEY_RUNS. Red at base was shown at freeze()."""
@@ -1325,7 +1269,7 @@ def deterministic_checks(
     failures.extend(_hash_failures(head_tree, manifest))
     if failures:
         return result
-    baselines = {} if baselines is None else baselines
+    baselines: Baselines = {}
     for proof in manifest["proofs"]:
         runs = result["proofs"].setdefault(proof["id"], [])
         count = JOURNEY_RUNS if proof.get("journey") else HEAD_RUNS
@@ -1653,24 +1597,15 @@ def _run_head_proofs(
 
 
 LABEL_FIELDS = frozenset({"id", "label", "evidence", "rationale"})
+LABELLERS = ("scout", "reviewer")
 
 
 def blind_label(
     batch_files: list[StrPath],
     rubric_path: StrPath,
     labels: list[str],
-    labellers: tuple[str, str] = ("scout", "reviewer"),
 ) -> dict[str, list[dict[str, Any]]]:
     """Two independent read-only sessions; humans confirm every label before writing."""
-    if (
-        not isinstance(labellers, (list, tuple))
-        or len(labellers) != 2
-        or not all(isinstance(who, str) for who in labellers)
-        or set(labellers) != {"scout", "reviewer"}
-    ):
-        raise WorkflowError(
-            "labellers must be two distinct read-only agents: scout and reviewer"
-        )
     if not isinstance(batch_files, (list, tuple)) or 2 * len(batch_files) > MAX_AGENTS:
         raise WorkflowError(f"labellers exceeds cap {MAX_AGENTS}; merge batches")
     if (
@@ -1681,7 +1616,7 @@ def blind_label(
         raise WorkflowError("labels must be nonblank strings")
     batches = [_label_batch(filename) for filename in batch_files]
     failed: list[dict[str, Any]] = []
-    jobs = _start_labellers(batch_files, rubric_path, labels, labellers, failed)
+    jobs = _start_labellers(batch_files, rubric_path, labels, LABELLERS, failed)
     try:
         results = _kernel("wait")([handle for _, _, handle in jobs], raise_errors=False)
     except INFRASTRUCTURE_ERRORS as exc:
@@ -1705,7 +1640,7 @@ def blind_label(
             if who in votes.setdefault(key, {}):
                 duplicates.add(key)
             votes[key][who] = case
-    agreed, disputed = _tally(batches, votes, duplicates, labellers)
+    agreed, disputed = _tally(batches, votes, duplicates, LABELLERS)
     return {"agreed": agreed, "disputed": disputed, "failed": failed}
 
 
@@ -1850,7 +1785,6 @@ _FAILURE_LINE = re.compile(
 )
 JUDGMENTS = "agent/extensions/agent-rails/judgments"
 JUDGMENT_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
-OUTCOMES = ("yes", "no", "escalate")
 # A bool decision is a single cutoff, or a band whose escalations go to a named fallback judgment.
 CUTOFF_KEYS = frozenset({"threshold"})
 BAND_KEYS = frozenset({"no_at_most", "yes_at_least", "fallback"})
@@ -1951,12 +1885,9 @@ def _check_bool_decision(name: str, ident: str, decision: dict[str, Any]) -> Non
 
 
 def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None:
-    """A decision fits its question type and carries its taxonomy and mode; none carries a status."""
-    if not isinstance(decision, dict) or "status" in decision:
-        raise WorkflowError(
-            f"{name}: decision {ident} must be an object without a status "
-            "(its mode says whether it is enforced)"
-        )
+    """A decision fits its question type and carries its taxonomy and mode."""
+    if not isinstance(decision, dict):
+        raise WorkflowError(f"{name}: decision {ident} must be an object")
     kind = question.get("type") if isinstance(question, dict) else None
     if kind == "bool":
         _check_bool_decision(name, ident, decision)
@@ -2052,10 +1983,6 @@ def load_judgment(name: str) -> Judgment:
     ):
         raise WorkflowError(
             f"{name}: questions and decisions must be non-empty objects"
-        )
-    if "status" in thresholds:
-        raise WorkflowError(
-            f"{name}: thresholds hold a status; each decision's mode says whether it is enforced"
         )
     if (
         not isinstance(model, str)
@@ -2751,12 +2678,11 @@ def rate_advisory(
 
     Rounds up: the impact is the most severe class at or above the round-up floor, a
     mitigating dimension lowers the level only on a yes outcome, and exposure only on a no
-    outcome for `reached`; escalate never lowers it. A malicious package never reaches the rubric.
+    outcome for `reached`; escalate never lowers it. assess_advisory decides a malicious package
+    before the rubric, so it never reaches it.
     `decisions` are the effective ones: a question the repo config turns off is absent, was not
     asked, and never lowers the level.
     """
-    if malicious_package(advisory):
-        return malicious_assessment(advisory, evidence)
     evidence = _evidence(advisory, evidence)
     probabilities = _probability(answers, "impact", "choice")
     floor = decisions["impact"]["round_up_floor"]
@@ -3210,7 +3136,6 @@ async def structure_review(
         "errors": [],
         "thresholds": None,
         "version_key": None,
-        "model_reported": None,
     }
     published = None
     try:

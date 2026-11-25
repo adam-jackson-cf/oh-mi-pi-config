@@ -148,4 +148,4 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Repo commands | Repo config | `commands.commit` before commits |
 | `go`, `node`, `bun` | PATH | Engine adapter test runs |
 | LSP servers | PATH | `pyright-langserver`, TS server for `init` |
-| Python packages | PyPI | `ast-grep-py`, `pytest`, `mutmut` |
+| Python packages | PyPI | `ast-grep-py`, `pytest` |

@@ -12,6 +12,7 @@ import unittest
 import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
@@ -212,23 +213,37 @@ class JunitNormalisationTests(unittest.TestCase):
                 junit.report_options(repo, argv)
 
 
+def on_machine(
+    machine: budgets.Machine,
+    report: junit.Report,
+    settings: dict[str, Any],
+    revision: str | None,
+) -> budgets.BudgetResult:
+    """Evaluate budgets as if the probe found `machine`."""
+    with mock.patch.object(budgets, "probe_machine", return_value=machine):
+        return budgets.evaluate(report, settings, revision)
+
+
 class MachineProbeTests(unittest.TestCase):
     def test_machine_id_is_deterministic_and_changes_with_each_input(self) -> None:
-        base = {"system": "Linux", "architecture": "x86_64", "cpu": "Example CPU"}
-        first = budgets.machine_id("python 3.12.4", **base)
-        assert re.search(r"^m-[0-9a-f]{12}$", first)
-        assert first == budgets.machine_id("python  3.12.4", **base)
-        assert first != budgets.machine_id("python 3.13.0", **base)
-        assert first != budgets.machine_id(
-            "python 3.12.4", **{**base, "cpu": "Other CPU"}
-        )
+        with (
+            mock.patch("platform.system", return_value="Linux"),
+            mock.patch("platform.machine", return_value="x86_64"),
+            mock.patch.object(budgets, "cpu_model", return_value="Example CPU"),
+        ):
+            first = budgets.machine_id("python 3.12.4")
+            assert re.search(r"^m-[0-9a-f]{12}$", first)
+            assert first == budgets.machine_id("python  3.12.4")
+            assert first != budgets.machine_id("python 3.13.0")
+            with mock.patch.object(budgets, "cpu_model", return_value="Other CPU"):
+                assert first != budgets.machine_id("python 3.12.4")
 
 
 class BudgetTests(unittest.TestCase):
     def evaluate(
         self, report: junit.Report, machine: budgets.Machine = MACHINE
     ) -> budgets.BudgetResult:
-        return budgets.evaluate(report, profile(), REVISION, machine)
+        return on_machine(machine, report, profile(), REVISION)
 
     def test_an_approved_machine_within_limits_passes(self) -> None:
         result = self.evaluate(fixture("pytest-clean.xml"))
@@ -261,7 +276,7 @@ class BudgetTests(unittest.TestCase):
         unapproved = profile()
         unapproved["approvals"] = []
         report = edited("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
-        result = budgets.evaluate(report, unapproved, REVISION, MACHINE)
+        result = on_machine(MACHINE, report, unapproved, REVISION)
         assert result.findings == []
         assert "no approved budget" in result.notes[0]
 
@@ -298,7 +313,7 @@ class BudgetTests(unittest.TestCase):
                 assert any(expected in item.message for item in findings), findings
 
     def test_an_undeterminable_revision_is_fatal(self) -> None:
-        result = budgets.evaluate(fixture("pytest-clean.xml"), profile(), None, MACHINE)
+        result = on_machine(MACHINE, fixture("pytest-clean.xml"), profile(), None)
         assert "cannot be determined" in result.findings[0].message
 
     def test_skipped_cases_need_no_time(self) -> None:

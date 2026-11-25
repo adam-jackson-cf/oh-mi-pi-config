@@ -38,7 +38,7 @@ guardrails --help
 `uv.lock` locks the harness environment. `check` needs only the base
 dependencies. The pytest adapter's `tiers` and `conformance` actions need the
 `pytest` extra (`requirements-pytest.lock` pins it with hashes for the
-container). The T3 mutation run adds the `mutation` extra.
+container).
 
 ## Layers
 
@@ -230,8 +230,6 @@ one adapter per framework it uses, so one stack can use several adapters.
     Stryker's built-in command runner, which reports no per-test coverage.
 
 ## Rule coverage
-
-The harness's package version decides which catalogue rules apply.
 
 - Tool rules (`kind: "tool"`) and rules that name a `reference` module are
   proven once, by this package's own tests in oh-mi-pi-config

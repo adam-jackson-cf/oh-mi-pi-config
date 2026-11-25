@@ -65,10 +65,6 @@ def fixed_folder(path: str, name: str) -> bool:
     )
 
 
-def all_test_patterns() -> list[str]:
-    return [pattern for pack in packs() for pattern in pack["test_patterns"]]
-
-
 def test_patterns(path: str) -> list[str]:
     patterns: list[str] = for_path(path)["test_patterns"]
     return patterns

@@ -3,13 +3,11 @@ from __future__ import annotations
 import argparse
 import ast
 import re
-import sys
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.context.config.repo_config import ConfigError, load_config
-from guardrails.foundation.findings import Finding, exit_code, format_findings
+from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
 from guardrails.host.process import run_bytes
 from guardrails.toolkit.dispatch import SUBCOMMANDS
@@ -289,25 +287,3 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
             )
         ]
     return residue_findings(renames, files)
-
-
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=SUBCOMMANDS["rename-residue"].summary)
-    parser.add_argument("--repo", type=Path, required=True)
-    parser.add_argument("--base", required=True)
-    parser.add_argument("--head", required=True)
-    args = parser.parse_args(argv)
-    repo = args.repo.resolve()
-    try:
-        config = load_config(repo)
-    except ConfigError as error:
-        parser.error(str(error))
-    found = run(repo, config, ["--base", args.base, "--head", args.head])
-    rendered = format_findings(found)
-    if rendered:
-        print(rendered)
-    return exit_code(found)
-
-
-if __name__ == "__main__":
-    sys.exit(main())

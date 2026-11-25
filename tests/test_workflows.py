@@ -306,13 +306,6 @@ class LabelTests(unittest.TestCase):
             self.path.write_text(json.dumps(cases))
             with pytest.raises(workflow.WorkflowError):
                 workflow.blind_label([self.path], "rubric", ["yes"])
-        for selectors in (
-            ("scout", "task"),
-            ("scout", "scout"),
-            ("designer", "reviewer"),
-        ):
-            with pytest.raises(workflow.WorkflowError):
-                workflow.blind_label([], "rubric", ["yes"], selectors)
         with pytest.raises(workflow.WorkflowError):
             workflow.blind_label([self.path] * 9, "rubric", ["yes"])
         self.agent.assert_not_called()
@@ -874,10 +867,6 @@ class JudgmentRegistryTests(unittest.TestCase):
             "band without a fallback judge": broken(lambda t: band(t, 0.3, None)),
             "fallback judge; use": broken(lambda t: band(t, 0.3, "absent")),
             "fallback judge; use a": broken(lambda t: band(t, 0.3, "demo")),
-            "without a status": broken(
-                lambda t: t["decisions"]["flag"].update(status="ready")
-            ),
-            "thresholds hold a status": broken(lambda t: t.update(status="ready")),
             "round_up_floor": broken(
                 lambda t: t["decisions"]["kind"].update(round_up_floor=True)
             ),
@@ -1643,7 +1632,6 @@ class MaliciousPackageTests(unittest.TestCase):
     def test_malicious_is_critical_for_the_owner_whatever_scope_reach_or_fix(
         self,
     ) -> None:
-        mild = answers(impact="info_leak", local=0.9, reached=0.01)
         for line, kwargs in (
             (MALICIOUS, {"scope": "dev", "hits": False}),
             (
@@ -1653,8 +1641,8 @@ class MaliciousPackageTests(unittest.TestCase):
             (MALICIOUS, {"scope": "runtime"}),
         ):
             with self.subTest(line=line, kwargs=kwargs):
-                rated = workflow.rate_advisory(
-                    self.advisory(line), evidence(**kwargs), mild, self.decisions
+                rated = workflow.malicious_assessment(
+                    self.advisory(line), evidence(**kwargs)
                 )
                 assert (rated["severity"], rated["route"]) == ("critical", "owner")
                 assert "malicious package" in rated["reasons"][0]

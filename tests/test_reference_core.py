@@ -40,7 +40,6 @@ CONTRACT_SUBCOMMANDS = {
     "structure",
     "rename-residue",
     "responsibility-overlap",
-    "prefix-candidates",
     "prefix-folder",
     "name-pairs",
     "consumer-candidates",

@@ -10,15 +10,9 @@ from os.path import commonprefix
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure.prefix_candidates import (
-    _added_or_moved,
-    _groups,
-    owned_python,
-    singular,
-)
 from guardrails.commands.structure.rename_residue import GitError, git
-from guardrails.context.changes import DiffError
 from guardrails.context.config.house_style import apply_exceptions
+from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding, catalogue_rules
 from guardrails.foundation.inventory import as_list, matches_any, settings
 from guardrails.host.process import run_bytes
@@ -30,6 +24,143 @@ MAX_SOURCE_BYTES = 400_000
 FEATURES = ("import_edge", "shared_reader", "co_change", "prefix_is_domain_word")
 DOCUMENTED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 Import = tuple[int, list[str], list[str]]
+
+
+SKIPPED_FOLDERS = frozenset({
+    "__pycache__",
+    "build",
+    "dist",
+    "examples",
+    "node_modules",
+    "third_party",
+    "vendor",
+})
+TEST_FOLDERS = frozenset({"test", "tests"})
+MODIFIERS = frozenset({
+    "abstract",
+    "base",
+    "common",
+    "core",
+    "default",
+    "generic",
+    "get",
+    "helper",
+    "helpers",
+    "main",
+    "my",
+    "new",
+    "old",
+    "run",
+    "set",
+    "simple",
+    "test",
+    "tests",
+    "tmp",
+    "util",
+    "utils",
+})
+BUNDLE_MANIFEST = "SKILL.md"
+MIN_PREFIX = 3
+
+
+def added_or_moved(repo: Path, base: str, head: str) -> set[str]:
+    tokens = (
+        git(repo, "diff", "--name-status", "-z", "--find-renames=50%", base, head, "--")
+        .decode(errors="replace")
+        .split("\0")
+    )
+    found: set[str] = set()
+    index = 0
+    while index < len(tokens) and tokens[index]:
+        status = tokens[index][0]
+        if status in {"R", "C"}:
+            if status == "R":
+                found.add(tokens[index + 2])
+            index += 3
+        else:
+            if status == "A":
+                found.add(tokens[index + 1])
+            index += 2
+    return found
+
+
+def singular(word: str) -> str:
+    if len(word) > 4 and word.endswith("ies"):
+        return word[:-3] + "y"
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def name_tokens(stem: str) -> list[str]:
+    return [token for token in re.split(r"[_\-]+", stem.lower()) if token]
+
+
+def owned_python(paths: list[str]) -> list[str]:
+    bundles = {
+        PurePosixPath(path).parent.as_posix()
+        for path in paths
+        if PurePosixPath(path).name == BUNDLE_MANIFEST
+    }
+
+    def skipped(path: str) -> bool:
+        folders = PurePosixPath(path).parts[:-1]
+        if any(part.startswith(".") or part in SKIPPED_FOLDERS for part in folders):
+            return True
+        parent = PurePosixPath(path).parent.as_posix()
+        return any(
+            root == "." or parent == root or parent.startswith(root + "/")
+            for root in bundles
+        )
+
+    return [path for path in paths if path.endswith(".py") and not skipped(path)]
+
+
+def is_test_like(path: str, config: dict[str, Any]) -> bool:
+    pure = PurePosixPath(path)
+    return (
+        is_test_file(path, config)
+        or pure.name == "conftest.py"
+        or bool(TEST_FOLDERS.intersection(pure.parts[:-1]))
+    )
+
+
+def groups(
+    paths: list[str], added: set[str], config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    siblings: dict[str, list[str]] = defaultdict(list)
+    for path in owned_python(paths):
+        if PurePosixPath(path).name != "__init__.py" and not is_test_like(path, config):
+            siblings[PurePosixPath(path).parent.as_posix()].append(path)
+    found: list[dict[str, Any]] = []
+    touched = {PurePosixPath(path).parent.as_posix() for path in added}
+    for directory in sorted(touched):
+        name = PurePosixPath(directory).name
+        own = (
+            {singular(token) for token in name_tokens(name)}
+            if directory != "."
+            else set()
+        )
+        by_prefix: dict[str, list[str]] = defaultdict(list)
+        for path in siblings.get(directory, []):
+            tokens = name_tokens(PurePosixPath(path).stem)
+            if tokens:
+                by_prefix[tokens[0]].append(path)
+        found.extend(
+            {
+                "folder": directory,
+                "prefix": prefix,
+                "members": sorted(members),
+                "added_or_moved": sorted(added.intersection(members)),
+            }
+            for prefix, members in sorted(by_prefix.items())
+            if len(members) >= 2
+            and len(prefix) >= MIN_PREFIX
+            and prefix not in MODIFIERS
+            and singular(prefix) not in own
+            and added.intersection(members)
+        )
+    return found
 
 
 def contract() -> dict[str, Any]:
@@ -303,7 +434,7 @@ def clusters(
 ) -> list[dict[str, Any]]:
     weights = contract()["weights"]
     return [
-        scored(cluster, evidence, weights) for cluster in _groups(paths, added, config)
+        scored(cluster, evidence, weights) for cluster in groups(paths, added, config)
     ]
 
 
@@ -346,12 +477,12 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         settings(config, "python").get("excluded_paths")
     )
     try:
-        added = _added_or_moved(repo, args.base, args.head)
+        added = added_or_moved(repo, args.base, args.head)
         paths, texts = sources(repo, args.head, excluded)
         found = clusters(
             paths, added, evidence_of(texts, history(repo, args.head)), config
         )
-    except (DiffError, GitError, ValueError) as error:
+    except (GitError, ValueError) as error:
         return [
             Finding(
                 RULE,

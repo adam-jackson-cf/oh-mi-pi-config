@@ -286,7 +286,7 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string, evi
 		pairs: z.record(z.string(), z.unknown()).optional(), kind_files: z.record(z.string(), z.unknown()).optional(),
 		consumers: z.record(z.string(), z.unknown()).optional(), errors: z.array(z.string()).optional(),
 		thresholds: z.unknown().optional(), version_key: z.string().nullable().optional(),
-		model_reported: z.string().nullable().optional(), model_note: z.string().optional(),
+		model_note: z.string().optional(),
 		prComment: z.string().optional(),
 	}).strict();
 	let result;

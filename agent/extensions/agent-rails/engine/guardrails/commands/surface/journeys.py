@@ -60,7 +60,7 @@ def mapped_paths(repo: Path, map_path: str) -> tuple[set[str], str]:
     for doc in map_documents(repo, map_path):
         text = read(repo / doc)
         texts.append(text)
-        linked |= linked_files(repo, doc, text)
+        linked |= linked_files(doc, text)
     return linked, "\n".join(texts)
 
 

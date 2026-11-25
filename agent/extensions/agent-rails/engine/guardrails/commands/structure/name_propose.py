@@ -159,9 +159,6 @@ class NameIndex:
 
         return sorted(found, key=rank)[0]
 
-    def same_language(self, path: str) -> list[dict[str, Any]]:
-        return [d for d in self.definitions if suffix(d["path"]) == suffix(path)]
-
     def resolve_alias(
         self, binding: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:

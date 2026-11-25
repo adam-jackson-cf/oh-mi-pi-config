@@ -44,9 +44,6 @@ def marker_lines(out: str, path: str) -> list[int]:
     )
 
 
-MUTATION_LOCK = REFERENCE / "requirements-mutation.lock"
-
-
 def git(repo: Path, *args: str) -> None:
     run_bytes(
         ["git", "-C", str(repo), *args],

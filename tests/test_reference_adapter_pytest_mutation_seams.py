@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-import tomllib
 import unittest
 from pathlib import Path
 
@@ -11,12 +10,10 @@ import pytest
 from test_reference_adapter_pytest import (
     FIXTURES,
     PYTEST_ONLY,
-    REFERENCE,
-    requirement_entries,
     run_cli,
     write_profile,
 )
-from test_reference_adapter_pytest_seams import GIT_ENV, MUTATION_LOCK
+from test_reference_adapter_pytest_seams import GIT_ENV
 
 from guardrails.commands.adapters.pytest import mutation
 from guardrails.host.process import run_bytes
@@ -156,14 +153,6 @@ class MutationTests(unittest.TestCase):
             "incomplete",
             "incomplete",
         ]
-
-    def test_mutation_lock_pins_both_extras_with_hashes(self) -> None:
-        pyproject = tomllib.loads((REFERENCE / "pyproject.toml").read_text())
-        extras = pyproject["project"]["optional-dependencies"]
-        entries = requirement_entries(MUTATION_LOCK.read_text())
-        specs = {spec.split(";")[0].strip() for spec in entries}
-        assert set(extras["mutation"]) | set(extras["pytest"]) <= specs
-        assert all(entries.values()), "every locked requirement carries a hash"
 
 
 if __name__ == "__main__":

@@ -50,11 +50,6 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         ("guardrails.commands.structure.rename_residue",),
         "RENAME.residue over --base SHA --head SHA at PR time",
     ),
-    "prefix-candidates": Subcommand(
-        ("guardrails.commands.structure.prefix_candidates",),
-        "PREFIX.candidates JSON for --base SHA --head SHA owner judgment",
-        prints_data=True,
-    ),
     "prefix-folder": Subcommand(
         ("guardrails.commands.structure.prefix_folder",),
         "STRUCT.prefix-folder over --base SHA --head SHA at PR time",
@@ -200,22 +195,13 @@ def module_names(name: str, config: dict[str, Any]) -> tuple[str, ...]:
     if name != "adapter":
         return SUBCOMMANDS[name].modules
     return tuple(
-        adapter_declarations.module_name(item) for item in declared_adapters(config)
+        adapter_declarations.module_name(item)
+        for item in adapter_declarations.names(config)
     )
 
 
-def declared_adapters(config: dict[str, Any]) -> list[str]:
-    found = adapter_declarations.names(config)
-    if not found:
-        raise ProfileError(
-            "adapters must list the repository's test frameworks, e.g. "
-            '[{"name": "pytest", "tiers": {...}}]'
-        )
-    return found
-
-
 def adapter_module(config: dict[str, Any], argv: list[str]) -> tuple[str, list[str]]:
-    declared = declared_adapters(config)
+    declared = adapter_declarations.names(config)
     if not argv or argv[0] not in declared:
         given = repr(argv[0]) if argv else "no adapter"
         raise ProfileError(

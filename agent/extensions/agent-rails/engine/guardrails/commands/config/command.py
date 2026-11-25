@@ -9,8 +9,6 @@ from guardrails.context.config import repo_config
 from guardrails.context.config.repo_config import ConfigError
 from guardrails.foundation.findings import catalogue_rules
 
-# Every problem config-check reports belongs to this rule's problem class.
-RULE = "PROFILE.complete"
 DESCRIPTION = """Validate an agent-rails config (<main checkout>/.agentrails/config.json).
 
 Each problem is a PROFILE.complete problem: a value missing, malformed or not owner-approved.

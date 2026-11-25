@@ -9,7 +9,6 @@ from typing import Any
 from guardrails.context.config import adapter_declarations
 from guardrails.foundation.inventory import settings
 
-OUTCOMES = ("passed", "failed", "skipped", "xfail", "error")
 FAILING = frozenset({"failed", "error"})
 
 
