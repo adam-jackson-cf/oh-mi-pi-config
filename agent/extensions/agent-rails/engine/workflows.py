@@ -125,27 +125,27 @@ def _harness_root() -> Path:
 _SURFACE: list[ModuleType] = []
 _STORE: list[ModuleType] = []
 _REPO_CONFIG: list[ModuleType] = []
-GUARDRAILS_REFERENCE = "agent/extensions/agent-rails/engine"
+ENGINE_PATH = "agent/extensions/agent-rails/engine"
 
 
 def _guardrails_modules(names: tuple[str, ...], purpose: str) -> list[ModuleType]:
-    """guardrails modules from the harness's python reference; an older guardrails copy is refused."""
-    reference = (_harness_root() / GUARDRAILS_REFERENCE).resolve()
-    package = (reference / "guardrails").resolve()
+    """guardrails modules from the harness engine; an older guardrails copy is refused."""
+    engine = (_harness_root() / ENGINE_PATH).resolve()
+    package = (engine / "guardrails").resolve()
     loaded = sys.modules.get("guardrails")
     if loaded is not None and not Path(loaded.__file__ or "").resolve().is_relative_to(
         package
     ):
         raise WorkflowError(
-            f"guardrails already loaded from {loaded.__file__}, not the harness reference {reference}"
+            f"guardrails already loaded from {loaded.__file__}, not the harness engine {engine}"
         )
-    sys.path.insert(0, str(reference))
+    sys.path.insert(0, str(engine))
     try:
         return [importlib.import_module(name) for name in names]
     except (OSError, SyntaxError, ImportError) as exc:
         raise WorkflowError(f"cannot load the {purpose}: {exc}") from exc
     finally:
-        sys.path.remove(str(reference))
+        sys.path.remove(str(engine))
 
 
 def _surface() -> list[ModuleType]:
@@ -1554,7 +1554,7 @@ def _harness_check_findings(
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                 "from guardrails.commands.cli import main; raise SystemExit(main())",
-                str(_harness_root() / GUARDRAILS_REFERENCE),
+                str(_harness_root() / ENGINE_PATH),
                 checker,
                 "--repo",
                 str(repo),
@@ -2991,7 +2991,7 @@ def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
             "-c",
             "import sys; sys.path.insert(0, sys.argv.pop(1)); "
             "from guardrails.commands.cli import main; raise SystemExit(main())",
-            str(_harness_root() / GUARDRAILS_REFERENCE),
+            str(_harness_root() / ENGINE_PATH),
             subcommand,
             "--repo",
             str(repo),

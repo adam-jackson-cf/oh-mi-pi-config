@@ -8,7 +8,7 @@ from typing import Any, Protocol
 
 from guardrails.context.changes import DiffRange, changed_files, git
 from guardrails.context.config import adapter_declarations
-from guardrails.context.config.profile import is_missing_text
+from guardrails.context.config.section_schema import is_missing_text
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import matches_any

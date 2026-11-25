@@ -5,8 +5,8 @@ from typing import Any
 
 from guardrails.commands.check.integrity import commit_findings
 from guardrails.context.changes import DiffError, range_finding, staged_range
-from guardrails.context.config.profile import ProfileError
 from guardrails.context.config.repo_config import CHECK_STEPS
+from guardrails.context.config.section_schema import ConfigValueError
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     InventoryError,
@@ -23,7 +23,7 @@ from guardrails.toolkit.dispatch import (
 )
 
 CHECKER = "check"
-RULE = "PROFILE.complete"
+RULE = "CONFIG.complete"
 OPT_IN_STEPS = ("python-test-hygiene",)
 DEFAULT_STEPS = tuple(step for step in CHECK_STEPS if step not in OPT_IN_STEPS)
 STEPS = CHECK_STEPS
@@ -171,7 +171,7 @@ def run_step(repo: Path, config: dict[str, Any], step: str) -> list[Finding]:
         argv.extend(["--event", "staged"])
     try:
         modules = module_names(name, config)
-    except ProfileError as error:
+    except ConfigValueError as error:
         return [config_finding(error)]
     return run_modules(modules, repo, config, argv)
 

@@ -33,7 +33,7 @@ The assigned writer commits, pushes, writes the description and opens the PR. Ma
 
 ## Who writes the config
 
-The repo config holds its policy, commands, checker settings, test profile, exceptions and approvals. It is never
+The repo config holds its policy, commands, checker settings, test settings, exceptions and approvals. It is never
 committed and never part of a PR. Agents never edit it: rails refuse every edit, write, eval or shell write to a
 `.agentrails` path, and re-read the config on every action. Each section has one writer
 ([config contract](../../../docs/config.md#sections-and-writers)):

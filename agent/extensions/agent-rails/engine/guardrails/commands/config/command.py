@@ -11,7 +11,7 @@ from guardrails.foundation.findings import catalogue_rules
 
 DESCRIPTION = """Validate an agent-rails config (<main checkout>/.agentrails/config.json).
 
-Each problem is a PROFILE.complete problem: a value missing, malformed or not owner-approved.
+Each problem is a CONFIG.complete problem: a value missing, malformed or not owner-approved.
 
   --repo DIR                     the main checkout's config, checked against DIR's origin
   --file PATH [--slug OWNER/NAME]  any config file; --slug checks repo.slug against it

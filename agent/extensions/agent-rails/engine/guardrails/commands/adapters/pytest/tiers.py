@@ -67,7 +67,7 @@ def collect_tier(
                 PROPAGATION,
                 config_label("tests"),
                 f"the pytest adapter has no selector for tier {tier}",
-                "record it under adapters[].tiers",
+                f"set tests.adapters[].tiers.{tier}.selector in .agentrails/config.json",
             )
         ]
     locations = as_list(spec.get("location"))
@@ -124,7 +124,7 @@ def timeout_finding(tier: str, timeout: object) -> Finding:
         PROPAGATION,
         f"tiers.{tier}",
         f"tier {tier} collection exceeded collect_timeout_s={timeout}",
-        "make collection finish within the recorded limit",
+        f"make collection finish within checkers.{SETTINGS}.collect_timeout_s",
     )
 
 

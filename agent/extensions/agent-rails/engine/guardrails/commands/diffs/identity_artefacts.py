@@ -10,7 +10,7 @@ from guardrails.context.changes import (
     range_finding,
 )
 from guardrails.context.config import adapter_declarations
-from guardrails.context.config.profile import approved_exemption
+from guardrails.context.config.section_schema import approved_exemption
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (

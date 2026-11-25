@@ -1,0 +1,96 @@
+{
+  "about": "In-memory trees for the structure-naming consumer-file proposer: each case lists the files changed in the reviewed change, an optional config, and the candidate paths expected.",
+  "tree": {
+    "pkg/__init__.py": "\"\"\"Runs pricing experiments.\"\"\"\n",
+    "pkg/core.py": "def run_experiment(name):\n    return name\n",
+    "pkg/dashboard.py": "import streamlit as st\n\nfrom pkg import core\n\nst.title(core.run_experiment(\"latest\"))\n",
+    "pkg/cli.py": "import argparse\n\n\ndef main():\n    parser = argparse.ArgumentParser()\n    parser.parse_args()\n",
+    "pkg/__main__.py": "from pkg.cli import main\n\nif __name__ == \"__main__\":\n    main()\n",
+    "pkg/report.py": "from pkg import core\n\nif __name__ == \"__main__\":\n    print(core.run_experiment(\"report\"))\n",
+    "pkg/skill/SKILL.md": "# Skill\n",
+    "pkg/skill/view.py": "if __name__ == \"__main__\":\n    print(\"view\")\n",
+    "scripts/export.py": "if __name__ == \"__main__\":\n    print(\"export\")\n",
+    "tools/report.py": "if __name__ == \"__main__\":\n    print(\"tool\")\n",
+    "pkg/entrypoints/__init__.py": "",
+    "pkg/entrypoints/report_viewer.py": "\"\"\"Usage: streamlit run pkg/entrypoints/report_viewer.py\"\"\"\n\nimport streamlit as st\n\nfrom pkg import core\n\nst.title(core.run_experiment(\"report\"))\n",
+    "pkg/entrypoints/snapshot_eval.py": "import streamlit as st\n\nst.title(\"snapshots\")\n",
+    "pkg/entrypoints/commands/__init__.py": "",
+    "pkg/entrypoints/commands/tools.py": "import subprocess\nfrom pathlib import Path\n\n\ndef report_viewer() -> None:\n    script = Path(__file__).resolve().parents[1] / \"report_viewer.py\"\n    subprocess.run([\"streamlit\", \"run\", str(script)], check=True)\n\n\ndef snapshot_eval() -> None:\n    subprocess.run([\"streamlit\", \"run\", \"pkg/entrypoints/snapshot_eval.py\"], check=True)\n",
+    "pkg/runner.py": "if __name__ == \"__main__\":\n    print(\"run\")\n",
+    "pkg/launch.py": "import runpy\n\n\ndef launch() -> None:\n    runpy.run_module(\"pkg.runner\", run_name=\"__main__\")\n",
+    "pkg/console.py": "if __name__ == \"__main__\":\n    print(\"console\")\n",
+    "pyproject.toml": "[project]\nname = \"pkg\"\n\n[project.scripts]\npkg-console = \"pkg.console:main\"\n",
+    "pkg/viewer.py": "import streamlit as st\n\nst.title(\"viewer\")\n",
+    "tests/test_viewer.py": "from pathlib import Path\n\nVIEWER = Path(\"pkg/viewer.py\")\n",
+    "pkg/docnamed.py": "import streamlit as st\n\nst.title(\"docs\")\n",
+    "pkg/notes.py": "\"\"\"Run the docs view with: streamlit run pkg/docnamed.py\"\"\"\n\nNOTES = 1\n"
+  },
+  "cases": [
+    {
+      "name": "runnable package files no file imports",
+      "changed": [
+        "pkg/__init__.py",
+        "pkg/core.py",
+        "pkg/dashboard.py",
+        "pkg/cli.py",
+        "pkg/__main__.py",
+        "pkg/report.py",
+        "pkg/skill/SKILL.md",
+        "pkg/skill/view.py",
+        "scripts/export.py",
+        "tools/report.py"
+      ],
+      "candidates": ["pkg/__main__.py", "pkg/dashboard.py", "pkg/report.py"]
+    },
+    {
+      "name": "only changed files are candidates",
+      "changed": ["pkg/dashboard.py", "pkg/core.py"],
+      "candidates": ["pkg/dashboard.py"]
+    },
+    {
+      "name": "imported, non-package, root-script and skill files are never candidates",
+      "changed": [
+        "pkg/cli.py",
+        "scripts/export.py",
+        "tools/report.py",
+        "pkg/skill/view.py",
+        "pkg/core.py"
+      ],
+      "candidates": []
+    },
+    {
+      "name": "an owner exception drops the file",
+      "changed": ["pkg/dashboard.py", "pkg/report.py"],
+      "config": {
+        "exceptions": [
+          {
+            "rule": "structure-naming/consumer_placement",
+            "path": "pkg/dashboard.py",
+            "reason": "the dashboard ships inside the package until the operator console splits out",
+            "approvedBy": "example-owner",
+            "approvedAt": "2026-11-24T09:00:00Z"
+          }
+        ]
+      },
+      "candidates": ["pkg/report.py"]
+    },
+    {
+      "name": "files the package's own CLI runs by path are used (report_viewer, snapshot_eval)",
+      "changed": [
+        "pkg/entrypoints/report_viewer.py",
+        "pkg/entrypoints/snapshot_eval.py"
+      ],
+      "candidates": []
+    },
+    {
+      "name": "a module string or a console script entry marks the file used",
+      "changed": ["pkg/runner.py", "pkg/console.py"],
+      "candidates": []
+    },
+    {
+      "name": "a path named only in a docstring or by a test leaves the file a candidate",
+      "changed": ["pkg/viewer.py", "pkg/docnamed.py"],
+      "candidates": ["pkg/docnamed.py", "pkg/viewer.py"]
+    }
+  ]
+}

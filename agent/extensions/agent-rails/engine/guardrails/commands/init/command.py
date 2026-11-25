@@ -20,16 +20,16 @@ from guardrails.commands.init import (
     native_languages,
     sections_draft,
 )
-from guardrails.context.config.profile import ProfileError
 from guardrails.context.config.repo_config import (
     ConfigError,
     load_config,
     main_checkout,
 )
+from guardrails.context.config.section_schema import ConfigValueError
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
-USAGE_RULE = "PROFILE.complete"
+USAGE_RULE = "CONFIG.complete"
 
 
 class UsageError(Exception):
@@ -172,7 +172,7 @@ def run_init(repo: Path, argv: list[str]) -> list[Finding]:
         lines, findings = initialise(repo, out, options)
     except UsageError as error:
         return [usage_finding(str(error))]
-    except ProfileError as error:
+    except ConfigValueError as error:
         return [
             Finding(
                 USAGE_RULE,

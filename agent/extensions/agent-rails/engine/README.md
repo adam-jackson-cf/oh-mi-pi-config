@@ -1,10 +1,11 @@
 # guardrails
 
-`guardrails` is the harness's Python reference for the
-[rule catalogue](guardrails/data/guardrail-rules.json), which ships inside
-the package. It runs from this folder in the harness and inspects a
-repository from outside. Repositories never install, pin, copy or mention it.
-A behaviour the settings cannot express is a change to this package, made here.
+`guardrails` is the harness's Python engine for the [rule
+catalogue](guardrails/data/guardrail-rules.json), which ships inside the
+package. This `engine/` folder is the `guardrails` project. It runs from this
+folder in the harness and inspects a repository from outside. Repositories
+never install, pin, copy or mention it. A behaviour the settings cannot
+express is a change to this package, made here.
 
 ## Run
 
@@ -52,7 +53,7 @@ one, and two parts of one layer never import each other.
 | `toolkit` | test reports, growth snapshots, Python path rules and subcommand dispatch |
 | `commands` | the CLI, `check`, `init`, every checker and the test-framework adapters |
 
-`tests/test_reference_structure.py` checks these layers with the
+`tests/test_structure.py` checks these layers with the
 `path-check` import rules.
 
 ## Adapters
@@ -86,10 +87,10 @@ The Vitest adapter (`vitest`) uses the inspected repository's locked, installed 
 it never downloads a runner or adds files to that repository. Selectors are native Vitest CLI arguments,
 for example `--config config/vitest.config.ts --testNamePattern totals`;
 `location` values are Vitest file filters. Prose descriptions are not selectors.
-`guardrails.adapter_vitest.command` may supply an argv list instead of the
+`checkers.adapter_vitest.command` may supply an argv list instead of the
 default `node <repo>/node_modules/vitest/vitest.mjs`.
-`guardrails.adapter_vitest.collect_timeout_s` bounds collection (120 seconds
-unless recorded otherwise). Each `tiers --out` listing uses
+`checkers.adapter_vitest.collect_timeout_s` bounds collection (120 seconds
+unless configured otherwise). Each `tiers --out` listing uses
 `<relative-file>::<full test name>` IDs and rejects empty or duplicate collections.
 
 `adapter vitest junit-args --tier t1 --out <external report>` emits the arguments for
@@ -109,7 +110,7 @@ Unknown Stryker statuses and malformed locations fail; ignored, pending and
 tool-error mutants remain incomplete, never counted as killed.
 
 The Bun adapter (`bun_test`) drives Bun's built-in `bun test` with the
-repository's own `bun` (or `guardrails.adapter_bun_test.command`). Selectors are
+repository's own `bun` (or `checkers.adapter_bun_test.command`). Selectors are
 native `bun test` arguments such as `--test-name-pattern fast`; locations are
 `bun test` path filters. Its preload, loaded with `--preload` from outside the
 checkout, replaces `bun:test` with recording registrars:
@@ -135,7 +136,7 @@ checkout, replaces `bun:test` with recording registrars:
 `adapter bun_test conformance` passes every canonical case.
 
 The Go adapter (`go`) drives `go test` with the repository's Go (or
-`guardrails.adapter_go.command`). Selectors are native `go test` arguments such
+`checkers.adapter_go.command`). Selectors are native `go test` arguments such
 as `-run ^TestFast` or `-tags integration`; locations are package directories
 or patterns such as `./cmd/...`.
 
@@ -231,8 +232,8 @@ one adapter per framework it uses, so one stack can use several adapters.
 
 ## Rule coverage
 
-- Tool rules (`kind: "tool"`) and rules that name a `reference` module are
+- Tool rules (`kind: "tool"`) and rules that name an `implementation` module are
   proven once, by this package's own tests in oh-mi-pi-config
-  (`tests/test_reference_*.py`). Every such rule is named by a test there.
+  (`ENGINE_TESTS` in `tests/test_rule_catalogue.py`). Every such rule is named by a test there.
 - A rule the package does not implement stays a setup-time review item until
   the package implements it.

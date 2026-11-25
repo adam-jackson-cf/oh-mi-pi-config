@@ -7,7 +7,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, TypeGuard
 
-from guardrails.context.config.profile import PLACEHOLDER
+from guardrails.context.config.section_schema import PLACEHOLDER
 from guardrails.foundation.inventory import structure_settings
 
 DATA_FILE = "native-tools.json"
@@ -201,7 +201,7 @@ def planned_configs(
         planned[".importlinter"] = render_importlinter(package, tiers)
     else:
         report.append(
-            "native: import-linter not proposed; record structure.tiers and "
+            "native: import-linter not proposed; set structure.tiers and "
             "structure.import_direction.package, then run init again"
         )
     return planned, report

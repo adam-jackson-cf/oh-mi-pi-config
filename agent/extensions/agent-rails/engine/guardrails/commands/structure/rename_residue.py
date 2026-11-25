@@ -193,7 +193,7 @@ def term_findings(
                     f"defines `{identifier}`, which still uses `{term.old}` after this change "
                     f"renamed `{term.old}` to `{term.new}` "
                     f"(`{term.rename.old}` → `{term.rename.new}`). A rename changes every use "
-                    "in one change, with no alias for the old name (naming.md)",
+                    "in one change, with no alias for the old name (structure-and-naming.md)",
                     f"Rename it to use `{term.new}`.",
                 )
             )

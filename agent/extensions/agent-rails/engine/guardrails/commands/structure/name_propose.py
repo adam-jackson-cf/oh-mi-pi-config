@@ -110,7 +110,7 @@ def suffix(path: str | None) -> str:
     return PurePosixPath(path or "").suffix[:3]
 
 
-def reference(item: dict[str, Any]) -> Pair:
+def definition_entry(item: dict[str, Any]) -> Pair:
     return {
         "name": item["name"],
         "kind": item["kind"],
@@ -302,7 +302,7 @@ class Proposer:
                     "_def": owner,
                 }
             elif target is not None:
-                second = reference(target)
+                second = definition_entry(target)
             elif binding.get("internal"):
                 continue
             else:
@@ -341,7 +341,9 @@ class Proposer:
                         qualified(left_tokens, right_tokens)
                         and left["lang"] == right["lang"]
                     ):
-                        self.put(reference(left), reference(right), "head_noun")
+                        self.put(
+                            definition_entry(left), definition_entry(right), "head_noun"
+                        )
 
     def synonym_swaps(
         self, representatives: dict[tuple[str, str], dict[str, Any]]
@@ -362,7 +364,11 @@ class Proposer:
                                 left["name"],
                                 left["path"],
                             ) < (right["name"], right["path"]):
-                                self.put(reference(left), reference(right), "synonym")
+                                self.put(
+                                    definition_entry(left),
+                                    definition_entry(right),
+                                    "synonym",
+                                )
 
     def constant_values(self) -> None:
         for item in self.index.definitions:
@@ -392,7 +398,7 @@ class Proposer:
                 "value": value,
                 "_def": None,
             }
-            self.put(reference(item), second, "const_value")
+            self.put(definition_entry(item), second, "const_value")
 
     def clones(self) -> None:
         bodies = [
@@ -406,7 +412,7 @@ class Proposer:
         for (first, second), similarity in shared_grams(bodies).items():
             left, right = bodies[first], bodies[second]
             if similarity >= CLONE_SIMILARITY and clone_pair(left, right):
-                self.put(reference(left), reference(right), "clone")
+                self.put(definition_entry(left), definition_entry(right), "clone")
 
     def propose(self) -> list[dict[str, Any]]:
         self.aliases()

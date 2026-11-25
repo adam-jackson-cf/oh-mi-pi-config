@@ -96,7 +96,7 @@
     "checkers.exceptions: is not a config key; remove it or fix its spelling"
   ],
   "unknown-gate-rule.json": [
-    "gates.rules.PROFILE.complete: is not a code-check rule id (catalogue kind tool or bespoke)"
+    "gates.rules.CONFIG.complete: is not a code-check rule id (catalogue kind tool or bespoke)"
   ],
   "unknown-judgment-question.json": [
     "judgments.in-scope/whatever: is not a judgment question; choose from ['completion-evidence/evidence_gap', 'dependency-severity/local_only', 'dependency-severity/needs_interaction', 'dependency-severity/needs_privileges', 'dependency-severity/reached', 'extension-impact/impact', 'implementation-integrity/weakens_verification', 'structure-naming/consumer_placement', 'structure-naming/same_thing', 'structure-naming/technical_kind_grouping']"

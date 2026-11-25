@@ -174,7 +174,8 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                         ISOLATION,
                         config_label("checkers"),
                         "--network-none needs checkers.guarded_run.network_none_command",
-                        "record the container or sandbox prefix that denies network access",
+                        "set it in .agentrails/config.json to the container or sandbox prefix that "
+                        "denies network access",
                     )
                 ]
             command = [*prefix, *command]

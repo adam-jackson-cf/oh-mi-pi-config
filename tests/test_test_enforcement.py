@@ -16,7 +16,7 @@ CATALOGUE = (
 # Each test rule's emitting subcommands and the guidance facts its remediation states, so a
 # finding is actionable without opening a skill.
 RULE_FACTS = {
-    "PROFILE.complete": (
+    "CONFIG.complete": (
         ("config-check",),
         ("every required config value", "approval reference"),
     ),
@@ -161,7 +161,7 @@ class TestEnforcementTests(unittest.TestCase):
             with self.subTest(rule=rule):
                 row = rules[rule]
                 assert set(subcommands) <= {
-                    item["subcommand"] for item in row["reference"]
+                    item["subcommand"] for item in row["implementation"]
                 }
                 remediation = row["remediation"]
                 assert remediation["root_cause"].strip()

@@ -11,10 +11,11 @@ from functools import cache
 from pathlib import Path
 from typing import Any, cast
 
-from guardrails.context.config import profile
+from guardrails.context.config import section_schema
 from guardrails.foundation.child_env import clean_environment
 from guardrails.foundation.decision_store import shadow_capable
 from guardrails.foundation.findings import catalogue_rules
+from guardrails.foundation.inventory import config_section
 from guardrails.host.process import run_text
 
 CONFIG_DIR = ".agentrails"
@@ -59,12 +60,6 @@ PERMISSIONS = ("allowed", "ask")
 AUTONOMY_ACTIONS = ("branch", "pr", "merge")
 CI_RUNNERS = ("github-actions", "ci-gate")
 GATE_KEYS = ("commitChecks", "pathCheck", "prove", "structureReview", "audit", "rules")
-EXEMPTION_TARGETS = (
-    "tiers.t3",
-    "verification_surface",
-    "identity_artefacts",
-    "run_events.nightly_scheduler",
-)
 APPROVAL_KINDS = ("budget", "ratchet", "skip", "exemption")
 NOT_CONFIGURABLE = frozenset({"in-scope/ask_first", "dependency-severity/impact"})
 MERGE_METHODS = ("rebase", "merge")
@@ -92,14 +87,14 @@ TEST_KEYS = (
     "layout",
     "command_notes",
 )
-TESTS_SCHEMA: dict[str, Any] = {key: profile.SCHEMA[key] for key in TEST_KEYS}
+TESTS_SCHEMA: dict[str, Any] = {key: section_schema.SCHEMA[key] for key in TEST_KEYS}
 STRUCTURE_SCHEMA: dict[str, Any] = {
-    **profile.SCHEMA["structure"],
-    "ownership_areas": profile.SCHEMA["ownership_areas"],
+    **section_schema.SCHEMA["structure"],
+    "ownership_areas": section_schema.SCHEMA["ownership_areas"],
 }
 CHECKERS_SCHEMA = {
-    f"{section}{profile.OPTIONAL_MARK}": "object"
-    for section in profile.GUARDRAILS_SECTIONS
+    f"{section}{section_schema.OPTIONAL_MARK}": "object"
+    for section in section_schema.CHECKER_SECTIONS
 }
 MOVED_CHECKER_KEYS = {
     ("coverage_ratchet", "approvals"): "ratchet",
@@ -473,7 +468,7 @@ def check_config_exemption(value: dict[str, Any], key: str, problems: Problems) 
         ))
 
 
-CONFIG_RULES = profile.SectionRules(check_config_exemption, UNKNOWN_KEY_PROBLEM)
+CONFIG_RULES = section_schema.SectionRules(check_config_exemption, UNKNOWN_KEY_PROBLEM)
 
 
 def _with_prefix(prefix: str, found: Problems) -> Problems:
@@ -485,21 +480,21 @@ def _tests(value: object, path: str, problems: Problems) -> None:
         problems.append((path, "must be an object"))
         return
     found: Problems = []
-    profile.check_section(value, TESTS_SCHEMA, "", found, CONFIG_RULES)
-    found.extend(profile.adapter_problems(value))
+    section_schema.check_section(value, TESTS_SCHEMA, "", found, CONFIG_RULES)
+    found.extend(section_schema.adapter_problems(value))
     problems.extend(_with_prefix(path, found))
 
 
 def _structure(value: object, path: str, problems: Problems) -> None:
-    profile.check_section(value, STRUCTURE_SCHEMA, path, problems, CONFIG_RULES)
+    section_schema.check_section(value, STRUCTURE_SCHEMA, path, problems, CONFIG_RULES)
 
 
 def _house_style(value: object, path: str, problems: Problems) -> None:
-    profile.check_section(
-        value, profile.SCHEMA["house_style"], path, problems, CONFIG_RULES
+    section_schema.check_section(
+        value, section_schema.SCHEMA["house_style"], path, problems, CONFIG_RULES
     )
     version = value.get("version") if isinstance(value, dict) else None
-    problem = profile.house_style_version_problem(version)
+    problem = section_schema.house_style_version_problem(version)
     if problem:
         problems.append((f"{path}.version", problem))
 
@@ -520,7 +515,7 @@ def _check_run(value: object, path: str, problems: Problems) -> None:
 
 
 def _checkers(value: object, path: str, problems: Problems) -> None:
-    profile.check_section(value, CHECKERS_SCHEMA, path, problems, CONFIG_RULES)
+    section_schema.check_section(value, CHECKERS_SCHEMA, path, problems, CONFIG_RULES)
     if not isinstance(value, dict):
         return
     for (section, key), kind in MOVED_CHECKER_KEYS.items():
@@ -677,11 +672,11 @@ def _approvals(value: object, path: str, problems: Problems) -> None:
         if (
             isinstance(entry, dict)
             and entry.get("kind") == "exemption"
-            and entry.get("target") not in EXEMPTION_TARGETS
+            and entry.get("target") not in section_schema.EXEMPTION_TARGETS
         ):
             problems.append((
                 f"{path}[{index}].target",
-                f"must name an exemptable field {list(EXEMPTION_TARGETS)}",
+                f"must name an exemptable field {list(section_schema.EXEMPTION_TARGETS)}",
             ))
 
 
@@ -717,21 +712,6 @@ SECTION_VALIDATORS: dict[str, Validator] = {
 }
 
 
-def _section(config: Mapping[str, Any], name: str) -> dict[str, Any]:
-    value = config.get(name)
-    return value if isinstance(value, dict) else {}
-
-
-def _exempt_fields(tests: Mapping[str, Any]) -> set[str]:
-    exempt: set[str] = set()
-    for target in EXEMPTION_TARGETS:
-        parent, _, leaf = target.rpartition(".")
-        holder = tests.get(parent) if parent else tests
-        if isinstance(holder, dict) and profile.is_exemption(holder.get(leaf)):
-            exempt.add(target)
-    return exempt
-
-
 def _machine_ids(tests: Mapping[str, Any]) -> list[str]:
     budget = tests.get("fast_tier_budget")
     machines = budget.get("machines") if isinstance(budget, dict) else None
@@ -754,12 +734,12 @@ def _approved(config: Mapping[str, Any], kind: str) -> list[tuple[int, str]]:
 
 
 def _approval_problems(config: Mapping[str, Any]) -> Problems:
-    tests = _section(config, "tests")
-    exempt, machines = _exempt_fields(tests), _machine_ids(tests)
+    tests = config_section(config, "tests")
+    exempt, machines = section_schema.exempt_fields(tests), _machine_ids(tests)
     exemptions, budgets = _approved(config, "exemption"), _approved(config, "budget")
     problems: Problems = [
         (f"tests.{target}", f"is exempt without an exemption approval for {target!r}")
-        for target in EXEMPTION_TARGETS
+        for target in section_schema.EXEMPTION_TARGETS
         if target in exempt and target not in {name for _, name in exemptions}
     ]
     problems += [
@@ -773,7 +753,7 @@ def _approval_problems(config: Mapping[str, Any]) -> Problems:
     problems += [
         (f"approvals[{index}].target", f"tests.{target} is not exempt ({{none: true}})")
         for index, target in exemptions
-        if target in EXEMPTION_TARGETS and target not in exempt
+        if target in section_schema.EXEMPTION_TARGETS and target not in exempt
     ]
     problems += [
         (
@@ -788,14 +768,14 @@ def _approval_problems(config: Mapping[str, Any]) -> Problems:
 
 def _cross_problems(config: Mapping[str, Any], origin: str | None) -> Problems:
     problems: Problems = []
-    slug = _section(config, "repo").get("slug")
+    slug = config_section(config, "repo").get("slug")
     if origin is not None and isinstance(slug, str) and slug != origin:
         problems.append((
             "repo.slug",
             f"is {slug!r} but the origin remote names {origin!r}",
         ))
     ci, commands, gates = (
-        _section(config, name) for name in ("ci", "commands", "gates")
+        config_section(config, name) for name in ("ci", "commands", "gates")
     )
     if (
         ci.get("enabled") is True

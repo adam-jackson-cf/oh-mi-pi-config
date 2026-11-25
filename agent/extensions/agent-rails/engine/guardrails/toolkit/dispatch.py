@@ -7,7 +7,7 @@ from types import ModuleType
 from typing import Any
 
 from guardrails.context.config import adapter_declarations
-from guardrails.context.config.profile import ProfileError
+from guardrails.context.config.section_schema import ConfigValueError
 from guardrails.foundation.findings import CONFIG_LABEL, Finding, config_label
 from guardrails.foundation.inventory import (
     as_list,
@@ -204,7 +204,7 @@ def adapter_module(config: dict[str, Any], argv: list[str]) -> tuple[str, list[s
     declared = adapter_declarations.names(config)
     if not argv or argv[0] not in declared:
         given = repr(argv[0]) if argv else "no adapter"
-        raise ProfileError(
+        raise ConfigValueError(
             f"adapter takes one of the config's tests.adapters {declared} first, got {given}"
         )
     return adapter_declarations.module_name(argv[0]), argv[1:]
@@ -231,9 +231,9 @@ def run_modules(
     return [finding for finding in findings if finding.rule_id not in off]
 
 
-def config_finding(error: ProfileError) -> Finding:
+def config_finding(error: ConfigValueError) -> Finding:
     return Finding(
-        "PROFILE.complete",
+        "CONFIG.complete",
         config_label("tests"),
         str(error),
         "record tests.adapters in .agentrails/config.json (guardrails init drafts the "

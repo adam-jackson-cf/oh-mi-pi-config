@@ -18,7 +18,7 @@ import pytest
 
 from guardrails.commands import cli
 from guardrails.commands.check import whole_repo
-from guardrails.context.config import profile, repo_config
+from guardrails.context.config import repo_config, section_schema
 from guardrails.context.config.repo_config import ConfigError, OfferedQuestion
 from guardrails.foundation import decision_store
 
@@ -191,10 +191,10 @@ class Validation(unittest.TestCase):
         })
         assert repo_config.validate(config, origin=None) == [
             "approvals[1].target: must name an exemptable field "
-            f"{list(repo_config.EXEMPTION_TARGETS)}"
+            f"{list(section_schema.EXEMPTION_TARGETS)}"
         ]
 
-    def test_tests_reuse_the_profile_adapter_rules(self) -> None:
+    def test_tests_reuse_the_section_schema_adapter_rules(self) -> None:
         config = fixture("minimal.json")
         config["tests"]["adapters"][0]["name"] = "nose"
         assert repo_config.validate(config, origin=None) == [
@@ -245,7 +245,12 @@ class Constants(unittest.TestCase):
     def test_sections_and_targets_match_the_engine_tables(self) -> None:
         assert len(repo_config.SECTIONS) == 16
         assert set(repo_config.CHECKED_SECTIONS) < set(repo_config.SECTIONS)
-        assert set(repo_config.EXEMPTION_TARGETS) == profile.EXEMPTABLE
+        assert set(section_schema.EXEMPTION_TARGETS) == {
+            "tiers.t3",
+            "verification_surface",
+            "identity_artefacts",
+            "run_events.nightly_scheduler",
+        }
         assert whole_repo.DEFAULT_STEPS == (
             "python-quality",
             "python-fanout",
@@ -258,7 +263,7 @@ class Constants(unittest.TestCase):
     def test_code_check_rules_leave_out_process_rules(self) -> None:
         rules = repo_config.code_check_rules()
         assert "CODE.no-comments" in rules
-        assert "PROFILE.complete" not in rules
+        assert "CONFIG.complete" not in rules
         assert rules < repo_config.rule_ids()
 
     def test_offered_questions_carry_the_global_mode_and_shadow_capability(

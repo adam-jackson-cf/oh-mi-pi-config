@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 from test_agentrails_fixture import approval, config, fixture, write_config
-from test_reference_decision_store import (
+from test_decision_store import (
     no_unclosed_connections as no_unclosed_connections,
 )
 from test_workflows import workflow
@@ -1357,10 +1357,7 @@ class FeatureMapTests(RepositoryCase):
         def inspect_launch(cmd: list[str], **kwargs: Any) -> Any:
             if "rename-residue" in cmd:
                 assert cmd[:4] == [sys.executable, "-I", "-S", "-c"]
-                assert (
-                    Path(cmd[5])
-                    == workflow._harness_root() / workflow.GUARDRAILS_REFERENCE
-                )
+                assert Path(cmd[5]) == workflow._harness_root() / workflow.ENGINE_PATH
                 launches.append(list(cmd))
                 cmd = list(cmd)
                 cmd[4] = (

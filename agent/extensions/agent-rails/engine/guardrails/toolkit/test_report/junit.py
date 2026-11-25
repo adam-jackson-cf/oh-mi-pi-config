@@ -138,7 +138,7 @@ def dialect_for(name: str | None, configured: object = None) -> Dialect:
         unknown = sorted(set(configured) - set(DIALECT_FIELDS))
         if unknown:
             raise UsageError(
-                f"guardrails.commands.test_evidence.dialect has unknown fields {unknown}"
+                f"checkers.test_evidence.dialect has unknown fields {unknown}"
             )
         values: dict[str, Any] = {
             key: tuple(value) if isinstance(value, list) else value

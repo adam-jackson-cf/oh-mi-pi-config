@@ -44,7 +44,8 @@ def command(config: dict[str, Any]) -> list[str]:
     bun = shutil.which("bun")
     if bun is None:
         raise ValueError(
-            f"bun is not on PATH; activate the repository's Bun or record {SETTINGS}.command"
+            f"bun is not on PATH; activate the repository's Bun or set "
+            f"checkers.{SETTINGS}.command in .agentrails/config.json"
         )
     return [bun]
 
@@ -136,7 +137,8 @@ def collect_tier(
                 RULE,
                 f"tiers.{tier}",
                 str(error),
-                "fix the recorded selector, location or Bun installation and collect again",
+                "fix the tier's selector or location in tests.adapters[].tiers, or the "
+                "Bun installation, and collect again",
             )
         ]
     return []

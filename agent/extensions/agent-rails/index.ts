@@ -206,7 +206,7 @@ class RailsLedger {
 type BashCall = { actions: GitAction[]; executables: string[] };
 const COMMIT_COMPANIONS = ["cd", "pushd", "popd", "true"];
 const READ_ONLY_GIT = /^git (?:status|diff|log|show|rev-parse)\b/;
-// The harness checks: guardrails run from the harness's own reference project (never installed
+// The harness checks: guardrails run from the harness's own engine project (never installed
 // into the repo), over the whole repo, with the repo's .agentrails/config.json as config. Rails
 // append `--repo <worktree>`; the engine finds the main checkout's config itself.
 const guardrailsProject = join(import.meta.dir, "engine");

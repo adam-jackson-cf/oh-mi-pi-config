@@ -203,7 +203,8 @@ def command(config: dict[str, Any]) -> list[str]:
     go = shutil.which("go")
     if go is None:
         raise SourceError(
-            f"go is not on PATH; activate the repository's Go or record {SETTINGS}.command"
+            f"go is not on PATH; activate the repository's Go or set "
+            f"checkers.{SETTINGS}.command in .agentrails/config.json"
         )
     return [go]
 

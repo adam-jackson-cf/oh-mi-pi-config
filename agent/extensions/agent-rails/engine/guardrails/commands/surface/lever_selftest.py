@@ -196,7 +196,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 config_label("tests"),
                 "verification_surface needs lever_command, doctor_marker, data_dir_arg and "
                 "evidence_dir_arg",
-                "record them in tests.verification_surface",
+                "set them in tests.verification_surface in .agentrails/config.json",
             )
         ]
     if not hasattr(os, "killpg"):

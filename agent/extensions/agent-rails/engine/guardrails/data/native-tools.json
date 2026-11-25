@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Settings init proposes for each language pack's native tools. Every value mirrors the packaged rule catalogue, guardrails/data/guardrail-rules.json: ruff (RUFF.*), mypy (MYPY.*), tsc (TSC.*), oxlint (OXLINT.*), golangci-lint (GOLANGCI.*), shellcheck (SHELLCHECK.*) and shfmt (SHFMT.*); tests/test_reference_init.py fails when the two differ. Target values (Python version, first-party packages, source roots, the Go module path) come from the repo at init time, never from this file.",
+  "about": "Settings init proposes for each language pack's native tools. Every value mirrors the packaged rule catalogue, guardrails/data/guardrail-rules.json: ruff (RUFF.*), mypy (MYPY.*), tsc (TSC.*), oxlint (OXLINT.*), golangci-lint (GOLANGCI.*), shellcheck (SHELLCHECK.*) and shfmt (SHFMT.*); tests/test_init.py fails when the two differ. Target values (Python version, first-party packages, source roots, the Go module path) come from the repo at init time, never from this file.",
   "ruff": {
     "root": {
       "fix": true,

@@ -174,7 +174,8 @@ def test_file_findings(path: str, config: dict[str, Any]) -> list[Finding]:
                 Finding(
                     TEST_FILES,
                     path,
-                    "test-like file matches no profile test file pattern, so the runner skips it",
+                    "test-like file matches no configured test file pattern "
+                    "(tests.layout.test_file_patterns), so the runner skips it",
                     f"rename it to match one of {patterns}",
                 )
             ]

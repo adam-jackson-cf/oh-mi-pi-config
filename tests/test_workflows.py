@@ -23,7 +23,7 @@ from typing import Any, Never
 from unittest.mock import patch
 
 import pytest
-from test_reference_decision_store import (
+from test_decision_store import (
     no_unclosed_connections as no_unclosed_connections,
 )
 

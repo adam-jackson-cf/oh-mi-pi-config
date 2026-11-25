@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from guardrails.context.config.profile import ProfileError
 from guardrails.context.config.repo_config import ConfigError, load_config
+from guardrails.context.config.section_schema import ConfigValueError
 from guardrails.foundation import decision_store
 from guardrails.foundation.findings import (
     Finding,
@@ -30,7 +30,7 @@ def module_rules(module: str) -> list[tuple[str, str]]:
     return [
         (rule["id"], rule["summary"])
         for rule in catalogue_rules()
-        if any(reference["module"] == module for reference in rule.get("reference", []))
+        if any(entry["module"] == module for entry in rule.get("implementation", []))
     ]
 
 
@@ -202,7 +202,7 @@ def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
             modules: tuple[str, ...] = (module,)
         else:
             modules = module_names(name, config)
-    except ProfileError as error:
+    except ConfigValueError as error:
         return [config_finding(error)]
     findings = run_modules(modules, target.repo, config, argv)
     if honours_exclusions(name, argv):

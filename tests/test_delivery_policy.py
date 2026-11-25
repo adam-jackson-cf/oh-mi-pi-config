@@ -65,7 +65,7 @@ class DeliveryPolicyTests(unittest.TestCase):
     def test_policy_rules_have_exactly_one_valid_status(self) -> None:
         catalogue = json.loads(CATALOGUE.read_text(encoding="utf-8"))
         rules = {
-            row["id"]: {ref["subcommand"] for ref in row.get("reference", [])}
+            row["id"]: {entry["subcommand"] for entry in row.get("implementation", [])}
             for row in catalogue["rules"]
         }
         native_rules = {

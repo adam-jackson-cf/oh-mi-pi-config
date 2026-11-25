@@ -125,7 +125,8 @@ def collect_tier(
                 RULE,
                 f"tiers.{tier}",
                 str(error),
-                "fix the recorded selector, location or Go installation and collect again",
+                "fix the tier's selector or location in tests.adapters[].tiers, or the "
+                "Go installation, and collect again",
             )
         ]
     return []

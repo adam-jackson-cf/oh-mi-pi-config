@@ -77,7 +77,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 RULE,
                 config_label("tests"),
                 "verification_surface needs journey_file_pattern and lever_command",
-                "record both in tests.verification_surface",
+                "set both in tests.verification_surface in .agentrails/config.json",
             )
         ]
     try:

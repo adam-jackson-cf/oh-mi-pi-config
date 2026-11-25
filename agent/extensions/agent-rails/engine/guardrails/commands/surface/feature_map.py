@@ -6,7 +6,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote
 
-from guardrails.context.config.profile import approved_exemption
+from guardrails.context.config.section_schema import approved_exemption
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import as_list, settings, tests_settings
 

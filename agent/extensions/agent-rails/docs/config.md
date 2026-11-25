@@ -43,7 +43,7 @@ flowchart LR
 | `checkers` | Setup tool | One settings object per engine checker |
 | `structure` | Setup tool | Owners, tiers, import direction, ownership areas |
 | `houseStyle` | Setup tool | The engine house-style `version` |
-| `tests` | Test tool | The test profile: tiers, adapters, budgets, coverage and more |
+| `tests` | Test tool | The test settings: tiers, adapters, budgets, coverage and more |
 | `exceptions` | Owner lines | Approved rule suppressions by path |
 | `approvals` | Owner lines | Approved budgets, ratchets, skips and exemptions |
 
@@ -243,7 +243,7 @@ global mode in `judgments/<judgment>/thresholds.json`.
 
 ## Tests
 
-`tests` is the test profile. Its keys are `tiers`, `adapters`, `public_entry_points`,
+`tests` holds the test settings. Its keys are `tiers`, `adapters`, `public_entry_points`,
 `run_events`, `fast_tier_budget`, `coverage`, `guards`, `environments`,
 `verification_surface`, `identity_artefacts`, `layout` and `command_notes`.
 

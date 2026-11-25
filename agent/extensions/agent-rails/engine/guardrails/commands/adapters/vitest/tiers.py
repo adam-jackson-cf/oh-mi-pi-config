@@ -37,7 +37,8 @@ def command(repo: Path, config: dict[str, Any]) -> list[str]:
     executable = repo / "node_modules/vitest/vitest.mjs"
     if not executable.is_file():
         raise ValueError(
-            "install the repository's locked Vitest dependency or record adapter_vitest.command"
+            "install the repository's locked Vitest dependency or set "
+            "checkers.adapter_vitest.command in .agentrails/config.json"
         )
     return ["node", str(executable)]
 
@@ -121,7 +122,8 @@ def collect_tier(
                 RULE,
                 f"tiers.{tier}",
                 str(error),
-                "fix the recorded selector, location or Vitest installation and collect again",
+                "fix the tier's selector or location in tests.adapters[].tiers, or the "
+                "Vitest installation, and collect again",
             )
         ]
     return []

@@ -18,7 +18,7 @@
         "root_cause": "A rename moved the file or folder but left the retired name in paths and defined names inside it, so two names now describe one concept.",
         "fix": "Finish the rename across the renamed unit: rename every path segment, symbol, constant and test that still carries the retired term, and update their callers in the same change."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "rename-residue",
           "module": "guardrails.commands.structure.rename_residue"
@@ -41,7 +41,7 @@
         "root_cause": "A module imports from a layer its declared direction does not allow, so lower layers start depending on higher ones and the layering stops holding.",
         "fix": "Move the shared behaviour down to a layer both sides may read, or invert the dependency behind an interface the lower layer owns; then re-run the structure check over the moved paths."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -69,7 +69,7 @@
         "root_cause": "The file was created where it was convenient rather than under the capability that owns its behaviour in the target's ownership map.",
         "fix": "Move the file under its declared capability owner, update imports and tests with it, and extend the ownership map only through an owner-approved .agentrails/config.json change when no owner fits."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -96,7 +96,7 @@
         "root_cause": "A shared tier holds code that fewer than two parts read, so the tier claims sharing that the dependency graph does not show.",
         "fix": "Move code read by one part under that part, delete code read by none, and keep only genuinely shared modules in the shared tier."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -123,7 +123,7 @@
         "root_cause": "A shared-tier module has exactly one reader, so it was placed for anticipated reuse rather than for its actual owner.",
         "fix": "Move the module under the one part that reads it and update its imports; promote it back to the shared tier only when a second reader exists."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -150,7 +150,7 @@
         "root_cause": "Two parts on the same tier import each other, which couples siblings that the structure declares independent.",
         "fix": "Extract what both siblings need into a lower shared tier or behind an interface the caller owns, and remove the direct sibling import."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -191,7 +191,7 @@
           "setup.py"
         ],
         "bundle_root_without_python_ends_the_search": true,
-        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the profile's layout fixtures_dir and support_dir, and every profile test tier location",
+        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "exceptions": "config exceptions entries {rule, path, reason}",
         "diagnostic_names_file_and_code_folder": true
@@ -201,7 +201,7 @@
         "root_cause": "Definitions, configuration or templates that the product loads at run time were put inside its Python code, so data changes look like code changes and one folder mixes two kinds of content.",
         "fix": "Move the file to a root data folder outside the code, load it from there by explicit path, and update every reader in the same change."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -222,7 +222,7 @@
         "package_root": "the top folder of the unbroken chain of folders holding __init__.py that contains the entry module's folder",
         "top_tier": "the package root and the folders directly under it",
         "reject_entry_modules_deeper_than_top_tier": true,
-        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the profile's layout fixtures_dir and support_dir, and every profile test tier location",
+        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "internal_tool_exemption": "an owner-approved config exceptions entry {rule, path, reason}",
         "diagnostic_names_file_depth_and_package": true
@@ -232,7 +232,7 @@
         "root_cause": "A command entry module was added deep inside an implementation tier, so the package's interface is spread across its internals instead of sitting at its top tier.",
         "fix": "Move the entry module to the package root or a folder directly under it and import the implementation from there; for an internal tool that no user or deployment invokes, record an owner-approved exceptions entry instead."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -275,7 +275,7 @@
         "root_cause": "The same logic was written in two folders, so each copy changes on its own and the two drift apart.",
         "fix": "Move the shared logic into one shared mechanism both folders use and delete the copy, or record an owner-approved exceptions entry {rule, path, reason} when the copies must stay apart."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "responsibility-overlap",
           "module": "guardrails.commands.structure.responsibility_overlap"
@@ -322,7 +322,7 @@
         "root_cause": "Files for one concept were added beside each other with a shared name prefix instead of a folder that names the concept, so the concept has no owner in the tree.",
         "fix": "Move the prefixed files into a folder named for the prefix's concept, drop the prefix from their names, and update their imports in the same change."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "prefix-folder",
           "module": "guardrails.commands.structure.prefix_folder"
@@ -346,7 +346,7 @@
           "files": "the final path segment uses its house-style stem (before the first dot, except dotfiles)",
           "conventions": "language convention packs exempt Python __init__.py and __main__.py and Go package filenames from parent repetition, supported by ecosystem references; other exceptions require an owner-approved reason in the config",
           "check": "child-repeats-parent",
-          "exceptions": "config exceptions entries require rule, path and nonempty reason; path uses shared profile matching (fnmatchcase for globs, path or descendants for plain paths); optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
+          "exceptions": "config exceptions entries require rule, path and nonempty reason; path uses shared config path matching (fnmatchcase for globs, path or descendants for plain paths); optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
           "whole_words_only": "a single-token parent counts as a whole word in a longer child (guardrails/omp_guardrails), never as a substring (rail/guardrails); partial or reordered multi-token parents do not count"
         }
       },
@@ -355,7 +355,7 @@
         "root_cause": "The new path or symbol was named without applying the target's declared naming conventions, so names drift from the house style.",
         "fix": "Rename the new path segment or symbol to the declared convention and update every reference; change the convention only through an owner-approved config change. When the convention is unclear, follow the sibling naming patterns of neighbouring files and symbols."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "naming",
           "module": "guardrails.commands.structure.naming"
@@ -371,15 +371,15 @@
         "target_test_to_owner_and_tier_map_required": true,
         "reject_unmapped_or_misplaced_tests": true,
         "diagnostic_names_file_and_destination": true,
-        "fixtures_and_support_under_profile_layout": true,
-        "t2_files_map_to_profile_ownership_areas": true
+        "fixtures_and_support_under_config_tests_layout": true,
+        "t2_files_map_to_config_structure_ownership_areas": true
       },
       "summary": "Place tests with their declared behavior owner and test tier.",
       "remediation": {
         "root_cause": "The test was written next to the code being changed rather than with the behaviour owner and tier declared for it.",
         "fix": "Move the test under its declared behaviour owner and tier location, keep its selectors valid, and merge it with any existing test of the same behaviour there. Map every T2 file to its ownership area, and keep fixtures and support code under the configured layout directories."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -393,7 +393,7 @@
       "evidence_kind": "git_hook",
       "contract": {
         "input": "normalised_junit_run_report",
-        "limit_source": "profile_fast_tier_budget_machines",
+        "limit_source": "config_tests_fast_tier_budget_machines",
         "machine_id": "deterministic_local_probe_of_platform_cpu_model_and_runtime_version",
         "baseline_runs_min": 5,
         "limit_increase_requires_owner_approval": true,
@@ -409,7 +409,7 @@
         "root_cause": "The fast tier grew slow because tests in it do real waiting, heavy setup or work that belongs in a slower tier.",
         "fix": "Profile the fast tier, move slow behaviour to the tier built for it, and remove waits and repeated setup from fast tests; never raise the machine's approved limit to pass. Derive a first whole-tier limit or a raise only from at least five repeated local runs on the same machine, and include those measurements in the owner approval request."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "budget-check",
           "module": "guardrails.commands.test_evidence.budgets"
@@ -423,7 +423,7 @@
       "evidence_kind": "git_hook",
       "contract": {
         "input": "normalised_junit_run_report",
-        "limit_source": "profile_fast_tier_budget_machines",
+        "limit_source": "config_tests_fast_tier_budget_machines",
         "machine_id": "deterministic_local_probe_of_platform_cpu_model_and_runtime_version",
         "baseline_runs_min": 5,
         "limit_increase_requires_owner_approval": true,
@@ -440,7 +440,7 @@
         "root_cause": "A fast-tier test does work that is too slow for the fast tier, such as real waits, large inputs or repeated setup.",
         "fix": "Make the slow test fast by removing waits and shrinking inputs to the outcome it proves, or move it to the tier whose budget fits its work. Derive a first limit or a raise only from at least five repeated local runs on the same machine and record it only with owner approval; CI does not measure test timing."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "budget-check",
           "module": "guardrails.commands.test_evidence.budgets"
@@ -467,7 +467,7 @@
         "root_cause": "A test was added without a stated behaviour, which usually means it covers code paths rather than an outcome a user can observe.",
         "fix": "Name each added test after the behaviour it proves; delete tests that prove no distinct behaviour instead of renaming them to fit. A behaviour name has at least two meaningful words besides filler, and one name covers all its parameter rows; when reviewing a change set, check up to 20 new names against their assertions and, when more than 2 are vacuous, check every new name."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "diff-check",
           "module": "guardrails.commands.diffs.growth"
@@ -495,7 +495,7 @@
         "root_cause": "A new test repeats an existing test's call path and assertion, so the suite grows without proving anything new.",
         "fix": "Remove the duplicate or merge its distinct inputs into the existing test of that path, keeping one test per outcome class. A new test is a duplicate when it drives the same normalized call path and makes the same normalized assertion; shared setup alone is not duplication."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "diff-check",
           "module": "guardrails.commands.diffs.growth"
@@ -533,7 +533,7 @@
         "root_cause": "CI runs a different command list than commands.ci, so local results and CI results can disagree.",
         "fix": "Make the CI workflow invoke exactly the config's commands.ci command and nothing else, so one declared command defines both runs."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "toolchain-parity",
           "module": "guardrails.commands.catalogue.toolchain_parity"
@@ -579,7 +579,7 @@
         "root_cause": "Changed paths reach a commit without the harness path check, so per-file structure and naming errors surface late.",
         "fix": "Run guardrails path-check over the config settings for every changed path and fix each reported file before committing."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "path-check",
           "module": "guardrails.commands.structure.paths"
@@ -599,7 +599,7 @@
         "root_cause": "A module imports too many architectural dependencies, which means it coordinates concerns that belong to separate owners.",
         "fix": "Split the module by responsibility so each part depends on the few collaborators it needs, or route related dependencies through one owning interface."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-fanout",
           "module": "guardrails.commands.python_policy.fanout"
@@ -620,7 +620,7 @@
         "root_cause": "A large module also imports widely, so size and coupling compound and the module becomes the place every change touches.",
         "fix": "Break the large module into owned units with narrow imports, moving each concern next to the code that owns it."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-fanout",
           "module": "guardrails.commands.python_policy.fanout"
@@ -755,7 +755,7 @@
         "root_cause": "Optional analyzer dependencies are declared in one place and installed by another, so the two lists drift.",
         "fix": "Keep one declared inventory of optional analyzer dependencies and make the installer read it, so adding a dependency updates both."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "toolchain-parity",
           "module": "guardrails.commands.catalogue.toolchain_parity"
@@ -772,7 +772,7 @@
         "root_cause": "Documented install commands were written by hand and no longer match what the installer runs.",
         "fix": "Update the documentation to the installer's actual commands, and change both together whenever the installer changes."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "toolchain-parity",
           "module": "guardrails.commands.catalogue.toolchain_parity"
@@ -792,7 +792,7 @@
         "root_cause": "Package metadata and the lockfile were edited separately, so they record different versions.",
         "fix": "Regenerate the lockfile from the package metadata with the pinned package manager and commit both in the same change."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "toolchain-parity",
           "module": "guardrails.commands.catalogue.toolchain_parity"
@@ -825,7 +825,7 @@
         "root_cause": "Python source sits outside the declared maintained source roots, so policy checks do not see it as owned code.",
         "fix": "Move the module under a declared source root, or add the root to the config through an owner-approved change when it is genuinely maintained code."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -845,7 +845,7 @@
         "root_cause": "A script was added under a name or location outside the approved script allowlist, so entry points multiply without review.",
         "fix": "Fold the behaviour into an existing approved entry point, or name and place the script by the approved pattern with an owner-approved allowlist entry."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -865,7 +865,7 @@
         "root_cause": "Tests were grouped in directories outside the canonical test groups, so tier and ownership rules cannot place them.",
         "fix": "Move the tests into the canonical test directory group that matches their tier and owner, and update selectors in the same change."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -885,7 +885,7 @@
         "root_cause": "A directory was given a generic name such as utils or helpers, which hides which concept owns its contents.",
         "fix": "Rename the directory for the concept it owns, or move each file to the owner of its behaviour and delete the generic directory."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -905,7 +905,7 @@
         "root_cause": "A module was given a generic name, which turns it into a catch-all for unrelated code.",
         "fix": "Rename the module for its single concept, or split its contents into modules named for each concept they serve."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -924,7 +924,7 @@
         "root_cause": "A Python package directory does not use snake_case, so it cannot be imported by its path name and breaks naming consistency.",
         "fix": "Rename the package directory to snake_case and update every import and path reference."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -943,7 +943,7 @@
         "root_cause": "A skill directory does not use kebab-case, so skill names and paths no longer match the house convention.",
         "fix": "Rename the skill directory to kebab-case and update every link and reference to it."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -962,7 +962,7 @@
         "root_cause": "A Python module name does not use snake_case, so it diverges from import naming conventions.",
         "fix": "Rename the module to snake_case and update every import of it."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -981,7 +981,7 @@
         "root_cause": "A class grew past the length limit because it accumulated responsibilities that belong to separate collaborators.",
         "fix": "Split the class by responsibility into smaller collaborators with their own tests, keeping the original class as a thin coordinator only if callers need one."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -993,14 +993,14 @@
       "kind": "bespoke",
       "applicability": "conditional",
       "contract": {
-        "max_public_methods": "profile checkers.python.class_limits.max_public_methods; off when unset"
+        "max_public_methods": "checkers.python.class_limits.max_public_methods; off when unset"
       },
-      "summary": "Public methods per class at most the profile's approved limit",
+      "summary": "Public methods per class at most the configured approved limit",
       "remediation": {
         "root_cause": "A class exposes more public methods than the approved limit, which means its interface serves several callers with different needs.",
         "fix": "Split the class so each caller depends on a narrow interface, and make helpers private or move them to the collaborator that owns them."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1019,7 +1019,7 @@
         "root_cause": "A constructor takes too many parameters because the class depends on too many collaborators or loose values.",
         "fix": "Group related values into a named domain type and split the class when its dependencies serve different responsibilities."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1038,7 +1038,7 @@
         "root_cause": "An instance holds too many attributes, which means it carries state for several concerns.",
         "fix": "Move related attributes into owned value objects or separate collaborators, so each class holds the state of one concern."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1057,7 +1057,7 @@
         "root_cause": "An analyzer class was written without the approved base or mixin, so it skips the shared analyzer contract.",
         "fix": "Derive the analyzer from the approved base or mixin and implement its contract instead of reproducing parts of it."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1076,7 +1076,7 @@
         "root_cause": "A project analyzer does not implement the project entrypoint, so the runner cannot invoke it the same way as the others.",
         "fix": "Implement the project entrypoint on the analyzer and route its invocation through that entrypoint."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1095,7 +1095,7 @@
         "root_cause": "Subprocess calls are made directly in domain code instead of through the approved seam wrappers.",
         "fix": "Route every subprocess call through an approved seam wrapper, so timeouts, environment and failure handling stay in one owned place."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1114,7 +1114,7 @@
         "root_cause": "Dynamic imports appear outside adapter modules, which hides dependencies from static analysis and from readers.",
         "fix": "Move dynamic loading into an adapter module behind a typed interface, and use static imports everywhere else."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1133,7 +1133,7 @@
         "root_cause": "Contract callables are typed inline, so the contract has no name and drifts between its uses.",
         "fix": "Declare a named alias or Protocol for each callable contract and use it at every definition and call site."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1152,7 +1152,7 @@
         "root_cause": "Collaborator contracts use Any, so callers and implementers can disagree without any type error.",
         "fix": "Replace Any in the contract with a named domain type or Protocol, and parse untyped input at the boundary before it reaches the collaborator."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1171,7 +1171,7 @@
         "root_cause": "A source file cannot be decoded, so policy checks cannot read it and would otherwise pass it unseen.",
         "fix": "Re-save the file as UTF-8 text, or remove it from owned sources when it is not maintained Python code."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-quality",
           "module": "guardrails.commands.python_policy.quality"
@@ -1190,7 +1190,7 @@
         "root_cause": "A source file does not parse, so structural checks cannot inspect it and would otherwise pass it unseen.",
         "fix": "Fix the syntax error so the file parses under the repository's target Python version."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-scalability",
           "module": "guardrails.commands.python_policy.scalability"
@@ -1209,7 +1209,7 @@
         "root_cause": "Loops and comprehensions are nested deeper than two levels, which mixes iteration over several concepts in one place.",
         "fix": "Extract the inner iteration into a named function or precompute an index, so each level iterates one concept."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-scalability",
           "module": "guardrails.commands.python_policy.scalability"
@@ -1229,7 +1229,7 @@
         "root_cause": "Analyzer-like code reads or writes files synchronously itself instead of receiving data from its caller.",
         "fix": "Move file access to the caller or an I/O adapter and pass the analyzer parsed data, so the analysis stays pure and testable."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-scalability",
           "module": "guardrails.commands.python_policy.scalability"
@@ -1249,7 +1249,7 @@
         "root_cause": "Analyzer-like code starts processes or reads the environment directly, coupling analysis to the host.",
         "fix": "Inject process and environment access through an owned seam, so the analyzer receives values instead of reaching for them."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-scalability",
           "module": "guardrails.commands.python_policy.scalability"
@@ -1269,7 +1269,7 @@
         "root_cause": "An analyzer-like subsystem has no ownership marker, so nobody is accountable for its behaviour and placement.",
         "fix": "Add the ownership marker naming the subsystem's owner, and place the subsystem under that owner."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-scalability",
           "module": "guardrails.commands.python_policy.scalability"
@@ -1619,7 +1619,7 @@
         "root_cause": "Comments were added to explain code whose names and structure do not explain themselves, and they drift from the code over time.",
         "fix": "Delete the comment and make the code carry its meaning through names, types, smaller functions and tests; keep only tool directives."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "diff-check",
           "module": "guardrails.commands.check.integrity"
@@ -1650,7 +1650,7 @@
         "root_cause": "A function was declared before its behaviour was designed, leaving a body that pretends the work exists.",
         "fix": "Implement the behaviour with an outcome test, or delete the function and its callers until the behaviour is needed."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "diff-check",
           "module": "guardrails.commands.check.integrity"
@@ -1666,7 +1666,7 @@
       "kind": "bespoke",
       "applicability": "always",
       "contract": {
-        "scope": "added import/call lines outside profile tiers, support and fixtures locations, using TEST.placement path matching",
+        "scope": "added import/call lines outside configured tier, support and fixtures locations, using TEST.placement path matching",
         "libraries": [
           "unittest.mock",
           "mock",
@@ -1692,7 +1692,7 @@
         "root_cause": "Mock libraries reached product code, usually to make a dependency replaceable for tests.",
         "fix": "Remove the mock from product code and give the dependency an owned interface; tests supply a real or fake implementation of that interface."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "diff-check",
           "module": "guardrails.commands.check.integrity"
@@ -1999,7 +1999,7 @@
         "root_cause": "A gate step swallows a failed prerequisite, so a broken setup can report success.",
         "fix": "Make each gate step return the failing prerequisite's exit status and stop the run, so no later step can report a pass. A required check that is missing, skipped, timed out, failed for infrastructure reasons or collected zero tests is a failure, never a pass."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "report-check",
           "module": "guardrails.commands.test_evidence.propagation"
@@ -2026,7 +2026,7 @@
         "root_cause": "Tests start subprocesses without a deadline or without capturing output, so hangs block the suite and failures are unreadable.",
         "fix": "Give every test subprocess call an explicit timeout and capture its output for the failure message, through one owned helper. Give every synchronous subprocess call and every process wait or communicate call a positive timeout, and bound every async process wait, in shared fixtures too."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "python-test-hygiene",
           "module": "guardrails.commands.python_policy.subprocess_timeouts"
@@ -2039,7 +2039,7 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "owned_code": "packages_owning_profile_public_entry_points",
+        "owned_code": "packages_owning_config_tests_public_entry_points",
         "reject_mock_stub_fake_or_runtime_patch_targets_inside_owned_code": true,
         "mechanism": "adapter_source_patterns",
         "diagnostic_names_test_target_and_public_entry_point_fix": true
@@ -2049,7 +2049,7 @@
         "root_cause": "Tests replace the repository's own code, so they prove the mock instead of the behaviour.",
         "fix": "Exercise owned code through its real interface and replace only external boundaries; give an owned dependency an interface the test can implement. Never runtime-patch the repository's own modules; put recorded or local substitutes for external services behind the production adapter."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
@@ -2097,7 +2097,7 @@
         "root_cause": "Production code reads a test marker or carries a symbol that only tests use, so the tested path differs from the shipped path.",
         "fix": "Remove the marker read or test-only symbol and drive the behaviour through production inputs: configuration, dependency injection or the public entry point. Never add test-only flags, environment variables, hooks or marker names to production code."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
@@ -2124,7 +2124,7 @@
         "root_cause": "Tests are skipped, focused, retried or given longer timeouts to get a green run, so failures stay hidden.",
         "fix": "Remove the evasion and fix the cause of the failure or flake; record an owner-approved exception only for an external outage. Never add unapproved skip, xfail, focus/only or flaky/retry markers, rerun until green, or raise a timeout in a changed test to get a pass."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
@@ -2148,7 +2148,7 @@
         "scope": "t1_setup_call_and_teardown",
         "subprocess_creation_is_failure": true,
         "network_connection_is_failure": true,
-        "guard_location_source": "profile_guards_process_and_network",
+        "guard_location_source": "config_tests_guards_process_and_network",
         "ci_mechanism": "network_denied_test_container",
         "local_mechanism": "adapter_guard_hook"
       },
@@ -2157,7 +2157,7 @@
         "root_cause": "A fast-tier test starts a process or opens a network connection, so it depends on the host and becomes slow and flaky.",
         "fix": "Replace the process or network boundary with an owned interface and a fake in fast tests, or move the test to the tier that allows real I/O. A fast-tier test, including its setup and teardown, never starts a subprocess or opens a network connection."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "guard-run",
           "module": "guardrails.commands.environment.guarded_run"
@@ -2176,14 +2176,14 @@
       "contract": {
         "run_with_home_and_xdg_directories_in_temp_directory": true,
         "changed_file_under_real_user_home_outside_temp_is_failure": true,
-        "guard_location_source": "profile_guards_user_data"
+        "guard_location_source": "config_tests_guards_user_data"
       },
       "summary": "Fail the test session when a live user file changes.",
       "remediation": {
         "root_cause": "A test writes to a live user file because paths come from the real home or configuration directories.",
         "fix": "Make the code under test take its data location as input and give tests a temporary directory, so no test can reach real user data. Run tests with HOME and XDG directories pointed at a temporary directory; any change to a file under the real user home is a failure."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "guard-run",
           "module": "guardrails.commands.environment.guarded_run"
@@ -2197,7 +2197,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "input": "collect_only_test_ids_per_tier",
-        "selector_source": "profile_tiers",
+        "selector_source": "config_tests_tiers",
         "one_tier_per_file": true,
         "overlapping_selection_is_failure": true,
         "unselected_test_file_is_failure": true
@@ -2207,7 +2207,7 @@
         "root_cause": "Tier selectors overlap, are loose or leave test files unselected, so some tests run twice or never.",
         "fix": "Define strict, disjoint selectors per tier that together select every test file, and update them in the change that adds a test location. Each test file belongs to exactly one tier; confirm every tier's selection with the runner's collect-only listing."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "collection-check",
           "module": "guardrails.toolkit.test_report.collection"
@@ -2221,7 +2221,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "input": "git_diff_against_base_ref",
-        "floor_source": "profile_coverage",
+        "floor_source": "config_tests_coverage",
         "added_coverage_exclusion_or_pragma_is_failure": true,
         "lowered_floor_or_changed_exclusion_config_requires_approval_reference": true
       },
@@ -2230,7 +2230,7 @@
         "root_cause": "Coverage exclusions or floors were changed to make a run pass instead of testing the code.",
         "fix": "Remove the new exclusion or restore the floor and add outcome tests for the uncovered code; change floors only through an owner approval. Add no coverage exclusions or no-cover pragmas; lowering a floor or changing exclusion configuration needs a recorded owner approval."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "diff-check",
           "module": "guardrails.commands.diffs.coverage_ratchet"
@@ -2255,7 +2255,7 @@
         "root_cause": "A golden file changed without a change-record entry, so expected output moved without a stated reason.",
         "fix": "Add a change-record entry naming each changed golden file and the behaviour change behind it, or revert the golden change. Change a golden only for an intended rule change, and name every changed golden file and the first divergent step in the change record."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "diff-check",
           "module": "guardrails.commands.diffs.golden_record"
@@ -2273,7 +2273,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "input": "git_diff_against_base_ref",
-        "artefact_source": "profile_identity_artefacts",
+        "artefact_source": "config_tests_identity_artefacts",
         "applies_when_no_production_file_changed": true,
         "changed_identity_artefact_is_failure": true
       },
@@ -2282,7 +2282,7 @@
         "root_cause": "Test-only work changed identity-bearing artefacts, so test changes alter what the product is.",
         "fix": "Revert the identity artefact changes from the test-only work and make them in a product change of their own. When no production file changed, every identity-bearing artefact the config lists stays byte-identical."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "diff-check",
           "module": "guardrails.commands.diffs.identity_artefacts"
@@ -2307,7 +2307,7 @@
         "root_cause": "Property tests run with a random seed that is neither fixed nor reported, so failures cannot be reproduced.",
         "fix": "Set a fixed seed or report the seed on every run through one shared property-test configuration. Reproduce a failure from its reported seed and shrink path, and keep the shrunk counterexample as a named example test."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
@@ -2333,7 +2333,7 @@
         "root_cause": "A mutation of changed code leaves every test green, so the tests do not observe that code's outcome.",
         "fix": "Add or strengthen an outcome test that fails for the mutant, asserting the observable result of the changed code. The nightly T3 run mutates changed code; a surviving, untested or unfinished mutant in changed behaviour is a failure to close with an outcome or property case."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
@@ -2352,19 +2352,19 @@
       "contract": {
         "pattern_sources": [
           "language_convention_packs",
-          "profile_layout_test_file_patterns"
+          "config_tests_layout_test_file_patterns"
         ],
         "event_scope": "added and renamed paths only; content edits do not trigger naming; explicit CLI paths or no-path full scans remain available",
         "reject_ticket_version_or_date_tokens": true,
         "nonmatching_test_file_is_failure": true,
         "diagnostic_names_file_and_correct_name": true
       },
-      "summary": "Require test file names to match the profile patterns without ticket, version or date tokens.",
+      "summary": "Require test file names to match the configured test file patterns without ticket, version or date tokens.",
       "remediation": {
-        "root_cause": "Test file names carry tickets, versions or dates, or ignore the profile patterns, so names describe history instead of behaviour.",
-        "fix": "Rename the test file for the behaviour it proves using the profile's pattern, and drop ticket, version and date tokens. Mirror the owning module or feature in the file name and follow the names of sibling test files."
+        "root_cause": "Test file names carry tickets, versions or dates, or ignore the configured test file patterns, so names describe history instead of behaviour.",
+        "fix": "Rename the test file for the behaviour it proves using a configured test file pattern, and drop ticket, version and date tokens. Mirror the owning module or feature in the file name and follow the names of sibling test files."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "naming",
           "module": "guardrails.commands.structure.naming"
@@ -2372,7 +2372,7 @@
       ]
     },
     {
-      "id": "PROFILE.complete",
+      "id": "CONFIG.complete",
       "kind": "process",
       "applicability": "always",
       "evidence_kind": "local_ci",
@@ -2416,7 +2416,7 @@
         "root_cause": "The repo config is missing required values or carries unapproved exemptions, so checks run with gaps.",
         "fix": "Record every required config value and get an owner exemption approval for each of the four exemptable fields left as {none: true}. An empty or stand-in value counts as missing, and each exemption needs an owner-approved reason with its approval reference."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "config-check",
           "module": "guardrails.commands.config.command"
@@ -2429,7 +2429,7 @@
       "applicability": "conditional",
       "evidence_kind": "local_ci",
       "contract": {
-        "path_source": "profile_verification_surface_feature_map_path",
+        "path_source": "config_tests_verification_surface_feature_map_path",
         "one_document_per_feature": true,
         "exact_h2_sections": [
           "Sub-features",
@@ -2444,7 +2444,7 @@
         "root_cause": "A feature map is missing or does not follow the fixed four sections, so features cannot be linked to their proofs.",
         "fix": "Write one feature-map document per feature with exactly the four fixed sections, and keep it updated with the feature. Its four H2 sections are Sub-features, How to get to it (user POV), Driving it with followed by the lever name, and Gotchas; fix every stale link."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "surface-lint",
           "module": "guardrails.commands.surface.feature_map"
@@ -2457,16 +2457,16 @@
       "applicability": "conditional",
       "evidence_kind": "local_ci",
       "contract": {
-        "pattern_source": "profile_verification_surface_journey_file_pattern",
+        "pattern_source": "config_tests_verification_surface_journey_file_pattern",
         "nonmatching_journey_file_is_failure": true,
         "journey_must_call_lever": true
       },
-      "summary": "Require journeys to match the profile pattern and drive the lever.",
+      "summary": "Require journeys to match the configured journey file pattern and drive the lever.",
       "remediation": {
-        "root_cause": "Journeys do not match the profile pattern or bypass the lever, so they do not prove the product as users drive it.",
-        "fix": "Rename journeys to the profile pattern and drive each one through the lever's public commands. Each journey file matches the configured journey file pattern and runs through the test runner."
+        "root_cause": "Journeys do not match the configured journey file pattern or bypass the lever, so they do not prove the product as users drive it.",
+        "fix": "Rename journeys to the configured journey file pattern and drive each one through the lever's public commands. Each journey file matches the configured journey file pattern and runs through the test runner."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "surface-lint",
           "module": "guardrails.commands.surface.journeys"
@@ -2480,7 +2480,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "run_event": "ci",
-        "doctor_failure_prints_profile_marker": true,
+        "doctor_failure_prints_config_doctor_marker": true,
         "kills_only_own_process_group": true,
         "per_instance_ports_and_data": true,
         "no_leftover_processes_or_ports": true,
@@ -2491,7 +2491,7 @@
         "root_cause": "The lever cannot prove its own isolation: its doctor failure is hidden, it leaks processes or loses evidence.",
         "fix": "Make the lever self-test pass: show doctor failures, clean up every process it starts and keep run evidence after exit. The lever prints the doctor-failure marker, kills only its own process group, uses per-instance ports and data, leaves no processes or ports behind and keeps the evidence directory after cleanup."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "lever-selftest",
           "module": "guardrails.commands.surface.lever_selftest"
@@ -3224,7 +3224,7 @@
         "root_cause": "Several package managers or lockfiles are in use, so installs resolve different dependency trees.",
         "fix": "Declare one exact packageManager pin, delete other managers' lockfiles and regenerate the lock with the pinned manager."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "toolchain-parity",
           "module": "guardrails.commands.catalogue.toolchain_parity"
@@ -3244,7 +3244,7 @@
         "root_cause": "An adapter was asked to write its output inside the repository, which would leave harness files in the repo tree.",
         "fix": "Pass an --out path outside the checkout, such as under the system temporary directory, from every caller that requests output."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
@@ -3276,7 +3276,7 @@
         "root_cause": "The adapter's runtime prerequisite is not installed, so its checks cannot run and must not report a pass.",
         "fix": "Install the adapter's declared extra or toolchain from the locked dependencies and rerun the check."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
@@ -3299,7 +3299,7 @@
         "root_cause": "Kind-folder file proposal received commits it cannot read, so it has no head tree to search for technical-kind folders.",
         "fix": "Fetch the base and head commits into this clone and rerun kind-candidates once both resolve with git rev-parse."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "kind-candidates",
           "module": "guardrails.commands.structure.kind_candidates"
@@ -3322,7 +3322,7 @@
         "root_cause": "Consumer-file proposal received commits it cannot read, so it has no head tree to search for runnable files.",
         "fix": "Make both commits readable in the clone (fetch them from the remote if needed), then rerun consumer-candidates for that range."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "consumer-candidates",
           "module": "guardrails.commands.structure.consumer_candidates"
@@ -3352,7 +3352,7 @@
         "root_cause": "Name-pair proposal received commits it cannot read, so it has no head tree to propose pairs from.",
         "fix": "Fetch the missing base or head commit into the clone, then rerun name-pairs over that exact merge-base and head range."
       },
-      "reference": [
+      "implementation": [
         {
           "subcommand": "name-pairs",
           "module": "guardrails.commands.structure.name_pairs"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -91,7 +91,7 @@ def as_list(value: object) -> list[str]:
     return []
 
 
-def config_section(config: dict[str, Any], name: str) -> dict[str, Any]:
+def config_section(config: Mapping[str, Any], name: str) -> dict[str, Any]:
     """One top-level section of the repo's .agentrails/config.json, {} when absent."""
     value = config.get(name)
     return value if isinstance(value, dict) else {}

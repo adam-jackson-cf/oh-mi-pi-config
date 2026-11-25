@@ -5,7 +5,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
-from guardrails.context.config.profile import exempt_tiers
+from guardrails.context.config.section_schema import exempt_tiers
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
@@ -124,7 +124,7 @@ def id_file(test_id: str) -> str:
     return test_id.split("::", 1)[0]
 
 
-def profile_tiers(config: dict[str, Any]) -> list[str]:
+def configured_tiers(config: dict[str, Any]) -> list[str]:
     tiers = tests_settings(config, "tiers")
     if not isinstance(tiers, dict):
         return []
@@ -136,7 +136,7 @@ def collection_findings(
     config: dict[str, Any],
     test_files: list[str],
 ) -> list[Finding]:
-    tiers = profile_tiers(config)
+    tiers = configured_tiers(config)
     found = [
         Finding(
             SELECTORS,
@@ -185,8 +185,8 @@ def tier_list_findings(
             Finding(
                 SELECTORS,
                 tier,
-                f"tier {tier} is not a profile tier",
-                "use a profile tier key",
+                f"tier {tier} is not a tests.tiers key",
+                "use a tests.tiers key that no exemption removes",
             )
         ]
     if ids is None:

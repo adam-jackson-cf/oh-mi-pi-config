@@ -81,7 +81,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Config tests | `tests/repo-config*.test.ts` | `lib/repo-config.ts`, `lib/git-paths.ts` |
 | Config tests | `tests/test_repo_config*.py` | Engine `repo_config.py` |
 | Config fixtures | `tests/fixtures/agentrails` | Valid and invalid repo configs |
-| Engine tests | `tests/test_reference_*.py` | Checkers, adapters, `init` |
+| Engine tests | `ENGINE_TESTS` in `tests/test_rule_catalogue.py` | Checkers, adapters, `init` |
 | Workflow tests | `tests/test_workflows*.py` | `engine/workflows.py` |
 | Judgment tests | `tests/test_*judgment*.py` | `judgments/` data and version keys |
 | Judged rails tests | `tests/agent-rails-judged-rails-seams.test.ts` | Stubbed judge transport |
@@ -95,7 +95,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Health test | `tests/extension-health.test.ts` | Registration marker |
 | CI gate test | `tests/test_ci_gate.py` | Configs from `tests/test_agentrails_fixture.py` |
 | Script tests | `tests/test_ci_runner.py` | Use `guardrails.host.process` |
-| Fixtures | `tests/fixtures/reference` | Engine test inputs |
+| Fixtures | `ENGINE_FIXTURES` in `tests/test_rule_catalogue.py` | Engine test inputs |
 
 ## Instruction files and other skills
 

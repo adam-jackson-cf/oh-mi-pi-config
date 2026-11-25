@@ -16,7 +16,7 @@ from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.host.process import start_piped
 
-RULE = "PROFILE.complete"
+RULE = "CONFIG.complete"
 SKIPPED_PARTS = frozenset({
     ".git",
     ".venv",

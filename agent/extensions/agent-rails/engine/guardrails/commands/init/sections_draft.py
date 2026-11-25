@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.context.config.house_style import load_house_style
-from guardrails.context.config.profile import PLACEHOLDER, ProfileError
 from guardrails.context.config.repo_config import validate_section
+from guardrails.context.config.section_schema import PLACEHOLDER, ConfigValueError
 
 SETUP_SECTIONS = ("commands", "checkers", "structure", "houseStyle", "tests")
 TEMPLATE = "config-template.json"
@@ -65,7 +65,7 @@ def with_lsp_notes(
     if not isinstance(command_notes, dict):
         return (
             tests,
-            "tests.command_notes is not an object; record the LSP server there by hand",
+            "tests.command_notes is not an object; write the LSP server there by hand",
         )
     if "lsp" in command_notes:
         return tests, None
@@ -105,7 +105,7 @@ def load_settings(path: Path | None) -> dict[str, Any]:
     try:
         settings = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
-        raise ProfileError(f"cannot read settings file {path}: {error}") from error
+        raise ConfigValueError(f"cannot read settings file {path}: {error}") from error
     if not isinstance(settings, dict):
-        raise ProfileError(f"settings file {path} must hold one JSON object")
+        raise ConfigValueError(f"settings file {path} must hold one JSON object")
     return settings

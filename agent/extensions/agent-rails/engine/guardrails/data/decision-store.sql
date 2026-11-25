@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 );
 CREATE INDEX IF NOT EXISTS reviews_decision ON reviews (decision_id);
 
--- The rails ledger: one row per blocking rail decision, post-edit path-check failure and later
+-- Rail events: one row per blocking rail decision, post-edit path-check failure and later
 -- resolution. reason is a first line or summary of at most 200 characters, never command output.
 CREATE TABLE IF NOT EXISTS rail_events (
   id INTEGER PRIMARY KEY,

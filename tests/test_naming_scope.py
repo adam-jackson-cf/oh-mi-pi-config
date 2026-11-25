@@ -203,7 +203,7 @@ class ChangedPathScopeTests(NamingScopeCase):
                     "checkers": {"check": {"run": [checker]}}
                 })
                 assert selected == []
-                assert any(f.rule_id == "PROFILE.complete" for f in findings)
+                assert any(f.rule_id == "CONFIG.complete" for f in findings)
         assert "naming" not in whole_repo.DEFAULT_STEPS
         assert "structure" not in whole_repo.DEFAULT_STEPS
 

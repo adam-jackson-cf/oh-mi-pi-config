@@ -6,7 +6,7 @@ Load them in an eval cell: `%load <extension>/engine/workflows.py`. Policy comes
 
 ## Binding test policy
 
-- The config's `tests` section is the binding test profile; the [Tests](../docs/config.md#tests) section
+- The config's `tests` section holds the binding test settings; the [Tests](../docs/config.md#tests) section
   defines its keys. Agents never write the config.
 - A proof is an outcome test or a deterministic lever journey, linked from a feature-map document
   under `tests.verification_surface.feature_map_path`. Live paid or LLM calls and T3 exploration are

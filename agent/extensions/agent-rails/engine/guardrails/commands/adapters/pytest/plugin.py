@@ -43,7 +43,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         help=f"arm a tier guard ({', '.join(guards.GUARDS)}); repeat or comma-separate",
     )
     group.addoption(
-        "--omp-tier", default=None, metavar="TIER", help="profile tier of this run"
+        "--omp-tier",
+        default=None,
+        metavar="TIER",
+        help="tier of this run (t1, t2, t3) from tests.tiers",
     )
     group.addoption(
         "--omp-collect-out",
