@@ -13,7 +13,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.structure import name_propose
+from guardrails.commands.structure_naming.name_pair import propose
 
 TREE = {
     "app/__init__.py": "",
@@ -62,7 +62,7 @@ def body(name: str, path: str, line: int, **extra: Any) -> dict[str, Any]:
 @pytest.mark.fast
 class ResolveTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.index = name_propose.NameIndex(TREE)
+        self.index = propose.NameIndex(TREE)
 
     def test_resolve_prefers_definitions_in_the_named_module_and_the_same_language(
         self,
@@ -99,7 +99,7 @@ class ResolveTests(unittest.TestCase):
 @pytest.mark.fast
 class ProposerRuleTests(unittest.TestCase):
     def test_aliases_pair_with_their_definition_member_or_external_name(self) -> None:
-        pairs = name_propose.Proposer(name_propose.NameIndex(TREE)).propose()
+        pairs = propose.Proposer(propose.NameIndex(TREE)).propose()
         assert named(pairs) == {
             ("alias", "loader", "alias", "Store.get", "method"),
             ("alias", "reader", "alias", "Store.missing", "member"),
@@ -110,7 +110,7 @@ class ProposerRuleTests(unittest.TestCase):
         }
 
     def test_a_pair_found_twice_keeps_one_entry_with_both_rules(self) -> None:
-        proposer = name_propose.Proposer(name_propose.NameIndex({}))
+        proposer = propose.Proposer(propose.NameIndex({}))
         first = {"name": "load_user", "kind": "function", "path": "a.py"}
         second = {"name": "fetch_user", "kind": "function", "path": "b.py"}
         proposer.put(first, {**first, "path": "c.py"}, "clone")
@@ -129,7 +129,7 @@ class ProposerRuleTests(unittest.TestCase):
             "app/c.py": "class Store2:\n    pass\n",
             "web/d.ts": "export class RemoteUserStore {}\n",
         }
-        pairs = name_propose.Proposer(name_propose.NameIndex(tree)).propose()
+        pairs = propose.Proposer(propose.NameIndex(tree)).propose()
         assert named(pairs) == {
             ("head_noun", "CachedUserStore", "class", "UserStore", "class"),
         }
@@ -143,34 +143,34 @@ class ProposerRuleTests(unittest.TestCase):
                 "SHORT = 'ab cd'\nLANE = 'fast lane'\nNUMBER = 'x 12 y'\n"
             ),
         }
-        pairs = name_propose.Proposer(name_propose.NameIndex(tree)).propose()
+        pairs = propose.Proposer(propose.NameIndex(tree)).propose()
         assert named(pairs) == {
             ("const_value", "MODE", "constant", '"fast lane"', "string_value"),
         }
 
     def test_qualified_needs_a_longer_name_ending_in_a_two_word_name(self) -> None:
-        assert name_propose.qualified(["user", "store"], ["cached", "user", "store"])
-        assert not name_propose.qualified(["user", "store"], ["user", "store"])
-        assert not name_propose.qualified(["store"], ["user", "store"])
+        assert propose.qualified(["user", "store"], ["cached", "user", "store"])
+        assert not propose.qualified(["user", "store"], ["user", "store"])
+        assert not propose.qualified(["store"], ["user", "store"])
 
     def test_clone_pairs_need_distinct_names_one_language_and_no_nesting(self) -> None:
         left = body("load", "a.py", 1)
-        assert name_propose.clone_pair(left, body("fetch", "b.py", 1))
-        assert not name_propose.clone_pair(left, body("Load", "b.py", 1))
-        assert not name_propose.clone_pair(left, body("fetch", "b.ts", 1, lang="ts"))
-        assert not name_propose.clone_pair(left, body("fetch", "a.py", 5))
-        assert not name_propose.clone_pair(body("fetch", "a.py", 5), left)
-        assert name_propose.clone_pair(left, body("fetch", "a.py", 20))
-        assert not name_propose.clone_pair(left, body("Fetch", "b.py", 1, kind="class"))
+        assert propose.clone_pair(left, body("fetch", "b.py", 1))
+        assert not propose.clone_pair(left, body("Load", "b.py", 1))
+        assert not propose.clone_pair(left, body("fetch", "b.ts", 1, lang="ts"))
+        assert not propose.clone_pair(left, body("fetch", "a.py", 5))
+        assert not propose.clone_pair(body("fetch", "a.py", 5), left)
+        assert propose.clone_pair(left, body("fetch", "a.py", 20))
+        assert not propose.clone_pair(left, body("Fetch", "b.py", 1, kind="class"))
 
     def test_shared_grams_ignore_grams_common_to_many_bodies(self) -> None:
         common = ("x", "=", "1")
         bodies = [
             {"grams": frozenset({common, (str(position), "+", "1")})}
-            for position in range(name_propose.MAX_DOCUMENT_FREQUENCY + 1)
+            for position in range(propose.MAX_DOCUMENT_FREQUENCY + 1)
         ]
         bodies[1] = {"grams": frozenset({common, ("0", "+", "1")})}
-        assert name_propose.shared_grams(bodies) == {(0, 1): 1 / 3}
+        assert propose.shared_grams(bodies) == {(0, 1): 1 / 3}
 
 
 if __name__ == "__main__":

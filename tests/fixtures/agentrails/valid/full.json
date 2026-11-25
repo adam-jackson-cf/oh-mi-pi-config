@@ -95,7 +95,7 @@
         "line_floor"
       ]
     },
-    "structure": {
+    "layout": {
       "root_directories": [
         "agent",
         "scripts",

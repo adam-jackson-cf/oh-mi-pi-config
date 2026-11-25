@@ -194,7 +194,7 @@ def owner_findings(
     return found
 
 
-def run(
+def import_graph_findings(
     repo: Path,
     config: dict[str, Any],
     *,

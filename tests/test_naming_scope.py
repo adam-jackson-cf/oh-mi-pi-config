@@ -19,7 +19,7 @@ sys.path.insert(
 import pytest
 from test_agentrails_fixture import config, write_config
 
-from guardrails.commands.structure import layout
+from guardrails.commands.structure_naming import layout
 from guardrails.foundation.findings import Finding
 from guardrails.toolkit import dispatch
 
@@ -49,7 +49,7 @@ class NamingScopeCase(unittest.TestCase):
         self.git("config", "user.name", "Scope outcomes")
         self.profile: dict[str, Any] = {
             "checkers": {
-                "structure": {"root_directories": ["catalogue"], "root_files": []}
+                "layout": {"root_directories": ["catalogue"], "root_files": []}
             },
             "structure": {"owners": {"patterns": {"**": "catalogue"}}},
         }
@@ -228,7 +228,7 @@ class StructureScopeTests(NamingScopeCase):
                 assert not any(f.rule_id == "TEST.placement" for f in found), found
 
     def test_staged_structure_reads_index_contents_not_worktree_contents(self) -> None:
-        self.profile["checkers"]["structure"]["forbidden_imports"] = [
+        self.profile["checkers"]["layout"]["forbidden_imports"] = [
             {"root": "catalogue", "modules": ["requests"]},
         ]
         self.write("catalogue/network.py", "import requests\n")
@@ -244,7 +244,7 @@ class StructureScopeTests(NamingScopeCase):
     def test_new_instance_requires_marker_but_existing_instance_is_not_rejudged(
         self,
     ) -> None:
-        self.profile["checkers"]["structure"]["instances"] = [
+        self.profile["checkers"]["layout"]["instances"] = [
             {"root": "catalogue", "depth": 1, "marker": "manifest.json"},
         ]
         self.write("catalogue/archive/reader.py")

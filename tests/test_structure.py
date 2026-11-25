@@ -13,8 +13,8 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.structure import import_graph
-from guardrails.commands.structure.import_direction import direction_findings
+from guardrails.commands.structure_naming import import_graph
+from guardrails.commands.structure_naming.import_direction import direction_findings
 from guardrails.context.config import house_style
 from guardrails.foundation import conventions
 
@@ -154,7 +154,7 @@ class EngineLayerTests(unittest.TestCase):
             for path in (ROOT / ENGINE_SOURCE_ROOT).rglob("*.py")
         )
         found = [
-            *import_graph.run(ROOT, ENGINE_LAYERS, inventory=paths),
+            *import_graph.import_graph_findings(ROOT, ENGINE_LAYERS, inventory=paths),
             *(
                 finding
                 for path in paths

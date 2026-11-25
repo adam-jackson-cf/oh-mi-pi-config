@@ -22,7 +22,8 @@ sys.path.insert(
 import pytest
 from test_agentrails_fixture import config, write_config
 
-from guardrails.commands.structure import kind_candidates
+from guardrails.commands.structure_naming import kind_candidates
+from guardrails.context import changes
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
@@ -204,7 +205,7 @@ class KindCandidatesCommandTests(unittest.TestCase):
 
     def test_an_unreadable_blob_batch_is_a_finding(self) -> None:
         failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
-        with patch.object(kind_candidates, "run_bytes", return_value=failed):
+        with patch.object(changes, "run_bytes", return_value=failed):
             (finding,) = kind_candidates.run(
                 self.repo, {}, ["--base", self.base, "--head", self.head]
             )
@@ -214,7 +215,7 @@ class KindCandidatesCommandTests(unittest.TestCase):
         (finding,) = kind_candidates.run(
             self.repo, {}, ["--base", self.base, "--head", "missing"]
         )
-        assert (finding.rule_id, finding.path) == ("STRUCTURE.kind-candidates", ".")
+        assert (finding.rule_id, finding.path) == ("STRUCT.kind-candidates", ".")
 
 
 if __name__ == "__main__":

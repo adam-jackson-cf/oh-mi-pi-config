@@ -21,7 +21,7 @@
       "implementation": [
         {
           "subcommand": "rename-residue",
-          "module": "guardrails.commands.structure.rename_residue"
+          "module": "guardrails.commands.structure_naming.rename_residue"
         }
       ]
     },
@@ -44,11 +44,11 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         },
         {
           "subcommand": "structure",
-          "module": "guardrails.commands.structure.layout"
+          "module": "guardrails.commands.structure_naming.layout"
         }
       ]
     },
@@ -72,11 +72,11 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         },
         {
           "subcommand": "structure",
-          "module": "guardrails.commands.structure.layout"
+          "module": "guardrails.commands.structure_naming.layout"
         }
       ]
     },
@@ -99,11 +99,11 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         },
         {
           "subcommand": "structure",
-          "module": "guardrails.commands.structure.layout"
+          "module": "guardrails.commands.structure_naming.layout"
         }
       ]
     },
@@ -126,11 +126,11 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         },
         {
           "subcommand": "structure",
-          "module": "guardrails.commands.structure.layout"
+          "module": "guardrails.commands.structure_naming.layout"
         }
       ]
     },
@@ -153,11 +153,11 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         },
         {
           "subcommand": "structure",
-          "module": "guardrails.commands.structure.layout"
+          "module": "guardrails.commands.structure_naming.layout"
         }
       ]
     },
@@ -204,11 +204,11 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         },
         {
           "subcommand": "structure",
-          "module": "guardrails.commands.structure.layout"
+          "module": "guardrails.commands.structure_naming.layout"
         }
       ]
     },
@@ -235,11 +235,11 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         },
         {
           "subcommand": "structure",
-          "module": "guardrails.commands.structure.layout"
+          "module": "guardrails.commands.structure_naming.layout"
         }
       ]
     },
@@ -250,7 +250,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "unit": "the .py files directly in one folder below the repository root, outside folders named __pycache__, build, dist, examples, fixtures, migrations, node_modules, site-packages, test, testing, tests, third_party or vendor, hidden folders, and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
+        "unit": "the .py files directly in one folder below the repository root, except test files (test_*.py, *_test.py, conftest.py), outside hidden folders, vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), test folders (__tests__, fixture, fixtures, spec, specs, test, testing, tests), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
         "definitions": "top-level functions and classes and the methods of top-level classes spanning at least 5 lines, with docstrings and comments removed",
         "tokens": "identifiers and single non-space characters",
         "features": "the set of token 3-grams; definitions with fewer than 15 are dropped",
@@ -278,7 +278,7 @@
       "implementation": [
         {
           "subcommand": "responsibility-overlap",
-          "module": "guardrails.commands.structure.responsibility_overlap"
+          "module": "guardrails.commands.structure_naming.responsibility_overlap"
         }
       ]
     },
@@ -289,7 +289,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "candidates": "prefix clusters: sibling .py files in one folder (not __init__.py, not test files, conftest.py or files under a tests or test folder; not hidden, node_modules, vendor, third_party, __pycache__, dist, build or examples folders, nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
+        "candidates": "prefix clusters: sibling .py files in one folder (not __init__.py, not test files by the config's test file patterns or by name (test_*.py, *_test.py, conftest.py), not under a test folder (__tests__, fixture, fixtures, spec, specs, test, testing, tests); not under hidden or vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
         "pair_features": {
           "import_edge": "either member imports the other",
           "shared_reader": "another owned .py file, tests included, imports both",
@@ -325,7 +325,7 @@
       "implementation": [
         {
           "subcommand": "prefix-folder",
-          "module": "guardrails.commands.structure.prefix_folder"
+          "module": "guardrails.commands.structure_naming.prefix_folder"
         }
       ]
     },
@@ -358,7 +358,7 @@
       "implementation": [
         {
           "subcommand": "naming",
-          "module": "guardrails.commands.structure.naming"
+          "module": "guardrails.commands.structure_naming.naming"
         }
       ]
     },
@@ -382,7 +382,7 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         }
       ]
     },
@@ -582,7 +582,7 @@
       "implementation": [
         {
           "subcommand": "path-check",
-          "module": "guardrails.commands.structure.paths"
+          "module": "guardrails.commands.structure_naming.path_check"
         }
       ]
     },
@@ -2367,7 +2367,7 @@
       "implementation": [
         {
           "subcommand": "naming",
-          "module": "guardrails.commands.structure.naming"
+          "module": "guardrails.commands.structure_naming.naming"
         }
       ]
     },
@@ -3284,13 +3284,13 @@
       ]
     },
     {
-      "id": "STRUCTURE.kind-candidates",
+      "id": "STRUCT.kind-candidates",
       "kind": "bespoke",
       "applicability": "always",
       "contract": {
         "base_and_head_required": true,
         "unreadable_commits_are_a_finding": true,
-        "candidate": "a .py file other than __init__.py with at least one top-level def or class, directly in a folder whose last segment is a technical-kind word (models, schemas, services, handlers, controllers, utils, helpers, types, adapters, clients, managers, constants, exceptions, interfaces, repositories, validators, serializers, middleware, mixins, enums, dto, entities, manager, in singular or plural form), outside hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles",
+        "candidate": "a .py file other than __init__.py with at least one top-level def or class, directly in a folder whose last segment is a technical-kind word (models, schemas, services, handlers, controllers, utils, helpers, types, adapters, clients, managers, constants, exceptions, interfaces, repositories, validators, serializers, middleware, mixins, enums, dto, entities, manager, in singular or plural form), outside hidden and vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor) and SKILL.md bundles",
         "scope": "candidates whose file is added, modified or renamed in base..head",
         "exceptions": "a config exceptions entry {rule: structure-naming/technical_kind_grouping, path, reason} on the file drops it before judgment"
       },
@@ -3302,18 +3302,18 @@
       "implementation": [
         {
           "subcommand": "kind-candidates",
-          "module": "guardrails.commands.structure.kind_candidates"
+          "module": "guardrails.commands.structure_naming.kind_candidates"
         }
       ]
     },
     {
-      "id": "STRUCTURE.consumer-candidates",
+      "id": "STRUCT.consumer-candidates",
       "kind": "bespoke",
       "applicability": "always",
       "contract": {
         "base_and_head_required": true,
         "unreadable_commits_are_a_finding": true,
-        "candidate": "a .py file other than __init__.py with an ancestor package folder below the repository root, outside repository-root tests, fixtures, migrations, build and scripts folders, hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles, that has a run marker (main guard, argparse, click, typer, fire, streamlit, Dash, gradio, Flask, FastAPI, a textual App or rich.live), that no other tracked .py file imports, that no non-test .py file names by path (a string ending in its path, or its bare file name inside its own package) or by module string (as runpy or python -m take it), docstrings excepted, and that no [project.scripts], gui-scripts, poetry scripts or setup console entry names",
+        "candidate": "a .py file other than __init__.py with an ancestor package folder below the repository root, outside repository-root tests, fixtures, migrations, build and scripts folders, hidden and vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor) and SKILL.md bundles, that has a run marker (main guard, argparse, click, typer, fire, streamlit, Dash, gradio, Flask, FastAPI, a textual App or rich.live), that no other tracked .py file imports, that no non-test .py file names by path (a string ending in its path, or its bare file name inside its own package) or by module string (as runpy or python -m take it), docstrings excepted, and that no [project.scripts], gui-scripts, poetry scripts or setup console entry names",
         "scope": "candidates whose file is added, modified or renamed in base..head",
         "exceptions": "a config exceptions entry {rule: structure-naming/consumer_placement, path, reason} on the file drops it before judgment"
       },
@@ -3325,12 +3325,12 @@
       "implementation": [
         {
           "subcommand": "consumer-candidates",
-          "module": "guardrails.commands.structure.consumer_candidates"
+          "module": "guardrails.commands.structure_naming.consumer_candidates"
         }
       ]
     },
     {
-      "id": "STRUCTURE.name-pairs",
+      "id": "STRUCT.name-pairs",
       "kind": "bespoke",
       "applicability": "always",
       "contract": {
@@ -3343,7 +3343,7 @@
           "const_value",
           "clone"
         ],
-        "det_score": "0.5 * name_sim + 0.5 * body_sim",
+        "proposer_score": "0.5 * name_sim + 0.5 * body_sim",
         "scope": "pairs with at least one name defined in a file added, modified or renamed in base..head",
         "exceptions": "a config exceptions entry {rule: structure-naming/same_thing, path, reason} on either name's file drops the pair before judgment"
       },
@@ -3355,7 +3355,7 @@
       "implementation": [
         {
           "subcommand": "name-pairs",
-          "module": "guardrails.commands.structure.name_pairs"
+          "module": "guardrails.commands.structure_naming.name_pair.candidates"
         }
       ]
     }

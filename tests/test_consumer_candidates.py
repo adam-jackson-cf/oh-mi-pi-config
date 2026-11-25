@@ -22,7 +22,8 @@ sys.path.insert(
 import pytest
 from test_agentrails_fixture import config, write_config
 
-from guardrails.commands.structure import consumer_candidates
+from guardrails.commands.structure_naming import consumer_candidates
+from guardrails.context import changes
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
@@ -46,7 +47,7 @@ class ConsumerCandidateTests(unittest.TestCase):
             FIXTURE["tree"], {"pkg/dashboard.py"}, {}
         )
         assert found["run_markers"] == ["streamlit"]
-        assert found["det_score"] == 0.85
+        assert found["proposer_score"] == 0.85
         assert found["state"]["package"] == {
             "name": "pkg",
             "description": "Runs pricing experiments.",
@@ -187,7 +188,7 @@ class ConsumerCandidatesCommandTests(unittest.TestCase):
 
     def test_an_unreadable_blob_batch_is_a_finding(self) -> None:
         failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
-        with patch.object(consumer_candidates, "run_bytes", return_value=failed):
+        with patch.object(changes, "run_bytes", return_value=failed):
             (finding,) = consumer_candidates.run(
                 self.repo, {}, ["--base", self.base, "--head", self.head]
             )
@@ -197,7 +198,7 @@ class ConsumerCandidatesCommandTests(unittest.TestCase):
         (finding,) = consumer_candidates.run(
             self.repo, {}, ["--base", self.base, "--head", "missing"]
         )
-        assert (finding.rule_id, finding.path) == ("STRUCTURE.consumer-candidates", ".")
+        assert (finding.rule_id, finding.path) == ("STRUCT.consumer-candidates", ".")
 
 
 if __name__ == "__main__":

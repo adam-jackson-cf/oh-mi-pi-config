@@ -235,7 +235,7 @@ class RepositoryCase(unittest.TestCase):
             },
             "structure": {"owners": {"patterns": {"**": "proof engine"}}},
             "checkers": {
-                "structure": {
+                "layout": {
                     "root_directories": ["docs", "oracle", "verifier"],
                     "root_files": [
                         *MAPPED,
@@ -1847,7 +1847,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         self.pairs: list[dict[str, Any]] = [
             {
                 "id": PAIR_ID,
-                "det_score": 0.5,
+                "proposer_score": 0.5,
                 "state": {"first": {"name": "x"}, "second": {"name": "y"}},
             }
         ]
@@ -2082,7 +2082,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_a_finding_at_the_threshold_sets_persisted_merge_halt(self) -> None:
         self.kinds, self.consumers = [], []
-        self.pairs[0]["det_score"] = 0.051143
+        self.pairs[0]["proposer_score"] = 0.051143
         result = await self.review(score=1.0)
         assert (result["halt"], result["status"]) == (True, "blocked")
         assert {

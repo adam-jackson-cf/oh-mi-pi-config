@@ -12,7 +12,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.structure import rename_residue as residue
+from guardrails.commands.structure_naming import rename_residue as residue
 
 pytestmark = pytest.mark.fast
 

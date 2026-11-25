@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
 # The engine suite: the test files and fixture folders that prove the package rules.
 ENGINE_TESTS = (
+    "test_blob_batch.py",
     "test_bun_test_adapter.py",
     "test_bun_test_adapter_seams.py",
     "test_cli.py",

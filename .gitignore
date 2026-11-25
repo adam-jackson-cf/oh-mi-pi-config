@@ -119,6 +119,7 @@ tests/*
 !tests/test_gate_scripts_seams.py
 !tests/test_ci_gate.py
 !tests/test_ci_runner.py
+!tests/test_blob_batch.py
 !tests/test_bun_test_adapter.py
 !tests/test_bun_test_adapter_seams.py
 !tests/test_cli.py

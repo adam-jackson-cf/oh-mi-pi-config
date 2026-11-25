@@ -10,12 +10,15 @@ from os.path import commonprefix
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure.rename_residue import GitError, git
+from guardrails.commands.structure_naming.scan_scope import (
+    is_test_path,
+    is_vendored_path,
+)
+from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding, catalogue_rules
 from guardrails.foundation.inventory import as_list, matches_any, settings
-from guardrails.host.process import run_bytes
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.prefix-folder"
@@ -26,16 +29,6 @@ DOCUMENTED = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
 Import = tuple[int, list[str], list[str]]
 
 
-SKIPPED_FOLDERS = frozenset({
-    "__pycache__",
-    "build",
-    "dist",
-    "examples",
-    "node_modules",
-    "third_party",
-    "vendor",
-})
-TEST_FOLDERS = frozenset({"test", "tests"})
 MODIFIERS = frozenset({
     "abstract",
     "base",
@@ -63,27 +56,6 @@ BUNDLE_MANIFEST = "SKILL.md"
 MIN_PREFIX = 3
 
 
-def added_or_moved(repo: Path, base: str, head: str) -> set[str]:
-    tokens = (
-        git(repo, "diff", "--name-status", "-z", "--find-renames=50%", base, head, "--")
-        .decode(errors="replace")
-        .split("\0")
-    )
-    found: set[str] = set()
-    index = 0
-    while index < len(tokens) and tokens[index]:
-        status = tokens[index][0]
-        if status in {"R", "C"}:
-            if status == "R":
-                found.add(tokens[index + 2])
-            index += 3
-        else:
-            if status == "A":
-                found.add(tokens[index + 1])
-            index += 2
-    return found
-
-
 def singular(word: str) -> str:
     if len(word) > 4 and word.endswith("ies"):
         return word[:-3] + "y"
@@ -104,8 +76,7 @@ def owned_python(paths: list[str]) -> list[str]:
     }
 
     def skipped(path: str) -> bool:
-        folders = PurePosixPath(path).parts[:-1]
-        if any(part.startswith(".") or part in SKIPPED_FOLDERS for part in folders):
+        if is_vendored_path(path):
             return True
         parent = PurePosixPath(path).parent.as_posix()
         return any(
@@ -116,21 +87,14 @@ def owned_python(paths: list[str]) -> list[str]:
     return [path for path in paths if path.endswith(".py") and not skipped(path)]
 
 
-def is_test_like(path: str, config: dict[str, Any]) -> bool:
-    pure = PurePosixPath(path)
-    return (
-        is_test_file(path, config)
-        or pure.name == "conftest.py"
-        or bool(TEST_FOLDERS.intersection(pure.parts[:-1]))
-    )
-
-
 def groups(
     paths: list[str], added: set[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     siblings: dict[str, list[str]] = defaultdict(list)
     for path in owned_python(paths):
-        if PurePosixPath(path).name != "__init__.py" and not is_test_like(path, config):
+        if PurePosixPath(path).name != "__init__.py" and not (
+            is_test_file(path, config) or is_test_path(path)
+        ):
             siblings[PurePosixPath(path).parent.as_posix()].append(path)
     found: list[dict[str, Any]] = []
     touched = {PurePosixPath(path).parent.as_posix() for path in added}
@@ -358,10 +322,10 @@ def sources(
     repo: Path, head: str, excluded: list[str]
 ) -> tuple[list[str], dict[str, str]]:
     entries = {}
-    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split(b"\0"):
+    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split("\0"):
         if entry:
-            metadata, raw = entry.split(b"\t", 1)
-            entries[raw.decode()] = metadata.decode().split()
+            metadata, raw = entry.split("\t", 1)
+            entries[raw] = metadata.split()
     paths = sorted(path for path in entries if not matches_any(path, excluded))
     owned = [
         path
@@ -379,26 +343,6 @@ def sources(
     return paths, texts
 
 
-def read_blobs(repo: Path, oids: list[str]) -> dict[str, bytes]:
-    if not oids:
-        return {}
-    result = run_bytes(
-        ["git", "-C", str(repo), "cat-file", "--batch"],
-        data="".join(oid + "\n" for oid in oids).encode(),
-        check=False,
-        timeout=120,
-    )
-    if result.returncode:
-        raise GitError(result.stderr.decode(errors="replace").strip())
-    blobs, output, offset = {}, result.stdout, 0
-    for oid in oids:
-        end = output.index(b"\n", offset)
-        size = int(output[offset:end].split()[2])
-        blobs[oid] = output[end + 1 : end + 1 + size]
-        offset = end + 2 + size
-    return blobs
-
-
 def history(repo: Path, head: str) -> list[set[str]]:
     log = git(
         repo,
@@ -410,7 +354,7 @@ def history(repo: Path, head: str) -> list[set[str]]:
         "--name-only",
         "--format=%x1e",
         head,
-    ).decode()
+    )
     return [
         {line for line in chunk.splitlines() if line.strip()}
         for chunk in log.split("\x1e")[1:]
@@ -477,12 +421,12 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         settings(config, "python").get("excluded_paths")
     )
     try:
-        added = added_or_moved(repo, args.base, args.head)
+        added = changed_paths(repo, args.base, args.head, "AR")
         paths, texts = sources(repo, args.head, excluded)
         found = clusters(
             paths, added, evidence_of(texts, history(repo, args.head)), config
         )
-    except (GitError, ValueError) as error:
+    except (DiffError, ValueError) as error:
         return [
             Finding(
                 RULE,

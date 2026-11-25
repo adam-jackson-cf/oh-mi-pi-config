@@ -8,7 +8,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
@@ -21,8 +20,8 @@ sys.path.insert(
 import pytest
 from test_agentrails_fixture import config, write_config
 
-from guardrails.commands.structure import prefix_folder
-from guardrails.commands.structure.rename_residue import GitError
+from guardrails.commands.structure_naming import prefix_folder
+from guardrails.context import changes
 from guardrails.foundation.findings import catalogue_rules, remediations
 
 FIXTURE = json.loads(
@@ -208,15 +207,6 @@ class ImportGraphTests(unittest.TestCase):
         assert "broken.py" not in graph.edges
         assert prefix_folder.domain_words(None) == set()
 
-    def test_no_blobs_need_no_git_and_a_failed_batch_is_a_git_error(self) -> None:
-        assert prefix_folder.read_blobs(Path("."), []) == {}
-        failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
-        with (
-            patch.object(prefix_folder, "run_bytes", return_value=failed),
-            pytest.raises(GitError, match="bad object"),
-        ):
-            prefix_folder.read_blobs(Path("."), ["0" * 40])
-
 
 @pytest.mark.seam
 class PrefixFolderCommandTests(unittest.TestCase):
@@ -275,7 +265,6 @@ class PrefixFolderCommandTests(unittest.TestCase):
         import io
         import os
         import sqlite3
-        from unittest.mock import patch
 
         from guardrails.commands import cli
 
@@ -312,7 +301,7 @@ class PrefixFolderCommandTests(unittest.TestCase):
             repo / "src/shop/grading/coverage_scorer.py"
         )
         head = self.commit(repo, {"src/shop/grading/coverage_store.py": "RECORD = 2\n"})
-        assert prefix_folder.added_or_moved(repo, base, head) == {
+        assert changes.changed_paths(repo, base, head, "AR") == {
             "src/shop/grading/coverage_scorer.py"
         }
 

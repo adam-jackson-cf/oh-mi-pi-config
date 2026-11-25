@@ -23,7 +23,7 @@ from test_agentrails_fixture import config, write_config
 from test_structure import FIXTURES
 
 from guardrails.commands import cli
-from guardrails.commands.structure import layout, naming, paths
+from guardrails.commands.structure_naming import layout, naming, path_check
 from guardrails.foundation.findings import Finding, remediations
 
 pytestmark = pytest.mark.seam
@@ -100,7 +100,7 @@ class CheckerCase(unittest.TestCase):
         }
 
     def all_findings(self) -> set[tuple[str, str]]:
-        return self.findings(layout) | self.findings(naming) | self.findings(paths)
+        return self.findings(layout) | self.findings(naming) | self.findings(path_check)
 
 
 class CheckerTests(CheckerCase):
@@ -132,7 +132,7 @@ class CheckerTests(CheckerCase):
         assert self.findings(layout) == {
             ("STRUCT.dependency-direction", "src/orders/contract/fetch.py")
         }
-        del self.profile["checkers"]["structure"]["root_files"]
+        del self.profile["checkers"]["layout"]["root_files"]
         assert (
             "STRUCT.folder-placement",
             ".agentrails/config.json#checkers",
@@ -183,7 +183,7 @@ class CheckerTests(CheckerCase):
         }
         for path, text in planted.items():
             self.write(path, text)
-        assert self.findings(paths, list(planted)) == {
+        assert self.findings(path_check, list(planted)) == {
             ("STRUCT.folder-placement", "lab/workflows/team/nightly/notes.md"),
             ("TEST.placement", "tests/boundary/test_payments_retry.py"),
             ("STRUCT.folder-placement", "tests/fixtures/test_sample_order.py"),
@@ -252,19 +252,19 @@ class CheckerTests(CheckerCase):
             with self.subTest(case=name):
                 self.write(path, source)
                 expected = {("TEST.placement", path)} if collected else set()
-                assert self.findings(paths, [path]) == expected
+                assert self.findings(path_check, [path]) == expected
 
     def test_path_check_reports_a_directory_outside_git_as_a_gate_failure(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory(prefix="omp-path-check-") as scratch:
-            found = paths.run(Path(scratch), {}, [])
+            found = path_check.run(Path(scratch), {}, [])
         assert [(finding.rule_id, finding.path) for finding in found] == [
             ("GATE.path-check", ".")
         ]
 
     def test_path_check_refuses_paths_outside_the_repository(self) -> None:
-        assert self.findings(paths, ["../outside.py", "/etc/hosts"]) == {
+        assert self.findings(path_check, ["../outside.py", "/etc/hosts"]) == {
             ("STRUCT.folder-placement", "../outside.py"),
             ("STRUCT.folder-placement", "/etc/hosts"),
         }
@@ -287,7 +287,7 @@ class CheckerTests(CheckerCase):
         self.write("tests/fixtures/orders.json")
         data = ("STRUCT.runtime-data-placement", "src/orders/engine/pricing.yaml")
         entry = ("STRUCT.entry-point-placement", "src/orders/engine/stages/__main__.py")
-        for module in (layout, paths):
+        for module in (layout, path_check):
             assert self.package_placement(module) == {data, entry}
         self.profile["exceptions"] = [
             {
@@ -296,14 +296,14 @@ class CheckerTests(CheckerCase):
                 "reason": "internal tool the engine runs; no user invokes it",
             }
         ]
-        for module in (layout, paths):
+        for module in (layout, path_check):
             assert self.package_placement(module) == {data}
 
     def test_package_placement_judges_only_added_paths(self) -> None:
         self.write("src/orders/engine/legacy.yaml")
         self.commit_all("legacy data")
         self.write("src/orders/engine/added.yaml")
-        for module in (layout, paths):
+        for module in (layout, path_check):
             assert self.package_placement(
                 module, ["--event", "edit", "src/orders/engine"]
             ) == {("STRUCT.runtime-data-placement", "src/orders/engine/added.yaml")}
@@ -611,7 +611,7 @@ class ImportGraphTests(unittest.TestCase):
                 profile = copy.deepcopy(self.FIXTURE["config"])
                 repo = self.make_repo(case[outcome], profile)
                 expected = set(case["paths"]) if outcome == "violating" else set()
-                for checker in (layout, paths):
+                for checker in (layout, path_check):
                     findings = checker.run(repo, profile, ["--all"])
                     assert rule_paths(findings, case["rule"]) == expected
                 for command in ("structure", "path-check"):
@@ -630,7 +630,7 @@ class ImportGraphTests(unittest.TestCase):
         profile = copy.deepcopy(self.FIXTURE["config"])
         del profile["structure"]["import_direction"]
         repo = self.make_repo(case["violating"], profile)
-        for checker in (layout, paths):
+        for checker in (layout, path_check):
             assert not {f.rule_id for f in checker.run(repo, profile, [])} & self.RULES
 
     def test_scan_excludes_python_outside_its_scope(self) -> None:
@@ -639,7 +639,7 @@ class ImportGraphTests(unittest.TestCase):
         files = dict(self.FIXTURE["cases"][0]["violating"])
         files["src/orders/shared/broken.py"] = "this is not Python!\n"
         repo = self.make_repo(files, profile)
-        for checker in (layout, paths):
+        for checker in (layout, path_check):
             assert not {f.rule_id for f in checker.run(repo, profile, [])} & self.RULES
 
     def test_unused_shared_tier_fails_but_driving_tier_does_not(self) -> None:
@@ -651,7 +651,7 @@ class ImportGraphTests(unittest.TestCase):
             },
             profile,
         )
-        for checker in (layout, paths):
+        for checker in (layout, path_check):
             found = checker.run(repo, profile, [])
             assert {(f.rule_id, f.path) for f in found if f.rule_id in self.RULES} == {
                 ("STRUCT.tier-readership", "src/orders/shared")

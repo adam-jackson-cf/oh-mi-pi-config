@@ -117,12 +117,12 @@ CHECKER_SECTIONS = (
     "guarded_run",
     "identity_artefacts",
     "journeys",
+    "layout",
     "lever_selftest",
     "naming",
     "no_evasion",
     "paths",
     "python",
-    "structure",
     "test_evidence",
     "toolchain_parity",
 )

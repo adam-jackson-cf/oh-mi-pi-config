@@ -10,33 +10,19 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure.rename_residue import GitError, git
+from guardrails.commands.structure_naming.scan_scope import (
+    is_test_path,
+    is_vendored_path,
+)
+from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding, catalogue_rules
 from guardrails.foundation.inventory import as_list, matches_any, settings
-from guardrails.host.process import run_bytes
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.overlapping-responsibilities"
-SKIPPED_FOLDERS = frozenset({
-    "__pycache__",
-    "build",
-    "dist",
-    "example",
-    "examples",
-    "fixture",
-    "fixtures",
-    "migrations",
-    "node_modules",
-    "site-packages",
-    "test",
-    "testing",
-    "tests",
-    "third_party",
-    "vendor",
-})
+MIGRATIONS_FOLDER = "migrations"
 BUNDLE_MANIFEST = "SKILL.md"
-TEST_PREFIX = "test_"
 MIN_LINES = 5
 MIN_GRAMS = 15
 MAX_DOCUMENT_FREQUENCY = 40
@@ -71,9 +57,9 @@ def pair_score_cutoff() -> float:
 def unit_of(path: str, bundles: set[str]) -> str | None:
     pure = PurePosixPath(path)
     folder = pure.parent
-    if pure.suffix != ".py" or pure.name.startswith(TEST_PREFIX):
+    if pure.suffix != ".py" or is_test_path(path) or is_vendored_path(path):
         return None
-    if any(part in SKIPPED_FOLDERS or part.startswith(".") for part in folder.parts):
+    if MIGRATIONS_FOLDER in folder.parts:
         return None
     if any(parent.as_posix() in bundles for parent in (folder, *folder.parents)):
         return None
@@ -236,61 +222,14 @@ def overlap_findings(
     ]
 
 
-def _changed_paths(repo: Path, base: str, head: str) -> list[str]:
-    tokens = (
-        git(
-            repo,
-            "diff",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--name-status",
-            "-z",
-            "--find-renames=50%",
-            "-l0",
-            "--diff-filter=AMR",
-            base,
-            head,
-            "--",
-        )
-        .decode()
-        .split("\0")
-    )
-    paths, index = [], 0
-    while index < len(tokens) and tokens[index]:
-        renamed = tokens[index][0] in {"R", "C"}
-        paths.append(tokens[index + (2 if renamed else 1)])
-        index += 3 if renamed else 2
-    return paths
-
-
-def _blobs(repo: Path, oids: list[str]) -> dict[str, bytes]:
-    if not oids:
-        return {}
-    result = run_bytes(
-        ["git", "-C", str(repo), "cat-file", "--batch"],
-        data="".join(oid + "\n" for oid in oids).encode(),
-        check=False,
-        timeout=60,
-    )
-    if result.returncode:
-        raise GitError(result.stderr.decode(errors="replace").strip())
-    output, offset, blobs = result.stdout, 0, {}
-    for oid in oids:
-        end = output.index(b"\n", offset)
-        size = int(output[offset:end].split()[2])
-        blobs[oid] = output[end + 1 : end + 1 + size]
-        offset = end + 2 + size
-    return blobs
-
-
 def head_units(
     repo: Path, head: str, excluded: list[str]
 ) -> tuple[dict[str, str], dict[str, str]]:
     entries = {}
-    for entry in git(repo, "ls-tree", "-r", "-z", head).split(b"\0"):
+    for entry in git(repo, "ls-tree", "-r", "-z", head).split("\0"):
         if entry:
-            metadata, raw = entry.split(b"\t", 1)
-            entries[raw.decode()] = metadata.decode().split()
+            metadata, raw = entry.split("\t", 1)
+            entries[raw] = metadata.split()
     bundles = {
         PurePosixPath(path).parent.as_posix()
         for path in entries
@@ -308,7 +247,7 @@ def head_units(
 def unit_definitions(
     repo: Path, units: dict[str, str], oids: dict[str, str]
 ) -> list[Definition]:
-    blobs = _blobs(repo, sorted(set(oids.values())))
+    blobs = read_blobs(repo, sorted(set(oids.values())))
     found = []
     for path in sorted(units):
         try:
@@ -333,11 +272,11 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         units, oids = head_units(repo, args.head, excluded)
         changed = {
             units[path]
-            for path in _changed_paths(repo, args.base, args.head)
+            for path in changed_paths(repo, args.base, args.head, "AMR")
             if path in units
         }
         found = unit_definitions(repo, units, oids) if changed else []
-    except (GitError, ValueError) as error:
+    except (DiffError, ValueError) as error:
         return [
             Finding(
                 RULE,

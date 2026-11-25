@@ -6,14 +6,9 @@ from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
+from guardrails.commands.structure_naming.scan_scope import is_test_path
+
 SOURCE_SUFFIXES = (".py", ".go", ".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx")
-EXCLUDED_FOLDER = re.compile(
-    r"(^|/)(node_modules|vendor|third_party|__pycache__|dist|build|examples?|\.[^/]+)(/|$)"
-)
-TEST_PATH = re.compile(
-    r"(^|/)(tests?|testing|__tests__|fixtures?|conftest\.py$)|(^|/)test_[^/]*\.py$"
-    r"|_test\.(py|go)$|\.(test|spec)\.(ts|tsx|js|mjs)$"
-)
 SKIPPED_MODULES = frozenset({
     "__init__",
     "__main__",
@@ -586,7 +581,7 @@ def extract_tree(tree: dict[str, str]) -> Found:
     roots = module_roots(list(sources))
     found = Found()
     for path in sorted(sources):
-        if TEST_PATH.search(path):
+        if is_test_path(path):
             continue
         place = Place(path, language_of(path), sources[path].split("\n"))
         part = (

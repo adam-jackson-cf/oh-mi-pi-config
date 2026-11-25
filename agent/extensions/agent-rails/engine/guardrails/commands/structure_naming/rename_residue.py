@@ -7,9 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from guardrails.context.changes import DiffError, git, git_bytes
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
-from guardrails.host.process import run_bytes
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
 RULE = "RENAME.residue"
@@ -200,60 +200,34 @@ def term_findings(
     return found
 
 
-class GitError(Exception):
-    pass
-
-
-def git(repo: Path, *args: str) -> bytes:
-    try:
-        result = run_bytes(["git", "-C", str(repo), *args], check=False)
-    except OSError as error:
-        raise GitError(str(error)) from error
-    if result.returncode:
-        raise GitError(
-            result.stderr.decode(errors="replace").strip() or "git command failed"
-        )
-    return result.stdout
-
-
 def commit_snapshot(
     repo: Path, config: dict[str, Any], base: str, head: str
 ) -> tuple[list[Rename], dict[str, bytes]]:
-    base_id = (
-        git(repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}")
-        .decode()
-        .strip()
-    )
-    head_id = (
-        git(repo, "rev-parse", "--verify", "--end-of-options", head + "^{commit}")
-        .decode()
-        .strip()
-    )
-    rows = (
-        git(
-            repo,
-            "diff",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--name-status",
-            "-z",
-            f"--find-renames={RENAME_THRESHOLD}",
-            "-l0",
-            "--diff-filter=R",
-            base_id,
-            head_id,
-            "--",
-        )
-        .decode()
-        .split("\0")
-    )
+    base_id = git(
+        repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}"
+    ).strip()
+    head_id = git(
+        repo, "rev-parse", "--verify", "--end-of-options", head + "^{commit}"
+    ).strip()
+    rows = git(
+        repo,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--name-status",
+        "-z",
+        f"--find-renames={RENAME_THRESHOLD}",
+        "-l0",
+        "--diff-filter=R",
+        base_id,
+        head_id,
+        "--",
+    ).split("\0")
     renames = [
         Rename(rows[index + 1], rows[index + 2]) for index in range(0, len(rows) - 1, 3)
     ]
     exclusions = as_list(settings(config, "check").get("exclude"))
-    paths = (
-        git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).decode().split("\0")
-    )
+    paths = git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).split("\0")
     owned_paths = [path for path in paths if path and not matches_any(path, exclusions)]
     terms = retired_terms(renames, owned_paths)
     files = {}
@@ -263,7 +237,7 @@ def commit_snapshot(
             for term in terms
         )
         files[path] = (
-            git(repo, "show", f"{head_id}:{path}")
+            git_bytes(repo, "show", f"{head_id}:{path}")
             if scoped and path.endswith(".py")
             else b""
         )
@@ -277,7 +251,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     args = parser.parse_args(argv)
     try:
         renames, files = commit_snapshot(repo, config, args.base, args.head)
-    except (GitError, UnicodeError) as error:
+    except (DiffError, UnicodeError) as error:
         return [
             Finding(
                 RULE,

@@ -1416,7 +1416,7 @@ class StructureProposalTests(unittest.TestCase):
         pairs = [
             {
                 "id": "a.py::x<>b.py::y",
-                "det_score": 0.2,
+                "proposer_score": 0.2,
                 "state": {"first": {"name": "x"}, "second": {"name": "y"}},
             }
         ]
@@ -1554,7 +1554,7 @@ class StructureProposalTests(unittest.TestCase):
     def test_a_proposer_passes_the_repo_only_and_returns_its_json(self) -> None:
         found = {
             "pairs": [
-                {"id": "p", "det_score": 0.5, "state": {"first": {}, "second": {}}}
+                {"id": "p", "proposer_score": 0.5, "state": {"first": {}, "second": {}}}
             ]
         }
         patched, commands = self.proposals(json.dumps(found))
@@ -1580,7 +1580,11 @@ class StructureProposalTests(unittest.TestCase):
             "consumer-candidates": (workflow._consumer_candidates, "candidates"),
             "kind-candidates": (workflow._kind_candidates, "candidates"),
         }
-        shapes = [None, [1], [{"path": "a.py", "id": "a", "det_score": 2, "state": {}}]]
+        shapes = [
+            None,
+            [1],
+            [{"path": "a.py", "id": "a", "proposer_score": 2, "state": {}}],
+        ]
         for subcommand, (reader, key) in readers.items():
             for shape in shapes:
                 with self.subTest(subcommand=subcommand, shape=shape):

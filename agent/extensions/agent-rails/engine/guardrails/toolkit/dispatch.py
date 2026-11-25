@@ -39,42 +39,42 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         needs_config=False,
     ),
     "path-check": Subcommand(
-        ("guardrails.commands.structure.paths",),
+        ("guardrails.commands.structure_naming.path_check",),
         "GATE.path-check over changed or all paths",
     ),
     "structure": Subcommand(
-        ("guardrails.commands.structure.layout",),
+        ("guardrails.commands.structure_naming.layout",),
         "STRUCT.* repository layout allowlists",
     ),
     "rename-residue": Subcommand(
-        ("guardrails.commands.structure.rename_residue",),
+        ("guardrails.commands.structure_naming.rename_residue",),
         "RENAME.residue over --base SHA --head SHA at PR time",
     ),
     "prefix-folder": Subcommand(
-        ("guardrails.commands.structure.prefix_folder",),
+        ("guardrails.commands.structure_naming.prefix_folder",),
         "STRUCT.prefix-folder over --base SHA --head SHA at PR time",
     ),
     "responsibility-overlap": Subcommand(
-        ("guardrails.commands.structure.responsibility_overlap",),
+        ("guardrails.commands.structure_naming.responsibility_overlap",),
         "STRUCT.overlapping-responsibilities over --base SHA --head SHA at PR time",
     ),
     "name-pairs": Subcommand(
-        ("guardrails.commands.structure.name_pairs",),
+        ("guardrails.commands.structure_naming.name_pair.candidates",),
         "structure-naming name-pair candidates JSON for --base SHA --head SHA",
         prints_data=True,
     ),
     "kind-candidates": Subcommand(
-        ("guardrails.commands.structure.kind_candidates",),
+        ("guardrails.commands.structure_naming.kind_candidates",),
         "structure-naming kind-folder file candidates JSON for --base SHA --head SHA",
         prints_data=True,
     ),
     "consumer-candidates": Subcommand(
-        ("guardrails.commands.structure.consumer_candidates",),
+        ("guardrails.commands.structure_naming.consumer_candidates",),
         "structure-naming consumer-file candidates JSON for --base SHA --head SHA",
         prints_data=True,
     ),
     "naming": Subcommand(
-        ("guardrails.commands.structure.naming",),
+        ("guardrails.commands.structure_naming.naming",),
         "NAME.conventions and NAME.test-files",
     ),
     "python-quality": Subcommand(

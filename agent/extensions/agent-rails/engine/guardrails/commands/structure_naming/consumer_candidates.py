@@ -8,25 +8,18 @@ import tomllib
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure.name_pairs import changed_paths
-from guardrails.commands.structure.rename_residue import GitError, git
+from guardrails.commands.structure_naming.scan_scope import (
+    is_test_path,
+    is_vendored_path,
+)
+from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
-from guardrails.host.process import run_bytes
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
-RULE = "STRUCTURE.consumer-candidates"
+RULE = "STRUCT.consumer-candidates"
 EXCEPTION_RULE = "structure-naming/consumer_placement"
-EXCLUDED_SEGMENTS = frozenset({
-    "__pycache__",
-    "build",
-    "dist",
-    "examples",
-    "node_modules",
-    "third_party",
-    "vendor",
-})
 ROOT_NON_PACKAGE = frozenset({"build", "fixtures", "migrations", "scripts", "tests"})
 UI_LIBRARIES = frozenset({
     "altair",
@@ -90,10 +83,7 @@ def join(folder: str, name: str) -> str:
 
 
 def excluded(path: str, tree: dict[str, str]) -> bool:
-    if any(
-        part.startswith(".") or part in EXCLUDED_SEGMENTS
-        for part in path.split("/")[:-1]
-    ):
+    if is_vendored_path(path):
         return True
     folder = parent(path)
     while True:
@@ -295,7 +285,7 @@ class PathReferences:
             path: found
             for path in tree
             if path.endswith(".py")
-            and not test_like(path)
+            and not is_test_path(path)
             and (found := string_literals(tree[path]))
         }
 
@@ -360,16 +350,6 @@ def project_scripts(tree: dict[str, str]) -> dict[str, list[str]]:
     return found
 
 
-def test_like(path: str) -> bool:
-    name = PurePosixPath(path).name
-    return (
-        name.startswith("test_")
-        or name.endswith("_test.py")
-        or name == "conftest.py"
-        or any(part in {"tests", "test"} for part in path.split("/")[:-1])
-    )
-
-
 def run_markers(source: str) -> list[str]:
     return [name for name, pattern in MARKERS if pattern.search(source)]
 
@@ -406,12 +386,12 @@ def features(
             scripts.get(module) for module in module_names(tree, path)
         ),
         "dunder_main": name == "__main__.py",
-        "test_like": test_like(path),
+        "test_path": is_test_path(path),
         "imports": [item[4] for item in imports],
     }
 
 
-def det_score(found: dict[str, Any]) -> float:
+def proposer_score(found: dict[str, Any]) -> float:
     score = 0.5
     score += 0.20 if found["ui_libs"] else 0.0
     score += 0.10 if found["ui_app_marker"] else 0.0
@@ -419,7 +399,7 @@ def det_score(found: dict[str, Any]) -> float:
     score -= 0.10 if found["own_package_imports"] == 0 else 0.0
     score -= 0.35 if found["in_project_scripts"] else 0.0
     score -= 0.20 if found["dunder_main"] else 0.0
-    score -= 0.25 if found["test_like"] else 0.0
+    score -= 0.25 if found["test_path"] else 0.0
     score -= 0.50 if found["imported_by"] else 0.0
     return round(min(0.98, max(0.02, score)), 4)
 
@@ -478,7 +458,7 @@ def propose(tree: dict[str, str]) -> list[tuple[str, dict[str, Any]]]:
         facts = features(index, path, scripts)
         facts["referenced_by_path"] = references.referenced(path)
         if unused(facts):
-            facts["det_score"] = det_score(facts)
+            facts["proposer_score"] = proposer_score(facts)
             found.append((path, facts))
     return found
 
@@ -496,34 +476,20 @@ def wanted(path: str, kind: str, size: str) -> bool:
 def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
     tree: dict[str, str] = {}
     want: list[tuple[str, str]] = []
-    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split(b"\0"):
+    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split("\0"):
         if not entry:
             continue
-        metadata, raw = entry.split(b"\t", 1)
-        _, kind, oid, size = metadata.decode().split()
-        path = raw.decode("utf-8", "replace")
+        metadata, path = entry.split("\t", 1)
+        _, kind, oid, size = metadata.split()
         if matches_any(path, excluded_paths):
             continue
         if kind == "blob" and PurePosixPath(path).name == "SKILL.md":
             tree[path] = ""
         elif wanted(path, kind, size):
             want.append((path, oid))
-    if not want:
-        return tree
-    result = run_bytes(
-        ["git", "-C", str(repo), "cat-file", "--batch"],
-        data="".join(oid + "\n" for _, oid in want).encode(),
-        check=False,
-        timeout=120,
-    )
-    if result.returncode:
-        raise GitError(result.stderr.decode(errors="replace").strip())
-    output, offset = result.stdout, 0
-    for path, _ in want:
-        end = output.index(b"\n", offset)
-        length = int(output[offset:end].split()[2])
-        tree[path] = output[end + 1 : end + 1 + length].decode("utf-8", "replace")
-        offset = end + 2 + length
+    blobs = read_blobs(repo, sorted({oid for _, oid in want}))
+    for path, oid in want:
+        tree[path] = blobs[oid].decode("utf-8", "replace")
     return tree
 
 
@@ -537,7 +503,7 @@ def consumer_candidates(
     return [
         {
             "path": path,
-            "det_score": facts["det_score"],
+            "proposer_score": facts["proposer_score"],
             "run_markers": facts["run_markers"],
             "state": consumer_state(tree, path, facts),
         }
@@ -559,9 +525,9 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         tree = head_tree(repo, args.head, excluded_paths)
         found = consumer_candidates(
-            tree, changed_paths(repo, args.base, args.head), config
+            tree, changed_paths(repo, args.base, args.head, "AMR"), config
         )
-    except (GitError, ValueError) as error:
+    except (DiffError, ValueError) as error:
         return [
             Finding(
                 RULE,

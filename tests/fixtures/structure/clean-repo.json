@@ -38,7 +38,7 @@
       }
     },
     "checkers": {
-      "structure": {
+      "layout": {
         "root_directories": ["src", "tests", "lab", "docs"],
         "root_files": ["README.md", "pyproject.toml"],
         "areas": {

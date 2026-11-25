@@ -26,7 +26,8 @@ from test_agentrails_fixture import (
     write_config,
 )
 
-from guardrails.commands.structure import name_pairs
+from guardrails.commands.structure_naming.name_pair import candidates
+from guardrails.context import changes
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
@@ -51,7 +52,7 @@ class NamePairTests(unittest.TestCase):
     def test_each_tree_proposes_exactly_its_pairs(self) -> None:
         for case in FIXTURE["cases"]:
             with self.subTest(case=case["name"]):
-                pairs = name_pairs.name_pairs(
+                pairs = candidates.name_pair_candidates(
                     FIXTURE["tree"], set(case["changed"]), case.get("config", {})
                 )
                 assert proposed(pairs) == {
@@ -59,16 +60,18 @@ class NamePairTests(unittest.TestCase):
                     for rule, first, second in case["pairs"]
                 }
 
-    def test_each_pair_carries_both_names_evidence_and_its_det_score(self) -> None:
-        (pair,) = name_pairs.name_pairs(FIXTURE["tree"], {"src/shop/api.py"}, {})
+    def test_each_pair_carries_both_names_evidence_and_its_proposer_score(self) -> None:
+        (pair,) = candidates.name_pair_candidates(
+            FIXTURE["tree"], {"src/shop/api.py"}, {}
+        )
         first, second = pair["state"]["first"], pair["state"]["second"]
         assert (first["kind"], second["kind"]) == ("alias binding", "function")
         assert second["definition"]["signature"] == "def fetch_user(uid):"
         assert second["uses"][0] == (
             "src/shop/api.py:1: from shop.store import fetch_user as get_user"
         )
-        assert len(second["uses"]) <= name_pairs.USE_SITES
-        assert pair["det_score"] == 0.5 * pair["features"]["name_sim"] + 0.5
+        assert len(second["uses"]) <= candidates.USE_SITES
+        assert pair["proposer_score"] == 0.5 * pair["features"]["name_sim"] + 0.5
         assert pair["id"] == "src/shop/api.py::get_user<>src/shop/store.py::fetch_user"
 
     def test_external_and_member_names_carry_their_own_evidence(self) -> None:
@@ -82,7 +85,7 @@ class NamePairTests(unittest.TestCase):
         }
         pairs = {
             pair["id"]: pair["state"]["second"]
-            for pair in name_pairs.name_pairs(tree, {"app/views.py"}, {})
+            for pair in candidates.name_pair_candidates(tree, {"app/views.py"}, {})
         }
         external = pairs["app/views.py::other<>::thing.value"]
         member = pairs["app/views.py::reader<>app/models.py::Store.missing"]
@@ -97,7 +100,7 @@ class NamePairTests(unittest.TestCase):
         ]
         assert member["kind"] == "member of class Store"
         assert member["definition"]["signature"] == "class Store:"
-        assert name_pairs.evidence(
+        assert candidates.evidence(
             tree, {"name": "x", "kind": "function", "path": "a.py"}
         ) == {
             "name": "x",
@@ -181,7 +184,7 @@ class NamePairsCommandTests(unittest.TestCase):
         printed = io.StringIO()
         with redirect_stdout(printed):
             assert (
-                name_pairs.run(
+                candidates.run(
                     self.repo, {}, ["--base", self.base, "--head", self.head]
                 )
                 == []
@@ -194,24 +197,24 @@ class NamePairsCommandTests(unittest.TestCase):
         self.git("mv", "src/shop/api.py", "src/shop/client.py")
         self.git("commit", "-qm", "rename")
         renamed = self.git("rev-parse", "HEAD")
-        assert name_pairs.changed_paths(self.repo, self.head, renamed) == {
+        assert changes.changed_paths(self.repo, self.head, renamed, "AMR") == {
             "src/shop/client.py"
         }
-        assert name_pairs.head_tree(self.repo, renamed, ["*.py"]) == {}
+        assert candidates.head_tree(self.repo, renamed, ["*.py"]) == {}
 
     def test_an_unreadable_blob_batch_is_a_finding(self) -> None:
         failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
-        with patch.object(name_pairs, "run_bytes", return_value=failed):
-            (finding,) = name_pairs.run(
+        with patch.object(changes, "run_bytes", return_value=failed):
+            (finding,) = candidates.run(
                 self.repo, {}, ["--base", self.base, "--head", self.head]
             )
         assert finding.message == "bad object"
 
     def test_unreadable_commits_are_a_finding(self) -> None:
-        (finding,) = name_pairs.run(
+        (finding,) = candidates.run(
             self.repo, {}, ["--base", self.base, "--head", "missing"]
         )
-        assert (finding.rule_id, finding.path) == ("STRUCTURE.name-pairs", ".")
+        assert (finding.rule_id, finding.path) == ("STRUCT.name-pairs", ".")
 
 
 if __name__ == "__main__":

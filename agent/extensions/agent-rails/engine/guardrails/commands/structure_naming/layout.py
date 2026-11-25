@@ -4,9 +4,9 @@ import ast
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure import package_placement
-from guardrails.commands.structure.import_direction import native_findings
-from guardrails.commands.structure.import_graph import run as import_graph_findings
+from guardrails.commands.structure_naming import package_placement
+from guardrails.commands.structure_naming.import_direction import native_findings
+from guardrails.commands.structure_naming.import_graph import import_graph_findings
 from guardrails.context import scope
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding, config_label
@@ -20,7 +20,9 @@ from guardrails.foundation.inventory import (
 
 PLACEMENT = "STRUCT.folder-placement"
 DIRECTION = "STRUCT.dependency-direction"
-SETTINGS_FIX = "or add the entry to checkers.structure in .agentrails/config.json with owner approval"
+SETTINGS_FIX = (
+    "or add the entry to checkers.layout in .agentrails/config.json with owner approval"
+)
 
 
 def placement(path: str, message: str, fix: str = "") -> Finding:
@@ -223,8 +225,8 @@ def configuration_findings(options: dict[str, Any]) -> list[Finding]:
     return [
         placement(
             config_label("checkers"),
-            "checkers.structure.root_directories and root_files are not configured",
-            "record the approved root allowlist in checkers.structure",
+            "checkers.layout.root_directories and root_files are not configured",
+            "record the approved root allowlist in checkers.layout",
         )
     ]
 
@@ -234,7 +236,7 @@ def skipped(path: str, options: dict[str, Any]) -> bool:
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
-    options = settings(config, "structure")
+    options = settings(config, "layout")
     try:
         selected = scope.select(repo, argv)
         paths = [path for path in selected.paths if not skipped(path, options)]

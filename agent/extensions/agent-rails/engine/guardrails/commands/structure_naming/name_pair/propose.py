@@ -8,7 +8,7 @@ from importlib import resources
 from pathlib import PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure.name_extract import (
+from guardrails.commands.structure_naming.name_pair.extract import (
     SOURCE_SUFFIXES,
     Found,
     Gram,
@@ -245,7 +245,7 @@ def features(
         "body_sim": round(bodies, 4),
         "one_refers_other": int(calls),
         "uses_a": max(0, index.words.get(first["name"].split(".")[-1], 0) - 1),
-        "det_score": round(0.5 * round(names, 4) + 0.5 * round(bodies, 4), 4),
+        "proposer_score": round(0.5 * round(names, 4) + 0.5 * round(bodies, 4), 4),
     }
 
 
@@ -435,7 +435,7 @@ class Proposer:
             pair["features"] = features(
                 self.index, first, second, pair["rules"], pair.get("alias")
             )
-            pair["det_score"] = pair["features"]["det_score"]
+            pair["proposer_score"] = pair["features"]["proposer_score"]
             found.append(pair)
         return found
 

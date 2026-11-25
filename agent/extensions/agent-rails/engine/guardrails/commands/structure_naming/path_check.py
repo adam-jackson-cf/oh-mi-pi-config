@@ -3,14 +3,14 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure import layout, naming
-from guardrails.commands.structure.import_direction import (
+from guardrails.commands.structure_naming import layout, naming
+from guardrails.commands.structure_naming.import_direction import (
     direction_findings,
     native_findings,
 )
-from guardrails.commands.structure.import_graph import run as import_graph_findings
-from guardrails.commands.structure.python_paths import python_path_findings
-from guardrails.commands.structure.suite_placement import (
+from guardrails.commands.structure_naming.import_graph import import_graph_findings
+from guardrails.commands.structure_naming.python_paths import python_path_findings
+from guardrails.commands.structure_naming.suite_placement import (
     section,
     test_placement_findings,
 )
@@ -72,7 +72,7 @@ def path_findings(
     if matches_any(path, as_list(settings(config, "paths").get("skip"))):
         return []
     problems = layout.path_findings(
-        path, settings(config, "structure"), existing_paths=existing_paths
+        path, settings(config, "layout"), existing_paths=existing_paths
     )
     python_findings = python_path_findings(path, config, existing_paths or set())
     return [
@@ -118,7 +118,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
             found.extend(
                 scope.restrict(
                     layout.instance_findings(
-                        selected.inventory, settings(config, "structure")
+                        selected.inventory, settings(config, "layout")
                     ),
                     selected.paths,
                     selected.existing_paths,
@@ -128,7 +128,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 layout.forbidden_import_findings(
                     root,
                     selected.paths,
-                    settings(config, "structure"),
+                    settings(config, "layout"),
                 )
             )
             found.extend(

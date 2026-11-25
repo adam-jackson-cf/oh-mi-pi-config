@@ -9,15 +9,17 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-from guardrails.commands.structure.name_pairs import changed_paths
-from guardrails.commands.structure.rename_residue import GitError, git
+from guardrails.commands.structure_naming.scan_scope import (
+    is_test_path,
+    is_vendored_path,
+)
+from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
-from guardrails.host.process import run_bytes
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
-RULE = "STRUCTURE.kind-candidates"
+RULE = "STRUCT.kind-candidates"
 EXCEPTION_RULE = "structure-naming/technical_kind_grouping"
 KIND_WORDS = (
     "adapters",
@@ -44,16 +46,6 @@ KIND_WORDS = (
     "utils",
     "validators",
 )
-EXCLUDED_DIRS = frozenset({
-    "__pycache__",
-    "build",
-    "dist",
-    "examples",
-    "node_modules",
-    "third_party",
-    "vendor",
-})
-TEST_DIRS = frozenset({"spec", "specs", "test", "testing", "tests"})
 MAX_SYMBOLS = 12
 MAX_IMPORTERS = 3
 DEFINITION = re.compile(r"(?:async\s+)?(def|class)\s+([A-Za-z_]\w*)")
@@ -81,12 +73,9 @@ KIND_FORMS = frozenset(form for word in KIND_WORDS for form in forms(word))
 
 
 def excluded(path: str, skills: list[str]) -> bool:
-    parts = path.split("/")
-    if any(part.startswith(".") for part in parts):
+    if is_vendored_path(path):
         return True
-    if any(part in EXCLUDED_DIRS for part in parts[:-1]):
-        return True
-    folder = "/".join(parts[:-1])
+    folder = os.path.dirname(path)
     return any(
         skill == "" or folder == skill or folder.startswith(skill + "/")
         for skill in skills
@@ -177,17 +166,6 @@ def imports_of(source: str, tree: ast.Module | None) -> list[Import]:
     return found
 
 
-def test_path(path: str) -> bool:
-    parts = path.split("/")
-    name = parts[-1]
-    return (
-        any(part in TEST_DIRS for part in parts[:-1])
-        or name.startswith("test_")
-        or name.endswith("_test.py")
-        or name == "conftest.py"
-    )
-
-
 class TreeModel:
     def __init__(self, paths: list[str], sources: dict[str, str]) -> None:
         self.sources = sources
@@ -276,7 +254,7 @@ class TreeModel:
         importers = sorted(
             self.graph.get(path, []),
             key=lambda item: (
-                test_path(item[0]),
+                is_test_path(item[0]),
                 os.path.dirname(item[0]) == folder,
                 item[0],
             ),
@@ -299,14 +277,12 @@ def model_of(tree: dict[str, str]) -> TreeModel:
 
 
 def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
-    listing = git(repo, "ls-tree", "-r", "-z", head).split(b"\0")
     entries = {}
-    for entry in listing:
+    for entry in git(repo, "ls-tree", "-r", "-z", head).split("\0"):
         if entry:
-            metadata, raw = entry.split(b"\t", 1)
-            path = raw.decode("utf-8", "replace")
+            metadata, path = entry.split("\t", 1)
             if not matches_any(path, excluded_paths):
-                entries[path] = metadata.decode().split()
+                entries[path] = metadata.split()
     paths = owned(sorted(entries))
     want = [
         (path, entries[path][2])
@@ -314,22 +290,9 @@ def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str
         if path.endswith(".py") and entries[path][1] == "blob"
     ]
     tree = dict.fromkeys(paths, "")
-    if not want:
-        return tree
-    result = run_bytes(
-        ["git", "-C", str(repo), "cat-file", "--batch"],
-        data="".join(oid + "\n" for _, oid in want).encode(),
-        check=False,
-        timeout=120,
-    )
-    if result.returncode:
-        raise GitError(result.stderr.decode(errors="replace").strip())
-    output, offset = result.stdout, 0
-    for path, _ in want:
-        end = output.index(b"\n", offset)
-        length = int(output[offset:end].split()[2])
-        tree[path] = output[end + 1 : end + 1 + length].decode("utf-8", "replace")
-        offset = end + 2 + length
+    blobs = read_blobs(repo, sorted({oid for _, oid in want}))
+    for path, oid in want:
+        tree[path] = blobs[oid].decode("utf-8", "replace")
     return tree
 
 
@@ -358,8 +321,10 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     )
     try:
         tree = head_tree(repo, args.head, excluded_paths)
-        found = kind_candidates(tree, changed_paths(repo, args.base, args.head), config)
-    except (GitError, ValueError) as error:
+        found = kind_candidates(
+            tree, changed_paths(repo, args.base, args.head, "AMR"), config
+        )
+    except (DiffError, ValueError) as error:
         return [
             Finding(
                 RULE,

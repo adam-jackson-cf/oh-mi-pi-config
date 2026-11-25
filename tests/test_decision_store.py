@@ -361,7 +361,10 @@ class CheckLogTests(StoreCase):
             ("STRUCT.folder-placement", "src/b.py"),
         ]
         rules = {
-            rule for rule, _ in cli.module_rules("guardrails.commands.structure.layout")
+            rule
+            for rule, _ in cli.module_rules(
+                "guardrails.commands.structure_naming.layout"
+            )
         }
         passes = {row["judgment"] for row in logged if row["outcome"] == "pass"}
         assert passes == rules - {"STRUCT.folder-placement"}

@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure.import_graph import (
+from guardrails.commands.structure_naming.import_graph import (
     DIRECTION,
     import_config,
     imported_edges,

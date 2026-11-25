@@ -13,7 +13,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.structure import name_extract
+from guardrails.commands.structure_naming.name_pair import extract
 
 GO = """// Package store keeps users.
 package store
@@ -178,7 +178,7 @@ lower = 3
 def extracted(
     tree: dict[str, str],
 ) -> tuple[set[tuple[Any, ...]], set[tuple[Any, ...]]]:
-    found = name_extract.extract_tree(tree)
+    found = extract.extract_tree(tree)
     definitions = {
         (item["path"], item["name"], item["kind"], item["line"], item["end"])
         for item in found.definitions
@@ -194,32 +194,32 @@ def extracted(
 class WordTests(unittest.TestCase):
     def test_words_split_case_and_separators_and_stem_plurals(self) -> None:
         assert [
-            name_extract.stem(word) for word in ("policies", "class", "users", "ies")
+            extract.stem(word) for word in ("policies", "class", "users", "ies")
         ] == [
             "policy",
             "class",
             "user",
             "ies",
         ]
-        assert name_extract.words("shop.store.fetchUser") == ["fetch", "user"]
-        assert name_extract.words("shop.store.fetchUser", keep_dots=True) == [
+        assert extract.words("shop.store.fetchUser") == ["fetch", "user"]
+        assert extract.words("shop.store.fetchUser", keep_dots=True) == [
             "shop",
             "store",
             "fetch",
             "user",
         ]
-        assert name_extract.words('"a.b"') == ["a", "b"]
+        assert extract.words('"a.b"') == ["a", "b"]
 
     def test_module_roots_are_python_folders_and_src_layout_packages(self) -> None:
-        assert name_extract.module_roots([
+        assert extract.module_roots([
             "a.py",
             "src/pkg/m.py",
             "lib/x.py",
             "web/a.ts",
         ]) == {"a", "src", "pkg", "lib", "x"}
         assert (
-            name_extract.language_of("a.go"),
-            name_extract.language_of("a.mjs"),
+            extract.language_of("a.go"),
+            extract.language_of("a.mjs"),
         ) == (
             "go",
             "ts",
@@ -250,7 +250,7 @@ class GoExtractionTests(unittest.TestCase):
         }
 
     def test_a_definition_carries_its_comment_value_and_block_end(self) -> None:
-        found = name_extract.extract_tree({"svc/store.go": GO}).definitions
+        found = extract.extract_tree({"svc/store.go": GO}).definitions
         by_name = {item["name"]: item for item in found}
         assert (by_name["Store"]["doc"], by_name["Store"]["end"]) == (
             "Store holds users.",
@@ -282,7 +282,7 @@ class RustExtractionTests(unittest.TestCase):
         }
 
     def test_doc_comments_skip_attributes(self) -> None:
-        found = name_extract.extract_tree({"svc/lib.rs": RUST}).definitions
+        found = extract.extract_tree({"svc/lib.rs": RUST}).definitions
         by_name = {item["name"]: item for item in found}
         assert by_name["Users"]["doc"] == "A user store."
         assert by_name["Users.new"]["doc"] == "Make one."
@@ -321,7 +321,7 @@ class ScriptExtractionTests(unittest.TestCase):
         }
 
     def test_a_class_records_its_base_and_a_constant_its_string(self) -> None:
-        found = name_extract.extract_tree({"web/api.ts": SCRIPT}).definitions
+        found = extract.extract_tree({"web/api.ts": SCRIPT}).definitions
         by_name = {item["name"]: item for item in found}
         assert by_name["Client"]["bases"] == ["Service"]
         assert by_name["LIMIT"]["value"] == "ten"
@@ -359,7 +359,7 @@ class PythonExtractionTests(unittest.TestCase):
         }
 
     def test_signatures_span_their_lines_and_classes_keep_their_bases(self) -> None:
-        found = name_extract.extract_tree({"src/shop/store.py": PYTHON}).definitions
+        found = extract.extract_tree({"src/shop/store.py": PYTHON}).definitions
         by_name = {item["name"]: item for item in found}
         assert by_name["fetch_user"]["sig"] == "def fetch_user(\n    uid,\n):"
         assert by_name["load_all"]["line"] == 24

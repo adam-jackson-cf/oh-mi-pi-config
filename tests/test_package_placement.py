@@ -13,7 +13,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.structure import package_placement
+from guardrails.commands.structure_naming import package_placement
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import catalogue_rules, remediations
 

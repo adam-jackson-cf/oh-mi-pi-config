@@ -3015,11 +3015,13 @@ def _name_pairs(repo: Path, parent: str, head: str) -> list[dict[str, Any]]:
     if not isinstance(pairs, list) or any(
         not isinstance(pair, dict)
         or not isinstance(pair.get("id"), str)
-        or not _fraction(pair.get("det_score"))
+        or not _fraction(pair.get("proposer_score"))
         or set(pair.get("state") or {}) != {"first", "second"}
         for pair in pairs
     ):
-        raise WorkflowError("name-pairs must emit {pairs: [{id, det_score, state}]}")
+        raise WorkflowError(
+            "name-pairs must emit {pairs: [{id, proposer_score, state}]}"
+        )
     return pairs
 
 
@@ -3056,7 +3058,7 @@ def _structure_comment(result: dict[str, Any]) -> str:
         STRUCTURE_MARKER,
         f"**Structure/naming review** for `{result['head']}`.",
         "Scores are raw judgment probabilities, not calibrated confidence; a same_thing "
-        "score is the pair's det_score times its mean probability over both orders. "
+        "score is the pair's proposer_score times its mean probability over both orders. "
         "Every enforced finding blocks merge; shadow findings are logged for review and never block.",
     ]
     for item in result["findings"]:
@@ -3285,7 +3287,11 @@ class StructureJudgment:
             "probability": row["probability"],
             "score": score,
             "outcome": verdict,
-            **({"det_score": row["proposer_score"]} if "proposer_score" in row else {}),
+            **(
+                {"proposer_score": row["proposer_score"]}
+                if "proposer_score" in row
+                else {}
+            ),
         }
         if verdict == "escalate":
             self.result["errors"].append(
@@ -3325,7 +3331,7 @@ class StructureJudgment:
             )
 
     async def judge_pairs(self, pairs: list[dict[str, Any]]) -> None:
-        """Each name pair asks same_thing in both orders; score = det_score * mean P(true)."""
+        """Each name pair asks same_thing in both orders; score = proposer_score * mean P(true)."""
         if not pairs or not self.asks(PAIR_QUESTION):
             return
         states: dict[str, dict[str, Any]] = {}
@@ -3349,7 +3355,7 @@ class StructureJudgment:
                     "record": "pairs",
                 },
                 [found.get(pair["id"] + suffix) for suffix in ("##ab", "##ba")],
-                pair["det_score"],
+                pair["proposer_score"],
             )
 
     async def judge_consumers(self, candidates: list[dict[str, Any]]) -> None:

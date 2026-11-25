@@ -11,7 +11,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.structure import naming
+from guardrails.commands.structure_naming import naming
 from guardrails.foundation import conventions
 from guardrails.foundation.inventory import name_matches
 

@@ -7,20 +7,23 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure.name_extract import (
-    EXCLUDED_FOLDER,
-    SOURCE_SUFFIXES,
-    TEST_PATH,
+from guardrails.commands.structure_naming.name_pair.extract import SOURCE_SUFFIXES
+from guardrails.commands.structure_naming.name_pair.propose import (
+    NameIndex,
+    Pair,
+    Proposer,
 )
-from guardrails.commands.structure.name_propose import NameIndex, Pair, Proposer
-from guardrails.commands.structure.rename_residue import GitError, git
+from guardrails.commands.structure_naming.scan_scope import (
+    is_test_path,
+    is_vendored_path,
+)
+from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any, settings
-from guardrails.host.process import run_bytes
 from guardrails.toolkit.dispatch import SUBCOMMANDS
 
-RULE = "STRUCTURE.name-pairs"
+RULE = "STRUCT.name-pairs"
 EXCEPTION_RULE = "structure-naming/same_thing"
 BUNDLE_MANIFEST = "SKILL.md"
 MAX_SOURCE_BYTES = 300_000
@@ -51,7 +54,7 @@ def site_hits(
     tree: dict[str, str], pattern: re.Pattern[str], site: Site
 ) -> list[tuple[str, int, str]]:
     hits: list[tuple[str, int, str]] = []
-    for path in sorted(tree, key=lambda path: (bool(TEST_PATH.search(path)), path)):
+    for path in sorted(tree, key=lambda path: (is_test_path(path), path)):
         text = tree[path]
         if not path.endswith(SOURCE_SUFFIXES) or not pattern.search(text):
             continue
@@ -202,7 +205,7 @@ def owned_sources(entries: dict[str, list[str]], excluded: list[str]) -> list[st
         if kind == "blob"
         and mode != "120000"
         and path.endswith(SOURCE_SUFFIXES)
-        and not EXCLUDED_FOLDER.search(PurePosixPath(path).parent.as_posix() + "/")
+        and not is_vendored_path(path)
         and not bundled(path)
         and size.isdigit()
         and int(size) < MAX_SOURCE_BYTES
@@ -212,59 +215,16 @@ def owned_sources(entries: dict[str, list[str]], excluded: list[str]) -> list[st
 
 def head_tree(repo: Path, head: str, excluded: list[str]) -> dict[str, str]:
     entries = {}
-    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split(b"\0"):
+    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split("\0"):
         if entry:
-            metadata, raw = entry.split(b"\t", 1)
-            entries[raw.decode()] = metadata.decode().split()
+            metadata, path = entry.split("\t", 1)
+            entries[path] = metadata.split()
     paths = owned_sources(entries, excluded)
-    oids = sorted({entries[path][2] for path in paths})
-    if not oids:
-        return {}
-    result = run_bytes(
-        ["git", "-C", str(repo), "cat-file", "--batch"],
-        data="".join(oid + "\n" for oid in oids).encode(),
-        check=False,
-        timeout=120,
-    )
-    if result.returncode:
-        raise GitError(result.stderr.decode(errors="replace").strip())
-    blobs, output, offset = {}, result.stdout, 0
-    for oid in oids:
-        end = output.index(b"\n", offset)
-        size = int(output[offset:end].split()[2])
-        blobs[oid] = output[end + 1 : end + 1 + size]
-        offset = end + 2 + size
+    blobs = read_blobs(repo, sorted({entries[path][2] for path in paths}))
     return {path: blobs[entries[path][2]].decode("utf-8", "replace") for path in paths}
 
 
-def changed_paths(repo: Path, base: str, head: str) -> set[str]:
-    tokens = (
-        git(
-            repo,
-            "diff",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--name-status",
-            "-z",
-            "--find-renames=50%",
-            "-l0",
-            "--diff-filter=AMR",
-            base,
-            head,
-            "--",
-        )
-        .decode()
-        .split("\0")
-    )
-    found, index = set(), 0
-    while index < len(tokens) and tokens[index]:
-        renamed = tokens[index][0] in {"R", "C"}
-        found.add(tokens[index + (2 if renamed else 1)])
-        index += 3 if renamed else 2
-    return found
-
-
-def name_pairs(
+def name_pair_candidates(
     tree: dict[str, str], changed: set[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     found = []
@@ -274,7 +234,7 @@ def name_pairs(
             continue
         found.append({
             "id": pair_id(pair),
-            "det_score": pair["det_score"],
+            "proposer_score": pair["proposer_score"],
             "features": pair["features"],
             "state": pair_state(tree, pair),
         })
@@ -291,8 +251,10 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     )
     try:
         tree = head_tree(repo, args.head, excluded)
-        pairs = name_pairs(tree, changed_paths(repo, args.base, args.head), config)
-    except (GitError, ValueError) as error:
+        pairs = name_pair_candidates(
+            tree, changed_paths(repo, args.base, args.head, "AMR"), config
+        )
+    except (DiffError, ValueError) as error:
         return [
             Finding(
                 RULE,
