@@ -77,7 +77,7 @@ test("a stored call outside the registry's shape fails loudly, never as no decis
 	}
 });
 
-test("a store at another schema version, the v1 store included, is refused, never read or upgraded", () => {
+test("a store at another schema version is refused, never read or upgraded", () => {
 	for (const version of [1, 99]) {
 		const path = store([{ call: callId("1"), question: "reached" }]);
 		withStore(db => db.exec(`PRAGMA user_version = ${version}`), path);

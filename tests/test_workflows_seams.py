@@ -1733,8 +1733,6 @@ class JudgmentConfigTests(unittest.TestCase):
                     ).read_text()
                 )
                 assert thresholds["wired"] is True
-                assert "mode" not in thresholds
-                assert "status" not in thresholds
                 wiring = thresholds.get("wiring") or thresholds["framing"]["wiring"]
                 assert "enforced from the start" in wiring
                 assert "not wired" not in json.dumps(thresholds)

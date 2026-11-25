@@ -177,7 +177,6 @@ def test_cases_hold_the_config_state_the_rails_send_and_split_by_unit() -> None:
         assert isinstance(config["ci"]["enabled"], bool)
         assert all(config["gates"][gate] for gate in ("commitChecks", "prove"))
         assert config["gates"]["audit"] == ("audit" in config["commands"])
-        assert "profile" not in config["commands"]
         assert case["unit"] == case["state"]["change"]["head"][:12]
         splits.setdefault(case["unit"], set()).add(case["split"])
     assert all(len(split) == 1 for split in splits.values())

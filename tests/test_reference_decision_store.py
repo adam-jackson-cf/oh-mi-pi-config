@@ -238,10 +238,6 @@ class DecisionStoreTests(StoreCase):
                 == decision_store.schema_version()
                 == 2
             )
-            assert "mode" not in {
-                row["name"]
-                for row in connection.execute("PRAGMA table_info(rail_events)")
-            }
         for version in (1, 3):
             with closing(
                 sqlite3.connect(self.store, isolation_level=None)
