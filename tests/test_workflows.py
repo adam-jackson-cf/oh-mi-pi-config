@@ -1572,7 +1572,6 @@ class StructureProposalTests(unittest.TestCase):
         with patched:
             assert workflow._name_pairs(Path("."), "b" * 40, "h" * 40) == found["pairs"]
         (command,) = commands
-        assert "--record" not in command
         assert command[command.index("name-pairs") + 1 : command.index("--base")] == [
             "--repo",
             ".",

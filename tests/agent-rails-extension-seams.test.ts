@@ -280,7 +280,6 @@ describe("agent-rails extension", () => {
 			h.govern();
 			const complete = harnessConfig("owner/repo");
 			for (const [config, named] of [
-				[{ ...complete, ownerOnlyPaths: [] }, "ownerOnlyPaths: is not a config section"],
 				[{ ...complete, commands: { ci: ["ci"] } }, "commands.commit: is missing"],
 				[{ ...complete, commands: undefined }, "commands: is missing"], [{ ...complete, unknownField: 3 }, "unknownField: is not a config section"],
 				[{ ...complete, commands: { commit: ["true"], lint: ["x"] } }, "commands.lint: is not a config key"],

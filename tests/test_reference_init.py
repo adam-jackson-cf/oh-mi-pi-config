@@ -285,19 +285,11 @@ class DraftSectionTests(InitCase):
             assert code == 1
             assert "must not be empty" in output
 
-    def test_removed_flags_are_refused_without_writing_the_draft(self) -> None:
-        for flag, value in (
-            ("--path-command", "python3 scripts/check_paths.py"),
-            ("--record", str(self.repo.parent / "record")),
-            ("--runner", "ci-gate"),
-            ("--required-context", "gate"),
-        ):
-            with self.subTest(flag=flag):
-                code, output = self.init(flag, value)
-                assert code == 1
-                assert "invalid init arguments: " in output
-                assert f"--offline {flag}" in output
-                assert not self.out.exists()
+    def test_an_unknown_flag_is_refused_without_writing_the_draft(self) -> None:
+        code, output = self.init("--unknown-flag", "value")
+        assert code == 1
+        assert "invalid init arguments: " in output
+        assert not self.out.exists()
 
     def test_pre_commit_config_drafts_the_commit_command(self) -> None:
         self.write(

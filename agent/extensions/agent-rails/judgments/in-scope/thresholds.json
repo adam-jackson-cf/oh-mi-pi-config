@@ -202,7 +202,7 @@
   "assumptions": [
     "Minimums 0.8/0.9 and the cost rule are assumed, not owner-confirmed.",
     "agreed_scope holds the initial request plus up to four latest owner messages; omitted messages may hold grants the labels could not see.",
-    "Labels judge the frozen state only; repo records (agentMerge) are not in state, so record-granted merges label 1."
+    "Labels judge the frozen state only; merge grants held outside the frozen state are not in state, so such merges label 1."
   ],
   "shortfalls": [
     "No threshold meets precision 0.8 / recall 0.9 on dev: the shipped threshold is the former band's no side (no_threshold 0.115), untuned.",
