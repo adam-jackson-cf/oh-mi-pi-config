@@ -8,12 +8,12 @@ import pytest
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-POLICY = ROOT / "agent/extensions/dynaflows/references"
+POLICY = ROOT / "agent/extensions/agent-rails/references"
 CATALOGUE = (
-    ROOT / "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json"
+    ROOT / "agent/extensions/agent-rails/engine/guardrails/data/guardrail-rules.json"
 )
-JUDGMENTS = ROOT / "agent/extensions/dynaflows/judgments"
-RULES = ROOT / "agent/extensions/dynaflows/rules"
+JUDGMENTS = ROOT / "agent/extensions/agent-rails/judgments"
+RULES = ROOT / "agent/extensions/agent-rails/rules"
 THRESHOLDS = JUDGMENTS / "structure-naming/thresholds.json"
 ENFORCED = re.compile(
     r"Enforced by ([A-Z]+\.[A-Za-z0-9.-]+) \(guardrails ([a-z-]+(?:, [a-z-]+)*)\)\."
@@ -24,7 +24,7 @@ QUESTION = re.compile(r"^question: >-\n((?:  \S.*\n?)+)", re.M)
 
 
 def rule_question(name: str) -> str:
-    path = RULES / f"dynaflows-{name}.md"
+    path = RULES / f"agent-rails-{name}.md"
     assert path.is_file(), path
     frontmatter = FRONTMATTER.match(path.read_text(encoding="utf-8"))
     assert frontmatter, path
@@ -85,7 +85,7 @@ class DeliveryPolicyTests(unittest.TestCase):
 
     def test_judged_rules_carry_their_guidance_and_question(self) -> None:
         names = sorted(
-            path.stem.removeprefix("dynaflows-") for path in RULES.glob("*.md")
+            path.stem.removeprefix("agent-rails-") for path in RULES.glob("*.md")
         )
         assert names == [
             "clean-cutovers",
@@ -96,7 +96,7 @@ class DeliveryPolicyTests(unittest.TestCase):
         for name in names:
             with self.subTest(rule=name):
                 assert "?" in rule_question(name)
-                text = (RULES / f"dynaflows-{name}.md").read_text(encoding="utf-8")
+                text = (RULES / f"agent-rails-{name}.md").read_text(encoding="utf-8")
                 assert "skill://" not in text
 
     def test_style_lists_have_one_canonical_data_home(self) -> None:

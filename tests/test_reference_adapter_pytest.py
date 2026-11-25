@@ -15,7 +15,7 @@ from typing import Any
 from unittest import mock
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -35,7 +35,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 LOCK = REFERENCE / "requirements-pytest.lock"
 

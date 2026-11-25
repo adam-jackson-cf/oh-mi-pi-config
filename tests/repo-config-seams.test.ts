@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, test } from "bun:test";
 import { z } from "@oh-my-pi/pi-coding-agent";
-import { ensureExcluded, OriginError, repoSlug, unresolvedText, type ExecApi } from "../agent/extensions/dynaflows/lib/git-paths.ts";
-import { CONFIG_EXCLUDE, configPathFor, QUESTIONNAIRE_VERSION, resolveConfig, type ConfigState } from "../agent/extensions/dynaflows/lib/repo-config.ts";
+import { ensureExcluded, OriginError, repoSlug, unresolvedText, type ExecApi } from "../agent/extensions/agent-rails/lib/git-paths.ts";
+import { CONFIG_EXCLUDE, configPathFor, QUESTIONNAIRE_VERSION, resolveConfig, type ConfigState } from "../agent/extensions/agent-rails/lib/repo-config.ts";
 
-const ENGINE = resolve(import.meta.dir, "../agent/extensions/dynaflows/engine");
+const ENGINE = resolve(import.meta.dir, "../agent/extensions/agent-rails/engine");
 const FIXTURES = resolve(import.meta.dir, "fixtures/agentrails");
 const expected: Record<string, string[]> = JSON.parse(readFileSync(join(FIXTURES, "expected-problems.json"), "utf8"));
 const TIMEOUT_MS = 30_000;

@@ -18,7 +18,7 @@ from unittest import mock
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -36,9 +36,12 @@ from guardrails.context.config.house_style import load_house_style
 pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 CATALOGUE = REFERENCE / "guardrails/data/guardrail-rules.json"
+# Repositories stay unaware of the harness: its names may not appear in what init proposes or prints.
+# The git-excluded .agentrails/ directory is the one allowed mention.
+HARNESS_NAME = re.compile(r"agent-rails|(?<!\.)\bagentrails\b|harness", re.IGNORECASE)
 OFFLINE = ("--offline",)
 # A language server speaking just enough LSP over stdio: it asks the client for configuration
 # (which the client must answer) before it answers a references query with one location.
@@ -228,8 +231,9 @@ class DraftSectionTests(InitCase):
             in output
         )
         assert "required checks not read (--offline)" in output
-        for retired in ("dynaflows", "agentMerge", "ownerOnlyPaths", "gate.json"):
+        for retired in ("agentMerge", "ownerOnlyPaths", "gate.json"):
             assert retired not in output
+        assert not HARNESS_NAME.search(output), output
 
     def test_second_run_changes_nothing(self) -> None:
         self.write("Makefile", MAKEFILE)
@@ -476,6 +480,7 @@ class NativeConfigTests(InitCase):
         }
         for name, text in rendered.items():
             assert not re.search(r"\bomp|guardrails", text.lower()), name
+            assert not HARNESS_NAME.search(text), name
 
 
 def language_contracts() -> dict[str, dict[str, Any]]:
@@ -731,6 +736,7 @@ class LanguageNativeConfigTests(InitCase):
             native_languages.render_editorconfig(data),
         ):
             assert not re.search(r"\bomp|guardrails", text.lower())
+            assert not HARNESS_NAME.search(text)
 
 
 if __name__ == "__main__":

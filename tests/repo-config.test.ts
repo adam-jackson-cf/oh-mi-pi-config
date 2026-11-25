@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { join, resolve } from "node:path";
 import { describe, test } from "bun:test";
-import { RailError } from "../agent/extensions/dynaflows/lib/rails-ledger.ts";
-import { commonDir, configRoot, mainCheckout, originSlug, OutsideRepository, parseOrigin, type ExecApi } from "../agent/extensions/dynaflows/lib/git-paths.ts";
-import { CONFIG_DIR, CONFIG_EXCLUDE, configPathFor, resolveConfig } from "../agent/extensions/dynaflows/lib/repo-config.ts";
+import { RailError } from "../agent/extensions/agent-rails/lib/rails-ledger.ts";
+import { commonDir, configRoot, mainCheckout, originSlug, OutsideRepository, parseOrigin, type ExecApi } from "../agent/extensions/agent-rails/lib/git-paths.ts";
+import { CONFIG_DIR, CONFIG_EXCLUDE, configPathFor, resolveConfig } from "../agent/extensions/agent-rails/lib/repo-config.ts";
 
 type Reply = { code: number; stdout?: string; stderr?: string; killed?: boolean };
 type Call = { command: string; args: string[] };

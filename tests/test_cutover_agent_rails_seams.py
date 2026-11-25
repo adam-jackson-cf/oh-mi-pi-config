@@ -20,7 +20,7 @@ pytestmark = pytest.mark.seam
 PROCESS_TIMEOUT = 60
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts/cutover_agent_rails.py"
-ENGINE = ROOT / "agent/extensions/dynaflows/engine"
+ENGINE = ROOT / "agent/extensions/agent-rails/engine"
 RECORDS = ROOT / "tests/fixtures/agentrails/records"
 spec = importlib.util.spec_from_file_location("cutover_agent_rails_seams", SCRIPT)
 assert spec is not None

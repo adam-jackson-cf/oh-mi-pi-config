@@ -15,7 +15,7 @@ from unittest.mock import patch
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -189,7 +189,7 @@ class PrefixFolderCommandTests(unittest.TestCase):
         ):
             assert cli.main(argv) == 1
         with contextlib.closing(
-            sqlite3.connect(agent / "dynaflows/dynaflows.db")
+            sqlite3.connect(agent / "agent-rails/agent-rails.db")
         ) as db:
             rows = db.execute(
                 "SELECT source, judgment, question, outcome, item, trigger FROM decisions"

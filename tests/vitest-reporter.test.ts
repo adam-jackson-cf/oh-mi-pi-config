@@ -3,8 +3,8 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
-import GuardrailsReporter from "../agent/extensions/dynaflows/engine/guardrails/commands/adapters/vitest/reporter.ts";
-import type { GuardSettings } from "../agent/extensions/dynaflows/engine/guardrails/commands/adapters/vitest/runtime.ts";
+import GuardrailsReporter from "../agent/extensions/agent-rails/engine/guardrails/commands/adapters/vitest/reporter.ts";
+import type { GuardSettings } from "../agent/extensions/agent-rails/engine/guardrails/commands/adapters/vitest/runtime.ts";
 
 const scratches: string[] = [];
 const exitCode = process.exitCode ?? 0;

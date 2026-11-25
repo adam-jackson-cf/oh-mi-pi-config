@@ -10,7 +10,9 @@ import pytest
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOGUE = ROOT / "agent/extensions/dynaflows/engine/guardrails/data/native-tools.json"
+CATALOGUE = (
+    ROOT / "agent/extensions/agent-rails/engine/guardrails/data/native-tools.json"
+)
 
 
 def catalogue(tool: str) -> Any:

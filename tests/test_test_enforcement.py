@@ -10,7 +10,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 CATALOGUE = (
-    ROOT / "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json"
+    ROOT / "agent/extensions/agent-rails/engine/guardrails/data/guardrail-rules.json"
 )
 
 # Each test rule's emitting subcommands and the guidance facts its remediation states, so a

@@ -1,0 +1,10 @@
+{
+  "name": "agent-rails",
+  "private": true,
+  "type": "module",
+  "omp": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

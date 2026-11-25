@@ -42,7 +42,7 @@ sys.path.insert(
         Path(__file__).resolve().parents[1]
         / "agent"
         / "extensions"
-        / "dynaflows"
+        / "agent-rails"
         / "engine"
     ),
 )

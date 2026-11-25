@@ -15,7 +15,7 @@ from typing import Any
 from guardrails.host.process import run_attached, run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -521,12 +521,12 @@ def test_engine_modules_stay_within_the_default_fanout_limit() -> None:
     profile = {
         "checkers": {
             "python": {
-                "source_roots": ["agent/extensions/dynaflows/engine"],
+                "source_roots": ["agent/extensions/agent-rails/engine"],
                 "fanout": {"root_packages": ["checkers"]},
             }
         }
     }
-    findings = fanout.run(ROOT, profile, ["agent/extensions/dynaflows/engine"])
+    findings = fanout.run(ROOT, profile, ["agent/extensions/agent-rails/engine"])
     assert [(item.path, item.message) for item in findings] == []
 
 

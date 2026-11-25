@@ -34,7 +34,7 @@ RUN arch="$(dpkg --print-architecture)" \
   && rm /tmp/node.tar.gz
 ENV PATH="/usr/local/node/bin:${PATH}"
 # The guardrails reference's pytest extra, exactly as pinned in
-# agent/extensions/dynaflows/engine/requirements-pytest.lock.
+# agent/extensions/agent-rails/engine/requirements-pytest.lock.
 # ci_gate.py builds from this folder and tags the image by this file's hash, so the lock is
 # inlined here; tests/test_reference_adapter_pytest.py fails when the two differ.
 # The venv comes first on PATH, so the gate's python3 runs the adapter tests with the extra.

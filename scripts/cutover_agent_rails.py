@@ -25,10 +25,11 @@ PATH_REWRITES moves the paths a record names to where the agent/agent-rails bran
 Steps that rename or delete tracked paths named by a migrated record extend it. Before --apply,
 the owner proves a rewritten config with guardrails check --repo on the merged tree.
 
-store: migrate one decision store from schema version 1 to 2 (rail_events.mode dropped).
+store: migrate one decision store from schema version 1 to 2 (rail_events.mode dropped) and move
+it from the old extension's path to the agent-rails path.
 
     python3 scripts/cutover_agent_rails.py store --store <agent dir>/dynaflows/dynaflows.db \
-        [--backup DIR --apply]
+        --to <agent dir>/agent-rails/agent-rails.db [--backup DIR --apply]
 
 Both store readers refuse a version 1 store once the branch lands, so every device whose agent
 dir holds a store (the Mac, the NUC and any other device that ran omp with the rails) runs this
@@ -40,6 +41,18 @@ PRAGMA wal_checkpoint(TRUNCATE), copies the store files into a new directory und
 migrates the store in place in one transaction: rail_events is rebuilt from decision-store.sql
 without mode, every row keeps its other columns, and user_version becomes 2. Row counts of every
 table must be equal before and after, and PRAGMA integrity_check must pass, or nothing changes.
+Only then does it move the store and whichever of its -wal and -shm exist to --to, and reopen the
+moved store to check its version and row counts. It refuses before any write when --to, its -wal
+or its -shm exists, and never replaces a file: each one is hard-linked to the new path first.
+
+reviews: move the restart-review state file to the agent-rails path.
+
+    python3 scripts/cutover_agent_rails.py reviews --from <agent dir>/dynaflows-reviews.json \
+        --to <agent dir>/agent-rails-reviews.json [--apply]
+
+The file must hold the reviews schema ({schemaVersion: 1, repos: {slug: revision}}). Without
+--apply it is a dry run. With --apply it refuses while an omp session runs, then hard-links the
+file to --to (never over an existing file) and removes the old name.
 """
 
 from __future__ import annotations
@@ -68,7 +81,7 @@ sys.path.insert(
         Path(__file__).resolve().parents[1]
         / "agent"
         / "extensions"
-        / "dynaflows"
+        / "agent-rails"
         / "engine"
     ),
 )
@@ -1023,10 +1036,59 @@ def _print_store_report(report: StoreReport, heading: str) -> None:
     print(f"  integrity_check: {report.integrity}")
 
 
-def _store_refusals(store: Path, apply: bool) -> list[str]:
+def _sidecars(store: Path) -> list[Path]:
+    return [store, *(store.with_name(store.name + suffix) for suffix in STORE_SIDECARS)]
+
+
+def link_files(moves: Sequence[tuple[Path, Path]]) -> None:
+    """Hard-link each source to its target, never over an existing file, then drop the sources.
+
+    A failed link removes the links already made, so the sources stay as they were.
+    """
+    linked: list[Path] = []
+    try:
+        for source, target in moves:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            os.link(source, target)
+            linked.append(target)
+    except OSError as error:
+        for target in linked:
+            target.unlink()
+        raise CutoverError(f"cannot move {source} to {target}: {error}") from error
+    for source, _ in moves:
+        source.unlink()
+
+
+def move_store(store: Path, target: Path, expected: dict[str, int]) -> list[Path]:
+    """Move the store and its existing -wal and -shm to target, then check the moved store."""
+    moves = [
+        (path, target.with_name(target.name + path.name.removeprefix(store.name)))
+        for path in store_files(store)
+    ]
+    link_files(moves)
+    connection = _open_store(target)
+    try:
+        version, counts = _version(connection), table_counts(connection)
+    finally:
+        connection.close()
+    if version != decision_store.schema_version() or counts != expected:
+        raise CutoverError(
+            f"the moved store {target} has schema version {version} and row counts {counts}; "
+            f"expected version {decision_store.schema_version()} and {expected}"
+        )
+    return [moved for _, moved in moves]
+
+
+def _store_refusals(store: Path, target: Path, apply: bool) -> list[str]:
     if not store.is_file():
         return [f"no decision store at {store}"]
-    problems = []
+    if target.resolve() == store.resolve():
+        return [f"--to names the store itself ({store})"]
+    problems = [
+        f"{path} already exists; the cutover never replaces it"
+        for path in _sidecars(target)
+        if path.exists()
+    ]
     held = holders(store)
     if held:
         problems.append(
@@ -1039,11 +1101,12 @@ def _store_refusals(store: Path, apply: bool) -> list[str]:
 
 def store(args: argparse.Namespace) -> int:
     path: Path = args.store.expanduser()
+    target: Path = args.to.expanduser()
     if args.apply and args.backup is None:
         print("cutover refused: --apply needs --backup DIR", file=sys.stderr)
         return 2
     try:
-        refusals = _store_refusals(path, args.apply)
+        refusals = _store_refusals(path, target, args.apply)
         if refusals:
             print(
                 "cutover refused; nothing written:",
@@ -1063,6 +1126,7 @@ def store(args: argparse.Namespace) -> int:
             _print_store_report(
                 report, f"dry run on a copy of {path}: schema version 1 -> 2 planned"
             )
+            print(f"dry run: would move {path} to {target}")
             print(f"dry run: {path} untouched; nothing written")
             return 0
         now = utc_now()
@@ -1070,10 +1134,68 @@ def store(args: argparse.Namespace) -> int:
         saved = backup_store(path, args.backup.expanduser(), now)
         print(f"backed up {path} to {saved}")
         report = migrate_store(path)
+        _print_store_report(report, f"{path}: migrated to schema version 2")
+        moved = move_store(path, target, report.after)
     except (CutoverError, OSError) as error:
         print(f"cutover refused: {error}", file=sys.stderr)
         return 1
-    _print_store_report(report, f"{path}: migrated to schema version 2")
+    print(f"moved {', '.join(map(str, moved))}; row counts unchanged")
+    return 0
+
+
+# The restart-review state file (the reviews subcommand).
+REVIEWS_SCHEMA = 1
+
+
+def _reviews_problems(source: Path, target: Path) -> list[str]:
+    if not source.is_file():
+        return [f"no reviews file at {source}"]
+    problems = []
+    if target.exists():
+        problems.append(f"{target} already exists; the cutover never replaces it")
+    try:
+        reviews = _json(source.read_text(encoding="utf-8"), str(source))
+    except CutoverError as error:
+        return [*problems, str(error)]
+    repos = reviews.get("repos")
+    if (
+        set(reviews) != {"schemaVersion", "repos"}
+        or reviews["schemaVersion"] != REVIEWS_SCHEMA
+        or not isinstance(repos, dict)
+        or not all(isinstance(value, str) and value for value in repos.values())
+    ):
+        problems.append(
+            f"{source} is not a reviews file ({{schemaVersion: {REVIEWS_SCHEMA}, "
+            "repos: {slug: revision}})"
+        )
+    return problems
+
+
+def reviews(args: argparse.Namespace) -> int:
+    source: Path = args.source.expanduser()
+    target: Path = args.to.expanduser()
+    try:
+        problems = _reviews_problems(source, target)
+        if args.apply:
+            problems += [
+                f"omp session running: {session}" for session in omp_sessions()
+            ]
+        if problems:
+            print(
+                "cutover refused; nothing written:",
+                *problems,
+                sep="\n  ",
+                file=sys.stderr,
+            )
+            return 1
+        if not args.apply:
+            print(f"dry run: would move {source} to {target}; nothing written")
+            return 0
+        link_files([(source, target)])
+    except CutoverError as error:
+        print(f"cutover refused: {error}", file=sys.stderr)
+        return 1
+    print(f"moved {source} to {target}")
     return 0
 
 
@@ -1118,12 +1240,33 @@ def parser() -> argparse.ArgumentParser:
         "--store", type=Path, required=True, help="the decision store file"
     )
     migrate.add_argument(
+        "--to",
+        type=Path,
+        required=True,
+        help="the agent-rails store path the migrated store moves to",
+    )
+    migrate.add_argument(
         "--backup", type=Path, help="the directory --apply copies the store files into"
     )
     migrate.add_argument(
-        "--apply", action="store_true", help="migrate the store in place"
+        "--apply", action="store_true", help="migrate the store, then move it"
     )
     migrate.set_defaults(run=store)
+    move_reviews = commands.add_parser(
+        "reviews", help="move the restart-review state file to the agent-rails path"
+    )
+    move_reviews.add_argument(
+        "--from",
+        dest="source",
+        type=Path,
+        required=True,
+        help="the old reviews file",
+    )
+    move_reviews.add_argument(
+        "--to", type=Path, required=True, help="the agent-rails reviews file"
+    )
+    move_reviews.add_argument("--apply", action="store_true", help="move the file")
+    move_reviews.set_defaults(run=reviews)
     return top
 
 

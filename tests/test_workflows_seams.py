@@ -356,7 +356,9 @@ class ProofRunTests(RepositoryCase):
             self.ci.assert_called_once_with(self.repo.resolve(), self.head, "gate")
             assert self.stored_status() == "pass"
             assert result["decisionLogErrors"] == []
-            store = Path(os.environ["PI_CODING_AGENT_DIR"]) / "dynaflows/dynaflows.db"
+            store = (
+                Path(os.environ["PI_CODING_AGENT_DIR"]) / "agent-rails/agent-rails.db"
+            )
             with closing(sqlite3.connect(store)) as connection:
                 logged = connection.execute(
                     "SELECT DISTINCT question, outcome, trigger, repo, commit_sha "
@@ -682,7 +684,7 @@ class FreezeTests(RepositoryCase):
             json.dumps({**valid, "commands": {"commit": []}}),
             json.dumps({**valid, "commands": {}}),
             json.dumps({**valid, "unknownField": 3}),
-            json.dumps({**valid, "dynaflows": {"mode": "structured"}}),
+            json.dumps({**valid, "agentrails": {"mode": "structured"}}),
         ):
             path.write_text(text)
             self.change()
@@ -1671,7 +1673,7 @@ class JourneyAndResultTests(RepositoryCase):
 
 
 DECIDE = (
-    Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/lib/decide.py"
+    Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/lib/decide.py"
 )
 
 
@@ -1708,7 +1710,7 @@ class JudgmentConfigTests(unittest.TestCase):
         return code, json.loads(out.getvalue())
 
     def store(self, sql: str) -> list[dict[str, Any]]:
-        path = Path(os.environ["PI_CODING_AGENT_DIR"]) / "dynaflows/dynaflows.db"
+        path = Path(os.environ["PI_CODING_AGENT_DIR"]) / "agent-rails/agent-rails.db"
         with closing(sqlite3.connect(path)) as connection:
             connection.row_factory = sqlite3.Row
             return [dict(row) for row in connection.execute(sql)]
@@ -1934,7 +1936,9 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         return result
 
     def logged(self) -> list[dict[str, Any]]:
-        with closing(sqlite3.connect(self.agent / "dynaflows/dynaflows.db")) as store:
+        with closing(
+            sqlite3.connect(self.agent / "agent-rails/agent-rails.db")
+        ) as store:
             store.row_factory = sqlite3.Row
             return [
                 dict(row)

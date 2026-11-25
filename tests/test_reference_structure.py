@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 FIXTURES = ROOT / "tests/fixtures/reference/structure"
 
@@ -137,7 +137,7 @@ class HouseStyleVerdictTests(unittest.TestCase):
         assert expected["typescript"] in conventions.test_patterns("sample.test.ts")
 
 
-ENGINE_SOURCE_ROOT = "agent/extensions/dynaflows/engine/guardrails"
+ENGINE_SOURCE_ROOT = "agent/extensions/agent-rails/engine/guardrails"
 ENGINE_LAYERS = {
     "structure": {
         "tiers": ["host", "foundation", "context", "toolkit", "commands"],

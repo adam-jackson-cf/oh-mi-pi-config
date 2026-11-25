@@ -825,6 +825,7 @@ class StoreMigration(unittest.TestCase):
         self.live = self.temp / "live"
         self.live.mkdir()
         self.store = self.live / "dynaflows.db"
+        self.target = self.temp / "agent" / "agent-rails" / "agent-rails.db"
         self.backup = self.temp / "backup"
         writer = self.temp / "writer"
         writer.mkdir()
@@ -853,6 +854,8 @@ class StoreMigration(unittest.TestCase):
                 "store",
                 "--store",
                 str(self.store),
+                "--to",
+                str(self.target),
                 "--backup",
                 str(self.backup),
                 *extra,
@@ -872,22 +875,33 @@ class StoreMigration(unittest.TestCase):
         assert re.search(r"^  rail_events +4 +4$", out, re.MULTILINE), out
         assert re.search(r"^  decisions +1 +1$", out, re.MULTILINE), out
         assert "integrity_check: ok" in out
+        assert f"dry run: would move {self.store} to {self.target}" in out
         assert f"dry run: {self.store} untouched" in out
         assert digests(self.live) == before
         assert not self.backup.exists()
+        assert not self.target.parent.exists()
 
-    def test_apply_backs_up_the_store_then_migrates_it_to_v2_with_equal_counts(
+    def test_apply_backs_up_the_store_migrates_it_to_v2_then_moves_it_to_the_new_path(
         self,
     ) -> None:
+        sidecars = [
+            self.live / f"dynaflows.db{suffix}"
+            for suffix in cutover.STORE_SIDECARS
+            if (self.live / f"dynaflows.db{suffix}").exists()
+        ]
         code, out, err = self.run_store("--apply")
         assert code == 0, err
         [saved] = self.backup.iterdir()
         assert f"backed up {self.store} to {saved}" in out
         assert re.search(r"^  rail_events +4 +4$", out, re.MULTILINE), out
+        assert f"moved {self.target}" in out
+        assert "row counts unchanged" in out
+        assert not self.store.exists()
+        assert not any(path.exists() for path in sidecars)
         with closing(sqlite3.connect(saved / "dynaflows.db")) as old:
             assert old.execute("PRAGMA user_version").fetchone()[0] == 1
             assert cutover.table_counts(old) == V1_COUNTS
-        with decision_store.opened(self.store) as connection:
+        with decision_store.opened(self.target) as connection:
             assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
             assert cutover.table_counts(connection) == V1_COUNTS
             columns = [
@@ -933,14 +947,82 @@ class StoreMigration(unittest.TestCase):
 
     def test_usage_and_store_refusals(self) -> None:
         out, err = io.StringIO(), io.StringIO()
+        to = ("--to", str(self.target))
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            usage = cutover.main(["store", "--store", str(self.store), "--apply"])
+            usage = cutover.main(["store", "--store", str(self.store), *to, "--apply"])
         assert usage == 2
         assert "--apply needs --backup DIR" in err.getvalue()
         missing = self.temp / "absent.db"
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            assert cutover.main(["store", "--store", str(missing)]) == 1
+            assert cutover.main(["store", "--store", str(missing), *to]) == 1
         assert f"no decision store at {missing}" in err.getvalue()
+        with (
+            contextlib.redirect_stdout(out),
+            contextlib.redirect_stderr(err),
+            pytest.raises(SystemExit),
+        ):
+            cutover.main(["store", "--store", str(self.store)])
+        assert "--to" in err.getvalue()
+
+    def test_an_existing_target_or_target_sidecar_refuses_before_any_write(
+        self,
+    ) -> None:
+        before = digests(self.live)
+        for name in ("agent-rails.db", "agent-rails.db-wal", "agent-rails.db-shm"):
+            with self.subTest(name=name):
+                self.target.parent.mkdir(parents=True, exist_ok=True)
+                existing = self.target.with_name(name)
+                existing.write_bytes(b"newer")
+                for extra in ((), ("--apply",)):
+                    code, _, err = self.run_store(*extra)
+                    assert code == 1
+                    assert (
+                        f"{existing} already exists; the cutover never replaces it"
+                        in err
+                    )
+                assert existing.read_bytes() == b"newer"
+                existing.unlink()
+        assert digests(self.live) == before
+        assert not self.backup.exists()
+
+    def test_a_target_naming_the_store_itself_is_refused(self) -> None:
+        self.target = self.store
+        code, _, err = self.run_store("--apply")
+        assert code == 1
+        assert "--to names the store itself" in err
+        assert not self.backup.exists()
+
+    def test_a_failed_link_removes_the_links_made_and_keeps_every_source(self) -> None:
+        cutover.checkpoint(self.store)
+        sources = cutover.store_files(self.store)
+        before = digests(self.live)
+        real_link = cutover.os.link
+        calls: list[Path] = []
+
+        def failing(source: Path, target: Path) -> None:
+            calls.append(target)
+            if len(calls) == 2:
+                raise OSError("disk full")
+            real_link(source, target)
+
+        moves = [(path, self.target.with_name(path.name)) for path in sources]
+        moves.append((sources[0], self.target.with_name("second-link")))
+        with (
+            patch.object(cutover.os, "link", failing),
+            pytest.raises(cutover.CutoverError, match="disk full"),
+        ):
+            cutover.link_files(moves)
+        assert digests(self.live) == before
+        assert not any(target.exists() for _, target in moves)
+
+    def test_a_moved_store_with_other_counts_is_reported(self) -> None:
+        cutover.checkpoint(self.store)
+        report = cutover.migrate_store(self.store)
+        with pytest.raises(cutover.CutoverError, match="the moved store"):
+            cutover.move_store(
+                self.store, self.target, {**report.after, "decisions": 9}
+            )
+        assert self.target.exists()
 
     def test_a_store_already_at_v2_is_refused_without_a_backup(self) -> None:
         current = self.temp / "current" / "dynaflows.db"
@@ -979,6 +1061,83 @@ class StoreMigration(unittest.TestCase):
         cutover.backup_store(self.store, self.backup, "2026-11-24T09:00:00Z")
         with pytest.raises(FileExistsError):
             cutover.backup_store(self.store, self.backup, "2026-11-24T09:00:00Z")
+
+
+class ReviewsMove(unittest.TestCase):
+    """The reviews subcommand moves the restart-review state file and never replaces one."""
+
+    def setUp(self) -> None:
+        self.temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.temp)
+        self.source = self.temp / "dynaflows-reviews.json"
+        self.target = self.temp / "agent" / "agent-rails-reviews.json"
+        self.body = (
+            json.dumps({"schemaVersion": 1, "repos": {"owner/a": "sha256:1"}}) + "\n"
+        )
+        self.source.write_text(self.body, encoding="utf-8")
+        self.sessions: list[str] = []
+        patcher = patch.object(cutover, "omp_sessions", lambda: self.sessions)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def run_reviews(self, *extra: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = cutover.main([
+                "reviews",
+                "--from",
+                str(self.source),
+                "--to",
+                str(self.target),
+                *extra,
+            ])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_the_dry_run_names_the_move_and_writes_nothing(self) -> None:
+        self.sessions = ["77 omp"]
+        code, out, err = self.run_reviews()
+        assert code == 0, err
+        assert f"dry run: would move {self.source} to {self.target}" in out
+        assert self.source.read_text(encoding="utf-8") == self.body
+        assert not self.target.parent.exists()
+
+    def test_apply_moves_the_file_unchanged(self) -> None:
+        code, out, err = self.run_reviews("--apply")
+        assert code == 0, err
+        assert f"moved {self.source} to {self.target}" in out
+        assert not self.source.exists()
+        assert self.target.read_text(encoding="utf-8") == self.body
+
+    def test_refusals_leave_both_paths_as_they_were(self) -> None:
+        self.target.parent.mkdir(parents=True)
+        self.target.write_text("newer\n", encoding="utf-8")
+        code, _, err = self.run_reviews("--apply")
+        assert code == 1
+        assert f"{self.target} already exists; the cutover never replaces it" in err
+        assert self.target.read_text(encoding="utf-8") == "newer\n"
+        self.target.unlink()
+        self.sessions = ["77 /opt/homebrew/bin/omp"]
+        code, _, err = self.run_reviews("--apply")
+        assert code == 1
+        assert "omp session running: 77 /opt/homebrew/bin/omp" in err
+        self.sessions = []
+        for body, message in (
+            ("not json", "is not valid JSON"),
+            ('{"schemaVersion": 2, "repos": {}}', "is not a reviews file"),
+            ('{"schemaVersion": 1, "repos": {"owner/a": ""}}', "is not a reviews file"),
+            ('{"schemaVersion": 1, "repos": {}, "extra": 1}', "is not a reviews file"),
+        ):
+            with self.subTest(body=body):
+                self.source.write_text(body, encoding="utf-8")
+                code, _, err = self.run_reviews("--apply")
+                assert code == 1
+                assert message in err
+        assert self.source.exists()
+        assert not self.target.exists()
+        self.source.unlink()
+        code, _, err = self.run_reviews()
+        assert code == 1
+        assert f"no reviews file at {self.source}" in err
 
 
 class ProcessProbes(unittest.TestCase):

@@ -7,8 +7,8 @@
   "overrides": [
     {
       "filter": [
-        "agent/extensions/dynaflows/skills/**",
-        "agent/extensions/dynaflows/references/**",
+        "agent/extensions/agent-rails/skills/**",
+        "agent/extensions/agent-rails/references/**",
       ],
       "config": {
         "MD013": {

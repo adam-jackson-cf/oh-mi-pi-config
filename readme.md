@@ -7,13 +7,13 @@ installation guide or an exhaustive reference.
 
 ## Design
 
-The [dynaflows design directive](agent/extensions/dynaflows/AGENTS.md#design-directive) holds the
+The [agent-rails design directive](agent/extensions/agent-rails/AGENTS.md#design-directive) holds the
 design principles; `agent/AGENTS.md` holds the response rules and `agent/RULES.md` the session
-rules. The dynaflows package owns its judged rules (`agent/extensions/dynaflows/rules/`), three
+rules. The agent-rails package owns its judged rules (`agent/extensions/agent-rails/rules/`), three
 references its refusals cite
-([structure and naming](agent/extensions/dynaflows/references/structure-and-naming.md),
-[proofs and merge](agent/extensions/dynaflows/references/proofs-and-merge.md) and
-[judgments](agent/extensions/dynaflows/references/judgments.md)), and bundles the skills it
+([structure and naming](agent/extensions/agent-rails/references/structure-and-naming.md),
+[proofs and merge](agent/extensions/agent-rails/references/proofs-and-merge.md) and
+[judgments](agent/extensions/agent-rails/references/judgments.md)), and bundles the skills it
 calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and `jev-actions`. `git-tool` owns Git,
 PR, CI and merge authority, with its merge, CI and recovery runbook.
 
@@ -51,8 +51,8 @@ The boundaries are intentional:
 - **Extensions** implement runtime mechanics (`agent/extensions/`);
   `extension-health.ts` reports registration health, not runtime correctness.
 
-The always-loaded dynaflows extension has one governed state. Its
-[rails scope](agent/extensions/dynaflows/CONFIG.md#rails-scope) comes from the repository's config:
+The always-loaded agent-rails extension has one governed state. Its
+[rails scope](agent/extensions/agent-rails/CONFIG.md#rails-scope) comes from the repository's config:
 a repository with no GitHub origin gets the fixed guards only, and one with a missing or invalid
 config refuses edits, commits, pushes, PRs, merges and `askFirst` commands until the owner runs
 `/agentrails onboard`. The fixed guards
@@ -70,12 +70,12 @@ repository). Shell `-c`, `eval` and existing shell scripts are inspected recursi
 bounds; `cd` and `pushd` select the destination repository's policy, and pipeline segments keep
 their own cwd. Unresolved directories fail closed for publishing. Quoted `echo` and search
 arguments do not trigger the check.
-The repo config's [`autonomy`](agent/extensions/dynaflows/CONFIG.md#autonomy) sets `git push`,
+The repo config's [`autonomy`](agent/extensions/agent-rails/CONFIG.md#autonomy) sets `git push`,
 `gh pr create` and `gh pr merge` to `allowed` or `ask`; `ask` waits for the owner's
 `$approve autonomy:<action>:<subject>` line. A `git push` to the remote's default branch is always
 refused. While a repository onboards, `gh pr merge` is refused: the owner merges the bootstrap PR.
 The rails force no skill reads: guidance reaches agents as the self-contained judged rules in
-`agent/extensions/dynaflows/rules/` and in refusal texts. All-session handoff, including subagents,
+`agent/extensions/agent-rails/rules/` and in refusal texts. All-session handoff, including subagents,
 stays blocked until failed harness `path-check` paths pass on retry. Rails run
 `guardrails path-check --repo <worktree>` from the harness.
 It covers edited paths plus prior failures that `git status` reports as changed or
@@ -101,7 +101,7 @@ Session rails:
 | Rail | Scope | Behaviour |
 | --- | --- | --- |
 | Turn-end obligations | Governed | Open PR (CI pending: wait), `afterMerge`, rollout; 3 asks |
-| Device rollout | Governed | Only on a `$rollout` line or the `dynaflows` tool's `rollout` |
+| Device rollout | Governed | Only on a `$rollout` line or the `agentrails` tool's `rollout` |
 | Restart review | Every repo | Extension changed: review; governed blocks Git writes until ack |
 | Handoff | Every repo | `handoff` tool writes `HANDOFF.md`; next session gets it; never committed |
 
@@ -109,9 +109,9 @@ Judged rails run in governed repositories, except in-scope, which runs in every 
 run after the deterministic checks through `decide()`. Every
 enforced judgment acts from the moment it ships; a judge failure refuses, except that an `ask` goes
 through. A shadow judgment is asked and logged but never acts. Every answer, deterministic check
-result and rail refusal lands in one SQLite decision store, `~/.omp/agent/dynaflows/dynaflows.db`;
+result and rail refusal lands in one SQLite decision store, `~/.omp/agent/agent-rails/agent-rails.db`;
 `guardrails shadow-review` labels and measures what it holds.
-[Rail judgments](agent/extensions/dynaflows/references/judgments.md#rail-judgments)
+[Rail judgments](agent/extensions/agent-rails/references/judgments.md#rail-judgments)
 lists each rail, its outcomes and the owner's `$approve` line.
 
 Repository checks follow the test tiers. The repo config declares
@@ -139,7 +139,7 @@ workflow run it. The relative path makes every worktree that shares the clone's
 not `.githooks` or the hook differs from the expected text. Run the formatters with
 `bash scripts/run-ci-quality-gates.sh --tier commit --fix`.
 
-Dynaflows is an [extension package](agent/extensions/dynaflows/package.json), with runtime policy,
+Agent-rails is an [extension package](agent/extensions/agent-rails/package.json), with runtime policy,
 judged rules, plain references and bundled skills. It builds in no workflow: agents satisfy the
 gates however they work.
 Subagent edit paths must be absolute and cannot escape enclosing Git roots through symlinks, and
@@ -149,7 +149,7 @@ the base). `skill://git-tool` owns Git, PR, CI and merge authority.
 Native judged reply rules live inside the package and always load; the extension never changes
 `ttsr.disabledRules`.
 
-omp auto-discovers direct modules and one-level packages in `agent/extensions/`. Dynaflows is also
+omp auto-discovers direct modules and one-level packages in `agent/extensions/`. Agent-rails is also
 listed as a directory in `extensions:` so its sibling skills and rules load. Both routes resolve
 the same entry file and omp de-duplicates it. A package skill keeps its bare name unless a different
 skill of the same name collides.
@@ -164,10 +164,10 @@ source.
 
 ## Per-repo config
 
-A repo never depends on or mentions omp or dynaflows in tracked files. Its rails settings live
+A repo never depends on or mentions omp or agent-rails in tracked files. Its rails settings live
 in `.agentrails/config.json` in its main checkout, kept out of git through
 `<git-common-dir>/info/exclude`; linked worktrees read the main checkout's file.
-[The config contract](agent/extensions/dynaflows/CONFIG.md) defines its sections, their writers,
+[The config contract](agent/extensions/agent-rails/CONFIG.md) defines its sections, their writers,
 strict validation and export and import. Agent tools never write it. A repository whose config
 is missing or invalid is refused with the onboarding text, naming the slug and the engine's
 problems; `workflows.py` refuses with the same route to `/agentrails onboard`. Rails and
@@ -212,7 +212,7 @@ The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in its
 `~/.omp`. The only file it writes there is the untracked `ci-runners.json`. If `nuc-config`
 lacks `main`, sync it (see the
-[config contract](agent/extensions/dynaflows/CONFIG.md#oh-mi-pi-config-example)),
+[config contract](agent/extensions/agent-rails/CONFIG.md#oh-mi-pi-config-example)),
 then rerun the command.
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
 only its `~/.agents` checkout is a rollout target, so judge-key provisioning and
@@ -240,7 +240,7 @@ needs `--context` set to the gate's `ci.requiredContext`; its timeout exits 124.
 The `github-actions` role starts on push, so `submit` only reports that. A
 missing role exits 2 and names the device_rollout.py command to run. This
 repository's runner facts live in the
-[config contract](agent/extensions/dynaflows/CONFIG.md#oh-mi-pi-config-example).
+[config contract](agent/extensions/agent-rails/CONFIG.md#oh-mi-pi-config-example).
 
 ### ci-gate service
 
@@ -250,7 +250,7 @@ exact-SHA gates in rootless Podman with gVisor. Only repositories in
 `ci-gate`. The NUC reads its own copy of each repository's config, which
 `ci_gate.py config-import <file>` validates and installs under
 `${XDG_DATA_HOME:-~/.local/share}/ci-gate/configs/<owner>/<name>/config.json`
-([export and import](agent/extensions/dynaflows/CONFIG.md#export-and-import)).
+([export and import](agent/extensions/agent-rails/CONFIG.md#export-and-import)).
 It posts the GitHub commit status context named by the config's `ci.requiredContext`,
 recorded in the job's `job.json`. A missing or invalid config, or one that does not route
 CI to `ci-gate`, gets an `error` result with a `publicationError` and no status, so rails
@@ -324,7 +324,7 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 
 Root `pyproject.toml` and `uv.lock` pin ruff, mypy, pytest and pytest-cov for every owned Python
 file. The ruff and mypy settings mirror the harness catalogue,
-`agent/extensions/dynaflows/engine/guardrails/data/native-tools.json`; change both together.
+`agent/extensions/agent-rails/engine/guardrails/data/native-tools.json`; change both together.
 
 ```bash
 uv sync --locked
@@ -343,7 +343,7 @@ whole repository in both tiers, with `--locked` so a stale `uv.lock` fails the g
 
 - T1 tests start no process, open no network, write no real home and drive no real Git,
   worktree or container. Bun runs `tests/*.test.ts` except `*-seams.test.ts`; pytest runs
-  modules marked `fast`. In-process guards from `agent/extensions/dynaflows/engine/guardrails/commands/adapters/`
+  modules marked `fast`. In-process guards from `agent/extensions/agent-rails/engine/guardrails/commands/adapters/`
   (the Bun preload and the pytest plugin) fail any T1 test that starts a process, opens a
   network connection or writes under the real home.
 - T2 tests are the seams: Bun runs `tests/*-seams.test.ts`; pytest runs modules marked `seam`.
@@ -364,20 +364,20 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/agents/` — the repository's custom evaluation and advisory roles.
 - `agent/skills/omp-config-optimise/` — model-routing preferences and the
   evidence-driven process for re-tuning `agent/config.yml`.
-- `agent/extensions/dynaflows/skills/` — the skills the extension bundles.
-- `agent/extensions/dynaflows/references/` — the plain references its refusal texts cite.
-- `agent/extensions/dynaflows/skills/jev-actions/` — TypeSafe Jev judgment design, threshold
+- `agent/extensions/agent-rails/skills/` — the skills the extension bundles.
+- `agent/extensions/agent-rails/references/` — the plain references its refusal texts cite.
+- `agent/extensions/agent-rails/skills/jev-actions/` — TypeSafe Jev judgment design, threshold
   tuning and calibration.
-- `agent/extensions/dynaflows/judgments/` — calibrated judgments behind `decide()`; the
-  opt-in Jev Inspector route is `agent/extensions/dynaflows/inspector.env`.
-- `agent/extensions/dynaflows/engine/` — harness-side checkers and the rule catalogue
+- `agent/extensions/agent-rails/judgments/` — calibrated judgments behind `decide()`; the
+  opt-in Jev Inspector route is `agent/extensions/agent-rails/inspector.env`.
+- `agent/extensions/agent-rails/engine/` — harness-side checkers and the rule catalogue
   (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.
-- `agent/extensions/dynaflows/CONFIG.md` — the per-repo config contract: sections, writers and
+- `agent/extensions/agent-rails/CONFIG.md` — the per-repo config contract: sections, writers and
   rules.
-- `agent/extensions/dynaflows/lib/` — the mode guards, rails runtime, Git paths and the repo
+- `agent/extensions/agent-rails/lib/` — the mode guards, rails runtime, Git paths and the repo
   config resolver.
-- `agent/extensions/dynaflows/rails.yml` — the tool and command mappings the rails read: edit tools,
+- `agent/extensions/agent-rails/rails.yml` — the tool and command mappings the rails read: edit tools,
   path fields and the Git-write and `askFirst` command patterns.
 - `agent/extensions/` — tracked runtime extensions, including extension-health
   reporting.

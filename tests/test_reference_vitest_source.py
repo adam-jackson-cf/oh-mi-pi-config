@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 
@@ -21,7 +21,7 @@ from guardrails.toolkit.growth import Snapshot, duplicate_findings, growth_findi
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 PROFILE: dict[str, Any] = {
     "tests": {

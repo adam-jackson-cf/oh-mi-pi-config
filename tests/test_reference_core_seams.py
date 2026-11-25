@@ -9,7 +9,7 @@ from pathlib import Path
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 
@@ -23,7 +23,7 @@ from guardrails.toolkit import dispatch
 pytestmark = pytest.mark.seam
 
 
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 
 class CliTests(CliCase):

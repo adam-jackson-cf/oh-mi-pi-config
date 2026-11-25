@@ -45,7 +45,7 @@ def isolated_decision_store(
 
 MODULE = (
     Path(__file__).resolve().parents[1]
-    / "agent/extensions/dynaflows/engine/workflows.py"
+    / "agent/extensions/agent-rails/engine/workflows.py"
 )
 
 spec = importlib.util.spec_from_file_location("workflows", MODULE)
@@ -81,9 +81,9 @@ def stored(
     agent: Path, sql: str = "SELECT * FROM decisions ORDER BY rowid"
 ) -> list[dict[str, Any]]:
     """Rows of the decision store under `agent`; none before anything is logged."""
-    if not (agent / "dynaflows/dynaflows.db").exists():
+    if not (agent / "agent-rails/agent-rails.db").exists():
         return []
-    with closing(sqlite3.connect(agent / "dynaflows/dynaflows.db")) as store:
+    with closing(sqlite3.connect(agent / "agent-rails/agent-rails.db")) as store:
         store.row_factory = sqlite3.Row
         return [dict(row) for row in store.execute(sql)]
 
@@ -319,7 +319,7 @@ class LabelTests(unittest.TestCase):
 
 
 CATALOGUE = Path(__file__).resolve().parents[1] / (
-    "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json"
+    "agent/extensions/agent-rails/engine/guardrails/data/guardrail-rules.json"
 )
 
 ADVISORY = (
@@ -824,7 +824,9 @@ class JudgmentRegistryTests(unittest.TestCase):
         assert (kind["status"], kind["outcome"], kind["threshold"]) == ("ok", None, 0.3)
         assert json.loads(kind["choice_probabilities"]) == {"note": 0.8, "log": 0.2}
         assert self.calls[0][1] == judgment.questions
-        assert workflow._store().store_path() == self.agent / "dynaflows/dynaflows.db"
+        assert (
+            workflow._store().store_path() == self.agent / "agent-rails/agent-rails.db"
+        )
 
     def test_a_band_escalates_only_with_a_registered_fallback_judge(self) -> None:
         write_judgment(self.root, "backup")
@@ -1068,7 +1070,7 @@ class JudgmentRegistryTests(unittest.TestCase):
     def test_agent_dir_defaults_to_the_omp_home(self) -> None:
         with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": ""}):
             assert workflow._store().store_path() == (
-                Path.home() / ".omp/agent/dynaflows/dynaflows.db"
+                Path.home() / ".omp/agent/agent-rails/agent-rails.db"
             )
 
     def test_every_decision_carries_its_taxonomy_and_mode(self) -> None:
@@ -1298,7 +1300,7 @@ class ShippedJudgmentTests(unittest.TestCase):
 
     def test_the_inspector_route_is_opt_in_and_loopback_only(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        overlay = root / "agent/extensions/dynaflows/inspector.env"
+        overlay = root / "agent/extensions/agent-rails/inspector.env"
         settings = [
             line
             for line in overlay.read_text().splitlines()
@@ -1362,7 +1364,7 @@ class StructureProposalTests(unittest.TestCase):
         environment = patch.dict(os.environ, {"PI_CODING_AGENT_DIR": agent.name})
         environment.start()
         self.addCleanup(environment.stop)
-        self.store = Path(agent.name) / "dynaflows/dynaflows.db"
+        self.store = Path(agent.name) / "agent-rails/agent-rails.db"
         self.judgment = workflow.load_judgment("structure-naming")
         self.result: dict[str, Any] = {
             "head": "h" * 40,

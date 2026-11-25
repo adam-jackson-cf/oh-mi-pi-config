@@ -17,7 +17,7 @@ from typing import Any
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -41,7 +41,7 @@ from guardrails.commands.diffs import (
 pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "Fixture",

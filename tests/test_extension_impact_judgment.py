@@ -11,10 +11,12 @@ import pytest
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-JUDGMENT = ROOT / "agent/extensions/dynaflows/judgments/extension-impact"
-TUNER = ROOT / "agent/extensions/dynaflows/skills/jev-actions/scripts/tune_threshold.py"
+JUDGMENT = ROOT / "agent/extensions/agent-rails/judgments/extension-impact"
+TUNER = (
+    ROOT / "agent/extensions/agent-rails/skills/jev-actions/scripts/tune_threshold.py"
+)
 LABEL_CHECK = (
-    ROOT / "agent/extensions/dynaflows/skills/jev-actions/scripts/check_labels.py"
+    ROOT / "agent/extensions/agent-rails/skills/jev-actions/scripts/check_labels.py"
 )
 # The config sections the rails send extension-impact (judged-rails.ts IMPACT_SECTIONS).
 IMPACT_SECTIONS = {

@@ -202,7 +202,7 @@ class StoreCase(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.dir = Path(scratch.name)
-        self.store = self.dir / "agent/dynaflows/dynaflows.db"
+        self.store = self.dir / "agent/agent-rails/agent-rails.db"
         self.judgments = self.dir / "judgments"
         (self.judgments / "demo").mkdir(parents=True)
         (self.judgments / "demo/thresholds.json").write_text("{}")
@@ -295,7 +295,7 @@ class DecisionStoreTests(StoreCase):
         with pytest.raises(
             decision_store.StoreError, match="cannot open the decision store"
         ):
-            decision_store.record_decisions([], None, blocked / "dynaflows.db")
+            decision_store.record_decisions([], None, blocked / "agent-rails.db")
 
     def test_a_decision_context_takes_only_the_known_triggers(self) -> None:
         assert (
@@ -756,7 +756,7 @@ class MachineTests(StoreCase):
         assert argv[:4] == ["ssh", "-o", "BatchMode=yes", "codex-omarchy-nuc"]
         assert "mode=ro" in argv[4]
         assert "serialize()" in argv[4]
-        assert "~/.omp/agent/dynaflows/dynaflows.db" in argv[4]
+        assert "~/.omp/agent/agent-rails/agent-rails.db" in argv[4]
         assert destination.read_bytes().startswith(b"SQLite format 3")
 
 

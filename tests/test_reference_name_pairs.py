@@ -16,7 +16,7 @@ from unittest.mock import patch
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -29,7 +29,7 @@ from test_agentrails_fixture import (
 from guardrails.commands.structure import name_pairs
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 FIXTURE = json.loads(
     (ROOT / "tests/fixtures/reference/structure/name-pairs.json").read_text()
 )

@@ -13,7 +13,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-PACKAGE = ROOT / "agent/extensions/dynaflows"
+PACKAGE = ROOT / "agent/extensions/agent-rails"
 
 PACKAGE_SKILLS = PACKAGE / "skills"
 
@@ -91,7 +91,7 @@ def unresolved_links(source: Path) -> list[str]:
 class SkillReferenceTests(unittest.TestCase):
     def test_imported_skills_are_independent_of_the_assistant(self) -> None:
         forbidden = re.compile(
-            r"\b(?:omp|dynaflows|agent-rails|agentrails|harness)\b", re.IGNORECASE
+            r"\b(?:omp|agent-rails|agentrails|harness)\b", re.IGNORECASE
         )
         for name in sorted(IMPORTED_SKILLS):
             directory = skill_directory(name)

@@ -32,7 +32,7 @@ def tracked_skill_directories() -> list[Path]:
             "ls-files",
             "-z",
             "--",
-            "agent/extensions/dynaflows/skills",
+            "agent/extensions/agent-rails/skills",
             "agent/skills",
         ],
         cwd=ROOT,

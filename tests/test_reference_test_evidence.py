@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -29,7 +29,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 FIXTURES = ROOT / "tests/fixtures/reference/test_evidence"
 

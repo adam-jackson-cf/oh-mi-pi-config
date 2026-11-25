@@ -1,6 +1,6 @@
 # Shared Python verification tooling for every owned Python file in this repository.
 # The ruff and mypy settings mirror the harness catalogue,
-# agent/extensions/dynaflows/engine/guardrails/data/native-tools.json; change both together.
+# agent/extensions/agent-rails/engine/guardrails/data/native-tools.json; change both together.
 # Target values (Python version, first-party modules, source roots) come from this repository.
 
 [project]
@@ -33,14 +33,14 @@ dev = [
 branch = true
 patch = ["subprocess"]
 source = [
-  "agent/extensions/dynaflows",
+  "agent/extensions/agent-rails",
   "agent/skills/omp-config-optimise",
   "scripts",
 ]
 omit = [
-  "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
-  "agent/extensions/dynaflows/skills/setup-repo-proofs/*",
-  "agent/extensions/dynaflows/skills/test-guidance/*",
+  "agent/extensions/agent-rails/engine/guardrails/commands/adapters/pytest/conformance/fixtures/*",
+  "agent/extensions/agent-rails/skills/setup-repo-proofs/*",
+  "agent/extensions/agent-rails/skills/test-guidance/*",
   "agent/skills/omp-config-optimise/experiments/*/fixtures/*",
 ]
 
@@ -53,16 +53,16 @@ strict = true
 warn_unused_ignores = true
 follow_imports = "normal"
 files = [
-  "agent/extensions/dynaflows",
+  "agent/extensions/agent-rails",
   "agent/skills/omp-config-optimise",
   "scripts",
   "tests",
 ]
 explicit_package_bases = true
 mypy_path = [
-  "agent/extensions/dynaflows/engine",
-  "agent/extensions/dynaflows/lib",
-  "agent/extensions/dynaflows/skills/jev-actions/scripts",
+  "agent/extensions/agent-rails/engine",
+  "agent/extensions/agent-rails/lib",
+  "agent/extensions/agent-rails/skills/jev-actions/scripts",
   "agent/skills/omp-config-optimise/experiments",
   "agent/skills/omp-config-optimise/experiments/fixed-plan-effort",
   "agent/skills/omp-config-optimise/experiments/review-detection",
@@ -70,9 +70,9 @@ mypy_path = [
   "tests",
 ]
 exclude = [
-  "^agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures/",
-  "^agent/extensions/dynaflows/skills/setup-repo-proofs/",
-  "^agent/extensions/dynaflows/skills/test-guidance/",
+  "^agent/extensions/agent-rails/engine/guardrails/commands/adapters/pytest/conformance/fixtures/",
+  "^agent/extensions/agent-rails/skills/setup-repo-proofs/",
+  "^agent/extensions/agent-rails/skills/test-guidance/",
   "^agent/skills/omp-config-optimise/experiments/[^/]+/fixtures/",
   "^tests/fixtures/",
   "/build/",
@@ -111,9 +111,9 @@ exclude = [
 # Intentional test-fixture trees (frozen repositories and conformance cases) and imported upstream
 # skills, copied verbatim: not owned code.
 extend-exclude = [
-  "agent/extensions/dynaflows/engine/guardrails/commands/adapters/pytest/conformance/fixtures",
-  "agent/extensions/dynaflows/skills/setup-repo-proofs",
-  "agent/extensions/dynaflows/skills/test-guidance",
+  "agent/extensions/agent-rails/engine/guardrails/commands/adapters/pytest/conformance/fixtures",
+  "agent/extensions/agent-rails/skills/setup-repo-proofs",
+  "agent/extensions/agent-rails/skills/test-guidance",
   "agent/skills/omp-config-optimise/experiments/*/fixtures",
   "tests/fixtures",
 ]
@@ -179,4 +179,4 @@ package = false
 required-version = "==0.13.7"
 
 [tool.uv.sources]
-guardrails = { path = "agent/extensions/dynaflows/engine", editable = true }
+guardrails = { path = "agent/extensions/agent-rails/engine", editable = true }

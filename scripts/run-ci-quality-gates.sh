@@ -82,11 +82,11 @@ tracked() {
   git ls-files -z -- "$@" >"$out"
 }
 
-# Imported upstream skills are third-party content copied verbatim (agent/extensions/dynaflows/CONFIG.md);
+# Imported upstream skills are third-party content copied verbatim (agent/extensions/agent-rails/CONFIG.md);
 # their own repository lints them, so no gate here formats or lints them.
 imported_skills=(
-  ':(exclude,glob)agent/extensions/dynaflows/skills/setup-repo-proofs/**'
-  ':(exclude,glob)agent/extensions/dynaflows/skills/test-guidance/**'
+  ':(exclude,glob)agent/extensions/agent-rails/skills/setup-repo-proofs/**'
+  ':(exclude,glob)agent/extensions/agent-rails/skills/test-guidance/**'
 )
 
 code_files=()

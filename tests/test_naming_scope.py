@@ -13,7 +13,7 @@ from typing import Any
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -322,9 +322,9 @@ class ProveScopeTests(NamingScopeCase):
 
     def test_prove_blocks_new_bad_name_but_not_legacy_names_or_placement(self) -> None:
         harness = self.root / "harness"
-        engine = harness / "agent/extensions/dynaflows/engine"
+        engine = harness / "agent/extensions/agent-rails/engine"
         engine.mkdir(parents=True)
-        source_engine = ROOT / "agent/extensions/dynaflows/engine"
+        source_engine = ROOT / "agent/extensions/agent-rails/engine"
         shutil.copyfile(source_engine / "workflows.py", engine / "workflows.py")
         (engine / "guardrails").symlink_to(
             source_engine / "guardrails", target_is_directory=True
