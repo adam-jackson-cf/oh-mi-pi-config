@@ -151,9 +151,9 @@ const shadowDecideCommand = ["uv", "run", "--locked", "--project", resolve(impor
 type Registry = "shipped" | "banded" | "shadow";
 const registryCommands = { shipped: decideCommand, banded: bandedDecideCommand, shadow: shadowDecideCommand } satisfies Record<Registry, string[]>;
 
-function extensionOptions(machine: string, records: string, choices: CommandChoices, judged: JudgeStub): ExtensionOptions {
+function extensionOptions(machine: string, configDir: string, choices: CommandChoices, judged: JudgeStub): ExtensionOptions {
 	const options: ExtensionOptions = {
-		configRoot: records,
+		configRoot: configDir,
 		// The registry's decision store rows go to this harness's machine dir, never ~/.omp/agent.
 		decideCommand: ["sh", "-c", 'PI_CODING_AGENT_DIR="$0" exec "$@"', machine, ...registryCommands[choices.registry]],
 		judge: () => async (state, questions) => {
@@ -180,8 +180,8 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 } = {}) {
 	const root = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-guards-")));
 	const machine = mkdtempSync(join(tmpdir(), "agent-rails-guards-machine-"));
-	const ownedRecords = configRoot === undefined;
-	const records = configRoot ?? realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-guards-records-")));
+	const ownedConfigDir = configRoot === undefined;
+	const configDir = configRoot ?? realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-guards-config-")));
 	execFileSync("git", ["init", "-b", "agent/test", root]);
 	execFileSync("git", ["remote", "add", "origin", remote], { cwd: root });
 	execFileSync("git", ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], { cwd: root });
@@ -234,7 +234,7 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		},
 	};
 	const judged = judgeStub();
-	const options = { ...extensionOptions(machine, records, { configPath, ompCommand, guardrailsCommand, registry }, judged), ...extra };
+	const options = { ...extensionOptions(machine, configDir, { configPath, ompCommand, guardrailsCommand, registry }, judged), ...extra };
 	writeFileSync(join(machine, "worktree-base"), "(not set)\n");
 	mkdirSync(join(machine, "extension"));
 	writeFileSync(join(machine, "extension", "index.ts"), "export {};\n");
@@ -261,9 +261,9 @@ function harness({ configPath, configRoot, remote = defaultOrigin, guardrailsCom
 		return combined;
 	}
 	return {
-		root, notes, errors, branch, context, emit, api, options, records, repoConfigPath, judged,
+		root, notes, errors, branch, context, emit, api, options, configDir, repoConfigPath, judged,
 		pathFailure(message?: string) { pathFailure = message; },
-		cleanup() { for (const dir of [root, machine, ...(ownedRecords ? [records] : [])]) rmSync(dir, { recursive: true, force: true }); },
+		cleanup() { for (const dir of [root, machine, ...(ownedConfigDir ? [configDir] : [])]) rmSync(dir, { recursive: true, force: true }); },
 		setSession(value: string) { sessionId = value; },
 		machine,
 		async tool(name: string, params: ToolParams) {
@@ -561,7 +561,7 @@ export type { Input };
 
 	test("autonomy ask refuses pushes and PR creation per repository, respecting git -C; an invalid config refuses publishing", async () => {
 		const h = harness();
-		const other = harness({ configRoot: h.records, remote: "git@github.com:owner/other.git" });
+		const other = harness({ configRoot: h.configDir, remote: "git@github.com:owner/other.git" });
 		try {
 			forbidGh(h);
 			const commands = ["git push", "gh pr create", ...wrappedPublishing];

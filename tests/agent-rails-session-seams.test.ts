@@ -179,7 +179,7 @@ describe("end-of-turn obligations", () => {
 
 	test("device rollout is opt-in by directive or tool option and met only by an exit 0 run", async () => {
 		const h = harness();
-		const rollout = `python3 ${h.records}/scripts/device_rollout.py`;
+		const rollout = `python3 ${h.configDir}/scripts/device_rollout.py`;
 		try {
 			h.govern();
 			await prompt(h, "ship it");
@@ -192,7 +192,7 @@ describe("end-of-turn obligations", () => {
 			await bashResult(h, rollout);
 			assert.equal(await h.emit("session_stop"), undefined);
 			assert.ok((await h.tool("agentrails", { rollout: true })).includes(rollout));
-			await bashResult(h, `cd ${h.records} && python3 scripts/device_rollout.py 2>&1`);
+			await bashResult(h, `cd ${h.configDir} && python3 scripts/device_rollout.py 2>&1`);
 			assert.equal(await h.emit("session_stop"), undefined, "any spelling that resolves to the config root's script counts");
 			await h.tool("agentrails", { rollout: true });
 			await bashResult(h, "python3 ~/.omp/scripts/device_rollout.py");
@@ -311,10 +311,10 @@ describe("review on restart", () => {
 	});
 
 	test("extension-impact judges a Git revision pair: no stores it silently, yes and escalate keep the review task", async () => {
-		const records = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-impact-")));
-		const extension = join(records, "agent/extensions/agent-rails");
-		const h = harness({ configRoot: records, registry: "banded", extra: { extensionDir: extension } });
-		const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: records });
+		const configDir = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-impact-")));
+		const extension = join(configDir, "agent/extensions/agent-rails");
+		const h = harness({ configRoot: configDir, registry: "banded", extra: { extensionDir: extension } });
+		const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: configDir });
 		const change = (subject: string) => {
 			writeFileSync(join(extension, "index.ts"), `export const subject = ${JSON.stringify(subject)};\n`);
 			git("add", "agent"); git("commit", "-qm", subject);
@@ -322,7 +322,7 @@ describe("review on restart", () => {
 		try {
 			mkdirSync(extension, { recursive: true });
 			git("init", "-q");
-			writeFileSync(join(records, ".gitignore"), "node_modules/\n");
+			writeFileSync(join(configDir, ".gitignore"), "node_modules/\n");
 			git("add", ".gitignore");
 			change("feat: first rails");
 			h.config({ afterMerge: { argv: ["make", "sync"] } });
@@ -365,14 +365,14 @@ describe("review on restart", () => {
 			await h.emit("session_start");
 			const refused = messageText(await prompt(h, "work"));
 			assert.ok(refused.includes("Extension impact: not judged") && refused.includes("thresholds are tuned on typesafe/jev-1.14.0"), refused);
-		} finally { h.cleanup(); rmSync(records, { recursive: true, force: true }); }
+		} finally { h.cleanup(); rmSync(configDir, { recursive: true, force: true }); }
 	});
 
 	test("an extension-impact the repo config turns off is never judged and keeps the review task", async () => {
-		const records = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-impact-off-")));
-		const extension = join(records, "agent/extensions/agent-rails");
-		const h = harness({ configRoot: records, extra: { extensionDir: extension } });
-		const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: records });
+		const configDir = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-impact-off-")));
+		const extension = join(configDir, "agent/extensions/agent-rails");
+		const h = harness({ configRoot: configDir, extra: { extensionDir: extension } });
+		const git = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: configDir });
 		const change = (subject: string) => {
 			writeFileSync(join(extension, "index.ts"), `export const subject = ${JSON.stringify(subject)};\n`);
 			git("add", "agent"); git("commit", "-qm", subject);
@@ -380,7 +380,7 @@ describe("review on restart", () => {
 		try {
 			mkdirSync(extension, { recursive: true });
 			git("init", "-q");
-			writeFileSync(join(records, ".gitignore"), "node_modules/\n");
+			writeFileSync(join(configDir, ".gitignore"), "node_modules/\n");
 			git("add", ".gitignore");
 			change("feat: first rails");
 			h.govern();
@@ -395,7 +395,7 @@ describe("review on restart", () => {
 			assert.equal(h.judged.calls.length, 0, "an off question makes no judge call");
 			const { readJudgmentCalls } = await import("../agent/extensions/agent-rails/lib/judgment-calls.ts");
 			assert.deepEqual(readJudgmentCalls(join(h.machine, "agent-rails", "agent-rails.db")), [], "an off question writes no decision store row");
-		} finally { h.cleanup(); rmSync(records, { recursive: true, force: true }); }
+		} finally { h.cleanup(); rmSync(configDir, { recursive: true, force: true }); }
 	});
 
 	test("a repository that is not governed only notifies and stores the new revision", async () => {

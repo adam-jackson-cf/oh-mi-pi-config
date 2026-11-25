@@ -89,7 +89,7 @@
       "summary": "Require files to live under their declared capability owner.",
       "remediation": {
         "root_cause": "The file was created where it was convenient rather than under the capability that owns its behaviour in the target's ownership map.",
-        "fix": "Move the file under its declared capability owner, update imports and tests with it, and extend the ownership map only through an owner-approved record change when no owner fits."
+        "fix": "Move the file under its declared capability owner, update imports and tests with it, and extend the ownership map only through an owner-approved .agentrails/config.json change when no owner fits."
       },
       "reference": [
         {
@@ -215,7 +215,7 @@
         "bundle_root_without_python_ends_the_search": true,
         "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the profile's layout fixtures_dir and support_dir, and every profile test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
-        "exceptions": "record exceptions entries {rule, path, reason}",
+        "exceptions": "config exceptions entries {rule, path, reason}",
         "diagnostic_names_file_and_code_folder": true
       },
       "summary": "Reject runtime data and template files inside a folder of Python code.",
@@ -246,7 +246,7 @@
         "reject_entry_modules_deeper_than_top_tier": true,
         "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the profile's layout fixtures_dir and support_dir, and every profile test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
-        "internal_tool_exemption": "an owner-approved record exceptions entry {rule, path, reason}",
+        "internal_tool_exemption": "an owner-approved config exceptions entry {rule, path, reason}",
         "diagnostic_names_file_depth_and_package": true
       },
       "summary": "Keep __main__.py and cli.py entry modules in their package's top tier.",
@@ -272,7 +272,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "unit": "the .py files directly in one folder below the repository root, outside folders named __pycache__, build, dist, examples, fixtures, migrations, node_modules, site-packages, test, testing, tests, third_party or vendor, hidden folders, and any folder at or below one holding SKILL.md, after the record's check and python exclusions",
+        "unit": "the .py files directly in one folder below the repository root, outside folders named __pycache__, build, dist, examples, fixtures, migrations, node_modules, site-packages, test, testing, tests, third_party or vendor, hidden folders, and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
         "definitions": "top-level functions and classes and the methods of top-level classes spanning at least 5 lines, with docstrings and comments removed",
         "tokens": "identifiers and single non-space characters",
         "features": "the set of token 3-grams; definitions with fewer than 15 are dropped",
@@ -289,7 +289,7 @@
           "labelled_pairs": "235 council-labelled unit pairs from the owner's projects, leave-one-repository-out cutoff",
           "note": "the owner accepted 0.74 held-out precision as a pass"
         },
-        "exceptions": "a record exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
+        "exceptions": "a config exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
         "diagnostic_names_both_units_and_closest_definition_pair": true
       },
       "summary": "Reject a changed folder whose Python code repeats another folder's code.",
@@ -336,7 +336,7 @@
           "baselines": "flag every cluster 47/63 = 0.75; the Jev question alone 46/60 = 0.77, so Jev added nothing",
           "synthetic": "council agreed with the intended label on 39/40 synthetic clusters"
         },
-        "exceptions": "a record exceptions entry {rule, path, reason} on the folder or any member suppresses the cluster",
+        "exceptions": "a config exceptions entry {rule, path, reason} on the folder or any member suppresses the cluster",
         "diagnostic_names_prefix_members_and_closest_pair": true
       },
       "summary": "Reject sibling files sharing a name prefix that implement one concept outside a folder named for it.",
@@ -366,9 +366,9 @@
           "match": "the whole nonempty parent token sequence occurs contiguously and in order anywhere in the child directory name or file stem token sequence",
           "tokens": "split on underscores, hyphens, dots, ASCII lowercase-or-digit to uppercase boundaries, and acronym-to-capitalized-word boundaries; discard empty tokens and compare case-insensitively",
           "files": "the final path segment uses its house-style stem (before the first dot, except dotfiles)",
-          "conventions": "language convention packs exempt Python __init__.py and __main__.py and Go package filenames from parent repetition, supported by ecosystem references; other exceptions require an owner-approved reason in the record",
+          "conventions": "language convention packs exempt Python __init__.py and __main__.py and Go package filenames from parent repetition, supported by ecosystem references; other exceptions require an owner-approved reason in the config",
           "check": "child-repeats-parent",
-          "exceptions": "record exceptions entries require rule, path and nonempty reason; path uses shared profile matching (fnmatchcase for globs, path or descendants for plain paths); optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
+          "exceptions": "config exceptions entries require rule, path and nonempty reason; path uses shared profile matching (fnmatchcase for globs, path or descendants for plain paths); optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
           "whole_words_only": "a single-token parent counts as a whole word in a longer child (guardrails/omp_guardrails), never as a substring (rail/guardrails); partial or reordered multi-token parents do not count"
         }
       },
@@ -599,7 +599,7 @@
       "summary": "Run harness-owned changed-path checks over config settings with actionable per-file errors.",
       "remediation": {
         "root_cause": "Changed paths reach a commit without the harness path check, so per-file structure and naming errors surface late.",
-        "fix": "Run guardrails path-check over the record settings for every changed path and fix each reported file before committing."
+        "fix": "Run guardrails path-check over the config settings for every changed path and fix each reported file before committing."
       },
       "reference": [
         {
@@ -660,7 +660,7 @@
       "summary": "Preserve or deliberately adapt mypy setting exclude.",
       "remediation": {
         "root_cause": "The mypy exclude setting drifted from the approved value, which silently removes or adds files from type checking.",
-        "fix": "Restore the approved exclude value so every owned file is checked, and change it only through an owner-approved record edit with the reason."
+        "fix": "Restore the approved exclude value so every owned file is checked, and change it only through an owner-approved config edit with the reason."
       }
     },
     {
@@ -845,7 +845,7 @@
       "summary": "Maintained Python source roots",
       "remediation": {
         "root_cause": "Python source sits outside the declared maintained source roots, so policy checks do not see it as owned code.",
-        "fix": "Move the module under a declared source root, or add the root to the record through an owner-approved change when it is genuinely maintained code."
+        "fix": "Move the module under a declared source root, or add the root to the config through an owner-approved change when it is genuinely maintained code."
       },
       "reference": [
         {
@@ -3314,7 +3314,7 @@
         "unreadable_commits_are_a_finding": true,
         "candidate": "a .py file other than __init__.py with at least one top-level def or class, directly in a folder whose last segment is a technical-kind word (models, schemas, services, handlers, controllers, utils, helpers, types, adapters, clients, managers, constants, exceptions, interfaces, repositories, validators, serializers, middleware, mixins, enums, dto, entities, manager, in singular or plural form), outside hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles",
         "scope": "candidates whose file is added, modified or renamed in base..head",
-        "exceptions": "a record exceptions entry {rule: structure-naming/technical_kind_grouping, path, reason} on the file drops it before judgment"
+        "exceptions": "a config exceptions entry {rule: structure-naming/technical_kind_grouping, path, reason} on the file drops it before judgment"
       },
       "summary": "Report unreadable base or head commits when proposing structure-naming kind-folder files.",
       "remediation": {
@@ -3337,7 +3337,7 @@
         "unreadable_commits_are_a_finding": true,
         "candidate": "a .py file other than __init__.py with an ancestor package folder below the repository root, outside repository-root tests, fixtures, migrations, build and scripts folders, hidden, node_modules, vendor, third_party, __pycache__, dist, build and examples folders and SKILL.md bundles, that has a run marker (main guard, argparse, click, typer, fire, streamlit, Dash, gradio, Flask, FastAPI, a textual App or rich.live), that no other tracked .py file imports, that no non-test .py file names by path (a string ending in its path, or its bare file name inside its own package) or by module string (as runpy or python -m take it), docstrings excepted, and that no [project.scripts], gui-scripts, poetry scripts or setup console entry names",
         "scope": "candidates whose file is added, modified or renamed in base..head",
-        "exceptions": "a record exceptions entry {rule: structure-naming/consumer_placement, path, reason} on the file drops it before judgment"
+        "exceptions": "a config exceptions entry {rule: structure-naming/consumer_placement, path, reason} on the file drops it before judgment"
       },
       "summary": "Report unreadable base or head commits when proposing structure-naming consumer files.",
       "remediation": {
@@ -3367,7 +3367,7 @@
         ],
         "det_score": "0.5 * name_sim + 0.5 * body_sim",
         "scope": "pairs with at least one name defined in a file added, modified or renamed in base..head",
-        "exceptions": "a record exceptions entry {rule: structure-naming/same_thing, path, reason} on either name's file drops the pair before judgment"
+        "exceptions": "a config exceptions entry {rule: structure-naming/same_thing, path, reason} on either name's file drops the pair before judgment"
       },
       "summary": "Report unreadable base or head commits when proposing structure-naming name pairs.",
       "remediation": {

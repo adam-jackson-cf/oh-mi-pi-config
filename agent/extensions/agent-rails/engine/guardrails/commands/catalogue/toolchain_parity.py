@@ -599,7 +599,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 LOCAL_CI,
                 "guardrails toolchain-parity",
                 f"toolchain-parity takes no arguments, got {argv}",
-                "run it without arguments; its sections are record settings",
+                "run it without arguments; it reads the config's toolchain_parity settings",
             )
         ]
     options = settings(config, "toolchain_parity")

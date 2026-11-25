@@ -103,12 +103,6 @@ class ConfigCliTests(CliCase):
         assert (code, out) == (2, "")
         assert err.startswith("config invalid: tests.adapters[0].name: ")
 
-    def test_the_retired_record_option_is_not_a_location(self) -> None:
-        self.write_config(fixture())
-        with pytest.raises(SystemExit):
-            self.run_cli(*self.located("naming"), "--record", "/tmp/x")
-        assert self.run_cli("naming", "--repo")[0] == 2
-
     def test_gates_rules_switch_off_single_code_check_rules(self) -> None:
         config = fixture()
         self.write_config(config)

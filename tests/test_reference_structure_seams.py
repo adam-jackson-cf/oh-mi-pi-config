@@ -517,15 +517,11 @@ class CheckerCliTests(CheckerCase):
         self.write_profile()
         assert self.run_cli("check") == (0, "check: ok\n")
 
-    def test_check_refuses_a_repo_owned_step_the_record_cannot_trust(self) -> None:
+    def test_check_refuses_a_repo_owned_step_the_harness_cannot_trust(self) -> None:
         cases = {
             "unknown step": (
                 {"repo": {"python-lint": ["checks/lint.py"]}},
                 "checkers.check.repo names 'python-lint'",
-            ),
-            "record check": (
-                {"repo": {"profile-check": ["checks/lint.py"]}},
-                "checkers.check.repo names 'profile-check'",
             ),
             "harness path check": (
                 {"repo": {"path-check": ["src/orders/cli/main.py"]}, "exclude": ["**"]},
@@ -596,26 +592,24 @@ class ImportGraphTests(unittest.TestCase):
     }
     FIXTURE = json.loads((FIXTURES / "import-graph.json").read_text())
 
-    def make_repo(
-        self, files: dict[str, str], profile: dict[str, Any]
-    ) -> tuple[Path, Path]:
+    def make_repo(self, files: dict[str, str], profile: dict[str, Any]) -> Path:
         scratch = tempfile.TemporaryDirectory(prefix="omp-import-graph-")
         self.addCleanup(scratch.cleanup)
-        repo, record = Path(scratch.name) / "repo", Path(scratch.name) / "record"
+        repo = Path(scratch.name) / "repo"
         run_attached(["git", "init", "-q", str(repo)], check=True, timeout=60)
         write_config(repo, config(**profile))
         for path, text in files.items():
             target = repo / path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text)
-        return repo, record
+        return repo
 
     def test_graph_rules_have_violating_and_conforming_public_outcomes(self) -> None:
         outcomes = ("violating", "conforming")
         for case, outcome in itertools.product(self.FIXTURE["cases"], outcomes):
             with self.subTest(case=case["name"], outcome=outcome):
                 profile = copy.deepcopy(self.FIXTURE["config"])
-                repo, record = self.make_repo(case[outcome], profile)
+                repo = self.make_repo(case[outcome], profile)
                 expected = set(case["paths"]) if outcome == "violating" else set()
                 for checker in (layout, paths):
                     findings = checker.run(repo, profile, ["--all"])
@@ -635,7 +629,7 @@ class ImportGraphTests(unittest.TestCase):
         case = self.FIXTURE["cases"][0]
         profile = copy.deepcopy(self.FIXTURE["config"])
         del profile["structure"]["import_direction"]
-        repo, _ = self.make_repo(case["violating"], profile)
+        repo = self.make_repo(case["violating"], profile)
         for checker in (layout, paths):
             assert not {f.rule_id for f in checker.run(repo, profile, [])} & self.RULES
 
@@ -644,13 +638,13 @@ class ImportGraphTests(unittest.TestCase):
         profile["structure"]["import_direction"]["scan"] = ["src/orders/commands"]
         files = dict(self.FIXTURE["cases"][0]["violating"])
         files["src/orders/shared/broken.py"] = "this is not Python!\n"
-        repo, _ = self.make_repo(files, profile)
+        repo = self.make_repo(files, profile)
         for checker in (layout, paths):
             assert not {f.rule_id for f in checker.run(repo, profile, [])} & self.RULES
 
     def test_unused_shared_tier_fails_but_driving_tier_does_not(self) -> None:
         profile = copy.deepcopy(self.FIXTURE["config"])
-        repo, _ = self.make_repo(
+        repo = self.make_repo(
             {
                 "src/orders/shared/model.py": "VALUE = 1\n",
                 "src/orders/commands/export.py": "VALUE = 1\n",

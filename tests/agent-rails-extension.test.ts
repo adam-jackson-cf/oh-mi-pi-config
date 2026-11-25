@@ -66,5 +66,5 @@ test("instructions the rails enforce or the owner dropped are gone; the unenforc
 	for (const unenforced of ["no Git in the NUC's", "restart sessions after rail changes"]) {
 		assert.ok(limits.includes(unenforced), `the agent-rails known limits list ${unenforced} as not enforced`);
 	}
-	assert.equal(existsSync(join(root, ".omp/AGENTS.md")), false, "repo facts live in the record docs and schema");
+	assert.equal(existsSync(join(root, ".omp/AGENTS.md")), false, "repo facts live in the agent-rails config docs and schema");
 });

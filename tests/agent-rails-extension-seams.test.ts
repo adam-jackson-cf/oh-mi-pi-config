@@ -118,7 +118,7 @@ describe("agent-rails extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("agent-rails commits run the record's checks.commit, then the whole-repo harness checks, without AGENT", async () => {
+	test("agent-rails commits run the config's commands.commit, then the whole-repo harness checks, without AGENT", async () => {
 		const scratch = realpathSync(mkdtempSync(join(tmpdir(), "agent-rails-guards-commit-")));
 		const log = join(scratch, "runs.log");
 		const script = join(scratch, "check.sh");
@@ -935,7 +935,7 @@ test("linked worktrees resolve the main checkout's config", async () => {
 	} finally { h.cleanup(); rmSync(linked, { recursive: true, force: true }); }
 });
 
-test("mise commits run the record's checks in a real repository", async () => {
+test("mise commits run the config's commit command in a real repository", async () => {
 	const h = harness();
 	try {
 		h.govern();
@@ -948,7 +948,7 @@ test("mise commits run the record's checks in a real repository", async () => {
 
 test("mise directory options resolve the wrapped commit repository", async () => {
 	const h = harness();
-	const target = harness({ configRoot: h.records, remote: "git@github.com:owner/target.git" });
+	const target = harness({ configRoot: h.configDir, remote: "git@github.com:owner/target.git" });
 	try {
 		target.config({ commands: { commit: ["true"] } });
 		target.govern();
@@ -958,7 +958,7 @@ test("mise directory options resolve the wrapped commit repository", async () =>
 			`mise exec --cd='${target.root}' node@20 -- git commit -m x`,
 		]) {
 			const enforced = await h.call("bash", { command });
-			assert.ok(reasonOf(enforced).includes(`commands.commit (false) failed in ${target.root}`), `the wrapped repo's record is enforced: ${command}`);
+			assert.ok(reasonOf(enforced).includes(`commands.commit (false) failed in ${target.root}`), `the wrapped repo's config is enforced: ${command}`);
 		}
 		const unresolved = await h.call("bash", { command: "mise x -C /nonexistent-rails-directory -- git commit -m x" });
 		assert.equal(isBlocked(unresolved), true);
@@ -988,7 +988,7 @@ test.each(["outside", "governed"])("repo-scoped harness process runs only in a g
 
 test("edit and handoff policy follows each edited repo, not the session cwd", async () => {
 	const h = harness();
-	const other = harness({ configRoot: h.records, remote: "https://gitlab.com/owner/other.git" });
+	const other = harness({ configRoot: h.configDir, remote: "https://gitlab.com/owner/other.git" });
 	try {
 		h.govern();
 		h.pathFailure("enabled repo violation");

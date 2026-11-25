@@ -80,9 +80,6 @@
   "placeholder-in-tests.json": [
     "tests.coverage.where: is missing (placeholder, sentinel or empty)"
   ],
-  "profile-check-step.json": [
-    "checkers.check.run: names unknown steps ['profile-check']; choose from ['python-quality', 'python-fanout', 'python-scalability', 'surface-lint', 'adapter lint', 'python-test-hygiene']"
-  ],
   "ratchet-approvals-in-checkers.json": [
     "checkers.coverage_ratchet.approvals: is refused: record each entry in approvals as kind 'ratchet'"
   ],
@@ -91,6 +88,9 @@
   ],
   "stale-questionnaire-version.json": [
     "onboarding.questionnaireVersion: is 2 but the extension's questionnaire is version 1; ask the owner to run /agentrails configure"
+  ],
+  "unknown-check-step.json": [
+    "checkers.check.run: names unknown steps ['lint-everything']; choose from ['python-quality', 'python-fanout', 'python-scalability', 'surface-lint', 'adapter lint', 'python-test-hygiene']"
   ],
   "unknown-checker-section.json": [
     "checkers.exceptions: is not a config key; remove it or fix its spelling"

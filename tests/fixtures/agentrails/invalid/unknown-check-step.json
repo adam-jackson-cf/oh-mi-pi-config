@@ -56,7 +56,7 @@
   "checkers": {
     "check": {
       "run": [
-        "profile-check",
+        "lint-everything",
         "python-quality"
       ]
     }

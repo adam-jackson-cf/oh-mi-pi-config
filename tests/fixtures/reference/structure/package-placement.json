@@ -1,5 +1,5 @@
 {
-  "about": "Code-folder and package layouts for STRUCT.runtime-data-placement and STRUCT.entry-point-placement: each case lists the head inventory, the changed paths (all of the inventory when omitted), an optional profile and the expected [rule, path] findings after record exceptions.",
+  "about": "Code-folder and package layouts for STRUCT.runtime-data-placement and STRUCT.entry-point-placement: each case lists the head inventory, the changed paths (all of the inventory when omitted), an optional profile and the expected [rule, path] findings after config exceptions.",
   "cases": [
     {
       "name": "runtime data inside a code package",
