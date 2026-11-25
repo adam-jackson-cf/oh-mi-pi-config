@@ -24,7 +24,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Owner command | omp core | `/agentrails` onboard, configure, export, import, status |
 | Interactive UI | omp core | `ctx.hasUI`: the Q&A and other prompting subcommands need it |
 | omp tools | omp core | `bash`, `edit`, `ast_edit`, `write`, `eval`, `read`, `xd://`, `skill://` |
-| omp eval kernel | omp core | Runs `workflows.py`; gives `agent`, `wait`, `judge` |
+| omp eval kernel | omp core | Runs `lib/rails_kernel.py`; gives `agent`, `wait`, `judge` |
 | Bun runtime | omp core | `Bun.YAML` reads `rails.yml`; `Bun.Glob` matches globs; `bun:sqlite` |
 | Folder rules | `agent/extensions/AGENTS.md` | No `node_modules` imports; zod from omp |
 | Health marker | `agent/extensions/extension-health.ts` | Expects agent-rails to register |
@@ -82,7 +82,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Config tests | `tests/test_repo_config*.py` | Engine `context/config/validator.py` |
 | Config fixtures | `tests/fixtures/agentrails` | Valid and invalid repo configs |
 | Engine tests | `ENGINE_TESTS` in `tests/test_rule_catalogue.py` | Checkers, adapters, `init` |
-| Workflow tests | `tests/test_workflows*.py` | `engine/workflows.py` |
+| Kernel tests | `tests/test_rails_kernel*.py` | `lib/rails_kernel.py` |
 | Judgment tests | `tests/test_*judgment*.py` | `judgments/` data and version keys |
 | Judged rails tests | `tests/agent-rails-judged-rails-seams.test.ts` | Stubbed judge transport |
 | Tool settings | `tests/test_native_tool_settings.py` | Root ruff, mypy match engine |
@@ -119,7 +119,7 @@ unless they start with `~` or `<`; `tests/agent-rails-extension.test.ts` checks 
 | Python | `~/.local/share/uv/python` | uv-managed CPython |
 | Secrets | Infisical | `TYPESAFE_API_KEY` judge key; gate status token |
 | Decision store | `~/.omp/agent/agent-rails/agent-rails.db` | Decisions, reviews, rails ledger |
-| Store schema | `agent/extensions/agent-rails/engine/guardrails/data/decision-store.sql` | SQL |
+| Store schema | `agent/extensions/agent-rails/engine/data/decision-store.sql` | SQL |
 | NUC | `codex-omarchy-nuc` | `nuc-config` runs `ci_gate.py`; shadow review reads its store |
 
 ## Devices and GitHub

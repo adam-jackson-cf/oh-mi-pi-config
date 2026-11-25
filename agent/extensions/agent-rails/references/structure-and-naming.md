@@ -1,7 +1,7 @@
 # Structure and naming
 
 A path shows its owner and dependency direction; a name says what a thing holds or does, with one name per concept.
-[house-style.json](../engine/guardrails/data/house-style.json) holds the language-neutral word lists,
+[house-style.json](../engine/data/house-style.json) holds the language-neutral word lists,
 `v<N>` patterns and the plural allowlist. Extension-selected [language and tooling packs](../engine/guardrails/foundation/conventions.py)
 own ecosystem casing, fixed names and test layout. Judgment decisions live in `judgments/structure-naming/thresholds.json`;
 every `structure_review()` finding blocks merge.

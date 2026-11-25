@@ -1,11 +1,11 @@
-# guardrails
+# Engine
 
 `guardrails` is the harness's Python engine for the [rule
-catalogue](guardrails/data/guardrail-rules.json), which ships inside the
-package. This `engine/` folder is the `guardrails` project. It runs from this
-folder in the harness and inspects a repository from outside. Repositories
-never install, pin, copy or mention it. A behaviour the settings cannot
-express is a change to this package, made here.
+catalogue](../engine/data/guardrail-rules.json). The [`engine/`](../engine)
+folder is the `guardrails` project: the `guardrails` package and its run-time
+data in `engine/data/`. It runs from that folder in the harness and inspects a
+repository from outside. Repositories never install, pin, copy or mention it.
+A behaviour the settings cannot express is a change to this package, made here.
 
 ## Run
 
@@ -36,15 +36,15 @@ guardrails --help
 - Child processes that run repository code never see harness variables such
   as `AGENT` (`guardrails/foundation/child_env.py`).
 
-`uv.lock` locks the harness environment. `check` needs only the base
+`engine/uv.lock` locks the harness environment. `check` needs only the base
 dependencies. The pytest adapter's `tiers` and `conformance` actions need the
-`pytest` extra (`requirements-pytest.lock` pins it with hashes for the
+`pytest` extra (`engine/requirements-pytest.lock` pins it with hashes for the
 container).
 
 ## Layers
 
-The package has seven layers. A module imports only its own layer or a lower
-one, and two parts of one layer never import each other.
+The package has seven layers, lowest first. A module imports only its own layer
+or a lower one, and two parts of one layer never import each other.
 
 | Layer | Holds |
 | --- | --- |
@@ -58,6 +58,11 @@ one, and two parts of one layer never import each other.
 
 `tests/test_structure.py` checks these layers with the
 `path-check` import rules.
+
+`data/`, beside the package, is not a layer. It holds the run-time data: the
+rule catalogue, house style, convention packs, config template, adapter source
+patterns, conformance cases and the decision-store schema. Each module that reads
+a data file names it by explicit path (`DATA_FOLDER`).
 
 ## Adapters
 
@@ -173,9 +178,9 @@ Per-repository values live in the repo config's setup sections: `commands`,
 `checkers` (one object per checker), `structure`, `houseStyle` and `tests`.
 Owner exceptions and approvals live in its `exceptions` and `approvals`
 sections. `guardrails config-check` validates the file
-([validator.py](guardrails/context/config/validator.py) is the validator); the
-section template is [config-template.json](guardrails/data/config-template.json).
-The [config contract](../docs/config.md) defines every section, its writer and its rules.
+([validator.py](../engine/guardrails/context/config/validator.py) is the validator); the
+section template is [config-template.json](../engine/data/config-template.json).
+The [config contract](config.md) defines every section, its writer and its rules.
 
 Each checker module's docstring lists its settings and defaults. Defaults grant
 nothing: an unset allowlist approves no path, and an unset rule scope covers
@@ -199,7 +204,7 @@ and YAML must invoke that pinned formatter.
 
 ## Language coverage
 
-Convention packs (`guardrails/data/conventions/`) against the verification layers. The
+Convention packs (`engine/data/conventions/`) against the verification layers. The
 `tooling` pack holds no source code, so only its fixed names apply. A repository declares
 one adapter per framework it uses, so one stack can use several adapters.
 

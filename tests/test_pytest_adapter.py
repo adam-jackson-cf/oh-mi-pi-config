@@ -293,7 +293,7 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
 
 def adapter_lint_rules() -> list[dict[str, Any]]:
     patterns: list[dict[str, Any]] = json.loads(
-        (ENGINE / "guardrails/data/pytest-patterns.json").read_text()
+        (ENGINE / "data/pytest-patterns.json").read_text()
     )
     return patterns
 

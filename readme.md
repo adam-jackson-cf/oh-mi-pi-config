@@ -170,8 +170,8 @@ in `.agentrails/config.json` in its main checkout, kept out of git through
 [The config contract](agent/extensions/agent-rails/docs/config.md) defines its sections, their writers,
 strict validation and export and import. Agent tools never write it. A repository whose config
 is missing or invalid is refused with the onboarding text, naming the slug and the engine's
-problems; `workflows.py` refuses with the same route to `/agentrails onboard`. Rails and
-`workflows.py` strip the harness's `AGENT` variable from every repo command they run.
+problems; `rails_kernel.py` refuses with the same route to `/agentrails onboard`. Rails and
+`rails_kernel.py` strip the harness's `AGENT` variable from every repo command they run.
 
 The owner manages the config with `/agentrails`, an owner slash command that agents cannot run.
 Subcommands that prompt need an interactive omp session.
@@ -346,7 +346,7 @@ gh workflow run ci-quality-gates.yml --repo adam-jackson-cf/oh-mi-pi-config --re
 
 Root `pyproject.toml` and `uv.lock` pin ruff, mypy, pytest and pytest-cov for every owned Python
 file. The ruff and mypy settings mirror the harness catalogue,
-`agent/extensions/agent-rails/engine/guardrails/data/native-tools.json`; change both together.
+`agent/extensions/agent-rails/engine/data/native-tools.json`; change both together.
 
 ```bash
 uv sync --locked
@@ -393,12 +393,12 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/extensions/agent-rails/judgments/` — calibrated judgments behind `decide()`; the
   opt-in Jev Inspector route is `agent/extensions/agent-rails/inspector.env`.
 - `agent/extensions/agent-rails/engine/` — harness-side checkers and the rule catalogue
-  (`guardrails/data/guardrail-rules.json`), run outside inspected repositories.
+  (`data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.
-- `agent/extensions/agent-rails/docs/` — the per-repo config contract, design directive, known
-  limits and external dependencies; the extension's `README.md` is the entry point.
-- `agent/extensions/agent-rails/lib/` — the guards, rails runtime, Git paths and the repo
-  config resolver.
+- `agent/extensions/agent-rails/docs/` — the per-repo config contract, the engine, design
+  directive, known limits and external dependencies; the extension's `README.md` is the entry point.
+- `agent/extensions/agent-rails/lib/` — the guards, rails runtime, Git paths, the repo
+  config resolver and the eval-kernel API for proofs and judgments (`rails_kernel.py`).
 - `agent/extensions/agent-rails/rails.yml` — the tool and command mappings the rails read: edit tools,
   path fields and the Git-write and `askFirst` command patterns.
 - `agent/extensions/` — tracked runtime extensions, including extension-health

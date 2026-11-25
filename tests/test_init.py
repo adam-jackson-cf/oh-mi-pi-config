@@ -39,7 +39,7 @@ pytestmark = pytest.mark.seam
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
 
-CATALOGUE = ENGINE / "guardrails/data/guardrail-rules.json"
+CATALOGUE = ENGINE / "data/guardrail-rules.json"
 # Repositories stay unaware of the harness: its names may not appear in what init proposes or prints.
 # The git-excluded .agentrails/ directory is the one allowed mention.
 HARNESS_NAME = re.compile(r"agent-rails|(?<!\.)\bagentrails\b|harness", re.IGNORECASE)
@@ -241,7 +241,7 @@ class DraftSectionTests(InitCase):
 
     def test_the_template_is_engine_data_holding_the_setup_sections(self) -> None:
         assert tuple(sections_draft.template()) == sections_draft.SETUP_SECTIONS
-        assert (ENGINE / "guardrails/data/config-template.json").is_file()
+        assert (ENGINE / "data/config-template.json").is_file()
         assert not list((ENGINE / "guardrails/commands/init").glob("*.md"))
 
     def test_the_repo_config_seeds_the_draft_and_its_values_are_kept(self) -> None:

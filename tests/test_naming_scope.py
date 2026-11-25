@@ -322,12 +322,18 @@ class ProveScopeTests(NamingScopeCase):
 
     def test_prove_blocks_new_bad_name_but_not_legacy_names_or_placement(self) -> None:
         harness = self.root / "harness"
-        engine = harness / "agent/extensions/agent-rails/engine"
-        engine.mkdir(parents=True)
-        source_engine = ROOT / "agent/extensions/agent-rails/engine"
-        shutil.copyfile(source_engine / "workflows.py", engine / "workflows.py")
-        (engine / "guardrails").symlink_to(
-            source_engine / "guardrails", target_is_directory=True
+        extension = harness / "agent/extensions/agent-rails"
+        (extension / "engine").mkdir(parents=True)
+        (extension / "lib").mkdir()
+        source_extension = ROOT / "agent/extensions/agent-rails"
+        shutil.copyfile(
+            source_extension / "lib/rails_kernel.py", extension / "lib/rails_kernel.py"
+        )
+        (extension / "engine/guardrails").symlink_to(
+            source_extension / "engine/guardrails", target_is_directory=True
+        )
+        (extension / "engine/data").symlink_to(
+            source_extension / "engine/data", target_is_directory=True
         )
         self.git("remote", "add", "origin", "https://github.com/scope/catalogue.git")
         write_config(
@@ -366,9 +372,9 @@ class ProveScopeTests(NamingScopeCase):
             self.environment, PATH=str(binary) + os.pathsep + os.environ.get("PATH", "")
         )
         driver = (
-            "import json, sys; sys.path.insert(0, sys.argv[1]); import workflows; "
+            "import json, sys; sys.path.insert(0, sys.argv[1]); import rails_kernel; "
             "r, p, h, m, d, o, t = sys.argv[2:9]; "
-            "print(json.dumps(workflows.prove(r, p, h, (m, d), o, target_ref=t)))"
+            "print(json.dumps(rails_kernel.prove(r, p, h, (m, d), o, target_ref=t)))"
         )
 
         def prove() -> dict[str, Any]:
@@ -380,7 +386,7 @@ class ProveScopeTests(NamingScopeCase):
                     "-S",
                     "-c",
                     driver,
-                    str(engine),
+                    str(extension / "lib"),
                     str(self.repo),
                     self.base,
                     head,

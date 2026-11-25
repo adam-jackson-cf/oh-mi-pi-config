@@ -1,7 +1,7 @@
 # Proofs and merge
 
 What `freeze()`, `prove()` and `structure_review()` require, and how a merge uses their results.
-Load them in an eval cell: `%load <extension>/engine/workflows.py`. Policy comes from the repo's
+Load them in an eval cell: `%load <extension>/lib/rails_kernel.py`. Policy comes from the repo's
 [config](../docs/config.md), `.agentrails/config.json` in its main checkout, never from the repo tree.
 
 ## Binding test policy

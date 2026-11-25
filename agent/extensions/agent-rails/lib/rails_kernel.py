@@ -1,4 +1,5 @@
-"""Proof-first verification (TDD: red at base, green at head) and blind labels; load in the OMP Python eval kernel."""
+"""The rails' eval-kernel API: proofs (freeze, prove), the judgment registry (decide, rail_bridge),
+dependency-advisory triage, structure_review() and blind labels; %load it in the OMP Python eval kernel."""
 
 import copy
 import dataclasses
@@ -25,7 +26,7 @@ CHECK_TIMEOUT = 900
 # Harness prechecks have their own budget, independent of repo proof execution.
 HARNESS_CHECK_TIMEOUT = 900
 # Every refusal for a repo without a valid .agentrails/config.json routes to onboarding.
-GUARDRAIL_PREREQUISITE = "ask the owner to run /agentrails onboard"
+ONBOARDING_PREREQUISITE = "ask the owner to run /agentrails onboard"
 HEAD_RUNS = 2
 JOURNEY_RUNS = 3
 # Every current manifest and proof field; any other field is rejected by name.
@@ -54,11 +55,11 @@ FEATURE_MAP_SETUP = (
 )
 
 
-class WorkflowError(RuntimeError):
+class RailsKernelError(RuntimeError):
     pass
 
 
-class ProveBlockedError(WorkflowError):
+class ProveBlockedError(RailsKernelError):
     """A prerequisite failed; report the reason itself rather than as infrastructure."""
 
 
@@ -90,8 +91,8 @@ def _kernel(name: str) -> Callable[..., Any]:
     """An OMP eval kernel global (agent, wait, judge, judge_batch); the kernel injects them when it %load-s this file."""
     function: object = globals().get(name)
     if not callable(function):
-        raise WorkflowError(
-            f"{name}() is unavailable: %load workflows.py in the OMP Python eval kernel"
+        raise RailsKernelError(
+            f"{name}() is unavailable: %load rails_kernel.py in the OMP Python eval kernel"
         )
     return function
 
@@ -114,8 +115,8 @@ def _check_options(function: str, options: Mapping[str, object], accepted: Any) 
 
 def _harness_root() -> Path:
     if not _LOADED_FROM:
-        raise WorkflowError(
-            "cannot locate the harness: workflows.py was loaded without __file__"
+        raise RailsKernelError(
+            "cannot locate the harness: rails_kernel.py was loaded without __file__"
         )
     return Path(_LOADED_FROM).resolve().parents[4]
 
@@ -134,14 +135,14 @@ def _guardrails_modules(names: tuple[str, ...], purpose: str) -> list[ModuleType
     if loaded is not None and not Path(loaded.__file__ or "").resolve().is_relative_to(
         package
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"guardrails already loaded from {loaded.__file__}, not the harness engine {engine}"
         )
     sys.path.insert(0, str(engine))
     try:
         return [importlib.import_module(name) for name in names]
     except (OSError, SyntaxError, ImportError) as exc:
-        raise WorkflowError(f"cannot load the {purpose}: {exc}") from exc
+        raise RailsKernelError(f"cannot load the {purpose}: {exc}") from exc
     finally:
         sys.path.remove(str(engine))
 
@@ -187,7 +188,7 @@ def not_onboarded_reason(repo: StrPath, kind: str) -> str:
     """The refusal for a repo whose config is missing, invalid, unresolved or outside."""
     return (
         f"agent rails: {repo} is not onboarded (.agentrails/config.json {kind}); "
-        f"{GUARDRAIL_PREREQUISITE}"
+        f"{ONBOARDING_PREREQUISITE}"
     )
 
 
@@ -206,7 +207,7 @@ def read_config(repo: StrPath) -> dict[str, Any]:
     try:
         config: dict[str, Any] = module.load_config(repo)
     except module.ConfigError as exc:
-        raise WorkflowError(not_onboarded_reason(repo, exc.kind)) from exc
+        raise RailsKernelError(not_onboarded_reason(repo, exc.kind)) from exc
     return config
 
 
@@ -222,7 +223,7 @@ def judgment_config(cwd: StrPath) -> dict[str, Any] | None:
     except module.ConfigError as exc:
         if exc.kind in UNCONFIGURED_KINDS:
             return None
-        raise WorkflowError(not_onboarded_reason(cwd, exc.kind)) from exc
+        raise RailsKernelError(not_onboarded_reason(cwd, exc.kind)) from exc
     return config
 
 
@@ -268,7 +269,7 @@ def run_check(
 ) -> tuple[bool, str]:
     """Run without harness variables; retain all diagnostics unless stdout_only selects successful stdout."""
     if not _is_argv(cmd):
-        raise WorkflowError("cmd must be argv")
+        raise RailsKernelError("cmd must be argv")
     env = {key: value for key, value in os.environ.items() if key not in HARNESS_ENV}
     try:
         p = _run_text(
@@ -287,11 +288,11 @@ def run_check(
                 else value or ""
             )
 
-        raise WorkflowError(
+        raise RailsKernelError(
             f"timeout: {exc}\n{decode(exc.stdout)}{decode(exc.stderr)}"
         ) from exc
     except (OSError, ValueError) as exc:
-        raise WorkflowError(f"launch error: {exc}") from exc
+        raise RailsKernelError(f"launch error: {exc}") from exc
     ok = p.returncode == 0
     return ok, p.stdout if ok and stdout_only else p.stdout + p.stderr
 
@@ -300,9 +301,9 @@ def _git(repo: StrPath, *args: str) -> str:
     try:
         p = _run_text(["git", "-C", str(repo), *args], errors="surrogateescape")
     except OSError as exc:
-        raise WorkflowError(f"git infrastructure: {exc}") from exc
+        raise RailsKernelError(f"git infrastructure: {exc}") from exc
     if p.returncode:
-        raise WorkflowError(p.stderr.strip() or f"git exited {p.returncode}: {args}")
+        raise RailsKernelError(p.stderr.strip() or f"git exited {p.returncode}: {args}")
     return p.stdout
 
 
@@ -310,9 +311,9 @@ def _gh(repo: StrPath, *args: str) -> str:
     try:
         process = _run_text(["gh", *args], cwd=repo, errors="replace", timeout=20)
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-        raise WorkflowError(f"gh unavailable: {exc}") from exc
+        raise RailsKernelError(f"gh unavailable: {exc}") from exc
     if process.returncode:
-        raise WorkflowError(f"gh failed: {process.stderr.strip()}")
+        raise RailsKernelError(f"gh failed: {process.stderr.strip()}")
     return process.stdout
 
 
@@ -321,7 +322,7 @@ def _github(repo: StrPath, *args: str) -> Any:
     try:
         return json.loads(output)
     except ValueError as exc:
-        raise WorkflowError(f"gh unavailable or invalid response: {exc}") from exc
+        raise RailsKernelError(f"gh unavailable or invalid response: {exc}") from exc
 
 
 def _github_repo(repo: StrPath) -> str:
@@ -331,14 +332,14 @@ def _github_repo(repo: StrPath) -> str:
         "origin" if "origin" in remotes else remotes[0] if len(remotes) == 1 else None
     )
     if remote is None:
-        raise WorkflowError("cannot resolve primary GitHub remote")
+        raise RailsKernelError("cannot resolve primary GitHub remote")
     url = _git(repo, "remote", "get-url", remote).strip()
     match = re.fullmatch(
         r"(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+?)(?:\.git)?",
         url,
     )
     if not match:
-        raise WorkflowError("primary remote is not a validated GitHub repository")
+        raise RailsKernelError("primary remote is not a validated GitHub repository")
     return match[1]
 
 
@@ -361,7 +362,7 @@ def _pr_at_head(repo: StrPath, head: str, fields: tuple[str, ...]) -> dict[str, 
         else []
     )
     if len(matches) != 1:
-        raise WorkflowError("no unique open PR at requested head")
+        raise RailsKernelError("no unique open PR at requested head")
     return matches[0]
 
 
@@ -415,7 +416,7 @@ def _canonical(name: object) -> str:
         or ":" in name
         or any(part in ("", ".", "..", ".git") for part in name.split("/"))
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"invalid proof path: {name!r}; require canonical relative POSIX path"
         )
     return name
@@ -429,13 +430,13 @@ def _proof_path(root: StrPath, name: str) -> Path:
         if component == root:
             break
         if component.is_symlink():
-            raise WorkflowError(f"symlink proof path: {name}")
+            raise RailsKernelError(f"symlink proof path: {name}")
     return path
 
 
 def _limit(value: object) -> None:
     if type(value) is not int or value <= 0:
-        raise WorkflowError("max_checks must be a positive integer")
+        raise RailsKernelError("max_checks must be a positive integer")
 
 
 def _hex(value: object, length: int) -> bool:
@@ -455,11 +456,11 @@ def _validate(
         or type(manifest.get("schemaVersion")) is not int
         or manifest["schemaVersion"] != 1
     ):
-        raise WorkflowError("unsupported manifest schema")
+        raise RailsKernelError("unsupported manifest schema")
     _validate_fields(manifest, frozen=frozen)
     proofs = manifest.get("proofs")
     if not isinstance(proofs, list) or len(proofs) > max_checks:
-        raise WorkflowError("proofs must be a list within max_checks")
+        raise RailsKernelError("proofs must be a list within max_checks")
     ids: set[str] = set()
     for proof in proofs:
         _validate_proof(proof, ids, frozen=frozen)
@@ -470,21 +471,21 @@ def _validate_fields(manifest: dict[str, Any], *, frozen: bool) -> None:
     """The manifest's own fields: no unknown field, slug, base, setup and revisions."""
     unknown = sorted(set(manifest) - MANIFEST_FIELDS)
     if unknown:
-        raise WorkflowError(f"unknown manifest field {', '.join(unknown)}")
+        raise RailsKernelError(f"unknown manifest field {', '.join(unknown)}")
     slug = manifest.get("slug")
     if not isinstance(slug, str) or not re.fullmatch(
         r"[a-zA-Z0-9][a-zA-Z0-9_-]*", slug
     ):
-        raise WorkflowError("invalid manifest slug")
+        raise RailsKernelError("invalid manifest slug")
     if frozen and not _hex(manifest.get("base"), 40):
-        raise WorkflowError("base must be 40-hex")
+        raise RailsKernelError("base must be 40-hex")
     if "setup" in manifest and not _is_argv(manifest["setup"]):
-        raise WorkflowError("setup must be argv")
+        raise RailsKernelError("setup must be argv")
     revisions = manifest.get("revisions", [])
     if not isinstance(revisions, list):
-        raise WorkflowError("revisions must be a list")
+        raise RailsKernelError("revisions must be a list")
     if any(not _valid_revision(revision) for revision in revisions):
-        raise WorkflowError("invalid revision")
+        raise RailsKernelError("invalid revision")
 
 
 def _valid_revision(revision: object) -> bool:
@@ -501,29 +502,29 @@ def _valid_revision(revision: object) -> bool:
 def _validate_proof(proof: object, ids: set[str], *, frozen: bool) -> None:
     """One proof entry; its ID joins `ids`, which must not hold it already."""
     if not isinstance(proof, dict):
-        raise WorkflowError("invalid proof")
+        raise RailsKernelError("invalid proof")
     ident = proof.get("id")
     if not isinstance(ident, str) or not ident.strip() or ident in ids:
-        raise WorkflowError("missing or duplicate proof id")
+        raise RailsKernelError("missing or duplicate proof id")
     ids.add(ident)
     unknown = sorted(set(proof) - PROOF_FIELDS)
     if unknown:
-        raise WorkflowError(f"{ident}: unknown proof field {', '.join(unknown)}")
+        raise RailsKernelError(f"{ident}: unknown proof field {', '.join(unknown)}")
     if not isinstance(proof.get("criterion"), str) or not proof["criterion"].strip():
-        raise WorkflowError(f"{ident}: missing criterion")
+        raise RailsKernelError(f"{ident}: missing criterion")
     if "parent" in proof and (
         not isinstance(proof["parent"], str)
         or not proof["parent"].strip()
         or "\0" in proof["parent"]
         or (frozen and not _hex(proof["parent"], 40))
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{ident}: parent must be 40-hex" if frozen else f"{ident}: invalid parent"
         )
     if not _is_argv(proof.get("cmd")):
-        raise WorkflowError(f"{ident}: cmd must be argv")
+        raise RailsKernelError(f"{ident}: cmd must be argv")
     if "journey" in proof and type(proof["journey"]) is not bool:
-        raise WorkflowError(f"{ident}: journey must be a boolean")
+        raise RailsKernelError(f"{ident}: journey must be a boolean")
     files = _validate_files(ident, proof.get("files"))
     if frozen:
         _validate_hashes(ident, proof.get("sha256"), files)
@@ -532,19 +533,19 @@ def _validate_proof(proof: object, ids: set[str], *, frozen: bool) -> None:
 def _validate_files(ident: str, files: object) -> list[str]:
     """A nonempty list of distinct canonical proof paths."""
     if not isinstance(files, list) or not files:
-        raise WorkflowError(f"{ident}: missing or duplicate proof files")
+        raise RailsKernelError(f"{ident}: missing or duplicate proof files")
     for name in files:
         _canonical(name)
     if len(set(files)) != len(files):
-        raise WorkflowError(f"{ident}: missing or duplicate proof files")
+        raise RailsKernelError(f"{ident}: missing or duplicate proof files")
     return files
 
 
 def _validate_hashes(ident: str, hashes: object, files: list[str]) -> None:
     if not isinstance(hashes, dict) or set(hashes) != set(files):
-        raise WorkflowError(f"{ident}: proof hash coverage mismatch")
+        raise RailsKernelError(f"{ident}: proof hash coverage mismatch")
     if any(not _hex(value, 64) for value in hashes.values()):
-        raise WorkflowError(f"{ident}: invalid sha256")
+        raise RailsKernelError(f"{ident}: invalid sha256")
 
 
 def load_manifest(
@@ -555,10 +556,10 @@ def load_manifest(
     try:
         frozen = Path(path).read_bytes()
         if not _hex(digest, 64) or hashlib.sha256(frozen).hexdigest() != digest:
-            raise WorkflowError("manifest hash mismatch")
+            raise RailsKernelError("manifest hash mismatch")
         return _validate(json.loads(frozen), max_checks)
     except (OSError, ValueError, TypeError) as exc:
-        raise WorkflowError(f"invalid manifest: {exc}") from exc
+        raise RailsKernelError(f"invalid manifest: {exc}") from exc
 
 
 def _command_files(proof: dict[str, Any], roots: tuple[StrPath, ...]) -> None:
@@ -584,19 +585,19 @@ def _command_token(
     candidate = Path(token)
     if candidate.is_absolute():
         if _inside_roots(candidate, roots):
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{proof['id']}: absolute command reference into worktree: {token}"
             )
         return
     name = token.removeprefix("./")
     try:
         _canonical(name)
-    except WorkflowError:
+    except RailsKernelError:
         return
     for root in roots:
         path = _proof_path(root, name)
         if path.is_file() and name not in proof["files"]:
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{proof['id']}: command file not frozen: {name}; unchanged runners must also be frozen"
             )
 
@@ -616,7 +617,7 @@ def _ancestor(repo: StrPath, older: str, newer: str, strict: bool = False) -> bo
         newer,
     ])
     if p.returncode not in (0, 1):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"ancestry infrastructure: {p.stderr.decode(errors='replace')}"
         )
     return (not strict or older != newer) and p.returncode == 0
@@ -632,9 +633,9 @@ def _setup(tree: Path, setup: list[str] | None) -> set[str]:
     if setup:
         ok, out = run_check(setup, tree)
         if not ok:
-            raise WorkflowError(f"setup failed:\n{_scrub(out, tree)}")
+            raise RailsKernelError(f"setup failed:\n{_scrub(out, tree)}")
     if _git(tree, "status", "--porcelain", "--untracked-files=no"):
-        raise WorkflowError("setup changed tracked files")
+        raise RailsKernelError("setup changed tracked files")
     return _entries(tree)
 
 
@@ -659,7 +660,7 @@ def _reset(tree: Path, baseline: set[str] | None) -> None:
     for name in _entries(tree) - baseline:
         path = tree / name.rstrip("/")
         if not path.parent.resolve().is_relative_to(tree.resolve()):
-            raise WorkflowError(f"cleanup path escapes tree: {name}")
+            raise RailsKernelError(f"cleanup path escapes tree: {name}")
         if path.is_symlink() or not path.is_dir():
             path.unlink()
         else:
@@ -763,11 +764,11 @@ def _run_placed(
     before = _git(tree, "diff", "--binary", "HEAD")
     record["ok"], record["output"] = run_check(proof["cmd"], tree)
     if before != _git(tree, "diff", "--binary", "HEAD"):
-        raise WorkflowError("proof run modified tracked files")
+        raise RailsKernelError("proof run modified tracked files")
     for name, data in (overlay or {}).items():
         path = _proof_path(tree, name)
         if not path.is_file() or path.read_bytes() != data:
-            raise WorkflowError(f"proof run modified overlay: {name}")
+            raise RailsKernelError(f"proof run modified overlay: {name}")
 
 
 def _red_at_base_failure(
@@ -840,7 +841,7 @@ def _unmapped_proof_files(
 ) -> list[str]:
     """Proof files that no feature-map document in the working tree links to."""
     if not (Path(root) / map_path).exists():
-        raise WorkflowError(
+        raise RailsKernelError(
             f"feature map {map_path} (verification_surface.feature_map_path) does not exist; "
             "write the feature map before freezing proofs"
         )
@@ -918,7 +919,7 @@ def _format(root: Path, argv: list[str]) -> tuple[list[str], set[str]]:
     before = _dirty(root)
     ok, out = run_check(argv, root)
     if not ok:
-        raise WorkflowError(f"checks.format failed:\n{_scrub(out, root)}")
+        raise RailsKernelError(f"checks.format failed:\n{_scrub(out, root)}")
     after = _dirty(root)
     newly = set(after) - set(before)
     changed = {
@@ -982,16 +983,16 @@ def freeze(
     _check_options("freeze", options, FreezeOptions)
     request = _freeze_request(slug, proofs, options)
     root, path = Path(worktree).resolve(), Path(manifest_path).resolve()
-    if path != _common(root) / "omp-manifests" / f"{slug}.json":
-        raise WorkflowError(
+    if path != _git_common_dir(root) / "omp-manifests" / f"{slug}.json":
+        raise RailsKernelError(
             "manifest must be durable; use <git-common-dir>/omp-manifests/<slug>.json"
         )
     lineage = _lineage(root, request)
     config = read_config(root)
     marker = _doctor_marker(config)
-    policy = gate_policy(config)
+    format_command = config["commands"].get("format")
     formatted, format_dirtied = (
-        _format(root, policy["format"]) if policy["format"] else ([], set())
+        _format(root, format_command) if format_command else ([], set())
     )
     manifest: dict[str, Any] = {
         "schemaVersion": 1,
@@ -1021,7 +1022,7 @@ def _freeze_request(
     if base is not None and (
         not isinstance(base, str) or not base.strip() or "\0" in base
     ):
-        raise WorkflowError("base must be a nonblank commit reference")
+        raise RailsKernelError("base must be a nonblank commit reference")
     setup = options.get("setup")
     draft: dict[str, Any] = {"schemaVersion": 1, "slug": slug, "proofs": proofs}
     if setup is not None:
@@ -1031,7 +1032,7 @@ def _freeze_request(
     if previous is not None and (
         not isinstance(previous, (tuple, list)) or len(previous) != 2
     ):
-        raise WorkflowError("previous must be (manifest_path, sha256)")
+        raise RailsKernelError("previous must be (manifest_path, sha256)")
     revise = options.get("revise")
     if revise is None:
         revise = {}
@@ -1039,7 +1040,7 @@ def _freeze_request(
         not isinstance(k, str) or not isinstance(v, str) or not v.strip()
         for k, v in revise.items()
     ):
-        raise WorkflowError("revise must map proof IDs to nonblank reasons")
+        raise RailsKernelError("revise must map proof IDs to nonblank reasons")
     return FreezeRequest(slug, base, setup, previous, revise, max_checks)
 
 
@@ -1053,7 +1054,7 @@ def _lineage(root: Path, request: FreezeRequest) -> Lineage:
     )
     old_proofs = {p["id"]: p for p in old["proofs"]}
     if set(request.revise) - set(old_proofs):
-        raise WorkflowError("revision names an unknown previous proof")
+        raise RailsKernelError("revision names an unknown previous proof")
     resolved_base = _commit(
         root, request.base if request.base is not None else old.get("base", "HEAD")
     )
@@ -1063,12 +1064,12 @@ def _lineage(root: Path, request: FreezeRequest) -> Lineage:
         or resolved_base != old["base"]
         or setup != old.get("setup")
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             "re-freeze slug, base and setup are immutable; start a new lineage"
         )
     head = _commit(root, "HEAD")
     if not _ancestor(root, resolved_base, head):
-        raise WorkflowError("base is not an ancestor of HEAD")
+        raise RailsKernelError("base is not an ancestor of HEAD")
     return Lineage(old, old_proofs, resolved_base, setup, head)
 
 
@@ -1084,7 +1085,7 @@ def _frozen_proof(
     if not _ancestor(root, lineage.base, item["parent"]) or not _ancestor(
         root, item["parent"], lineage.head
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{ident}: parent is not an ancestor of HEAD at or after base"
         )
     _command_files(item, (root,))
@@ -1097,18 +1098,18 @@ def _frozen_file(root: Path, ident: str, name: str) -> str:
     """The sha256 of a regular, tracked-eligible proof file whose bytes Git stores unchanged."""
     source = _proof_path(root, name)
     if not source.is_file():
-        raise WorkflowError(f"{ident}: missing regular proof file: {name}")
+        raise RailsKernelError(f"{ident}: missing regular proof file: {name}")
     ignored = _run_bytes(["git", "-C", str(root), "check-ignore", "-q", "--", name])
     if ignored.returncode == 0:
-        raise WorkflowError(f"{ident}: ignored proof file: {name}")
+        raise RailsKernelError(f"{ident}: ignored proof file: {name}")
     if ignored.returncode != 1:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{ident}: check-ignore infrastructure: {ignored.stderr.decode(errors='replace')}"
         )
     if _git(root, "hash-object", f"--path={name}", "--", name) != _git(
         root, "hash-object", "--no-filters", "--", name
     ):
-        raise WorkflowError(f"{ident}: normalise line endings/clean filters: {name}")
+        raise RailsKernelError(f"{ident}: normalise line endings/clean filters: {name}")
     return _sha(source)
 
 
@@ -1120,10 +1121,10 @@ def _mapped_proofs(
         return None
     map_path = _feature_map_path(config)
     if map_path is None:
-        raise WorkflowError(FEATURE_MAP_SETUP)
+        raise RailsKernelError(FEATURE_MAP_SETUP)
     unmapped = _unmapped_proof_files(root, map_path, manifest["proofs"])
     if unmapped:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"proof files not linked from any feature-map document under {map_path}: "
             f"{', '.join(unmapped)}; link each proof from its feature's map entry"
         )
@@ -1145,7 +1146,7 @@ def _refuse_unfrozen(
             and name not in format_dirtied
             and not (map_path and (name == map_path or name.startswith(f"{map_path}/")))
         ):
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"unfrozen change: {name}; add it to a proof's files or revert"
             )
 
@@ -1159,7 +1160,7 @@ def _record_revisions(
     for ident, proof in lineage.old_proofs.items():
         if current.get(ident) != proof:
             if ident not in revise:
-                raise WorkflowError(
+                raise RailsKernelError(
                     f"{ident}: silent proof change; supply revise reason"
                 )
             revisions.append({
@@ -1207,19 +1208,19 @@ def _show_red_at_base(
                     proof, _execute(placement, proof, baselines, lineage.setup), marker
                 )
                 if error:
-                    raise WorkflowError(error)
+                    raise RailsKernelError(error)
             errors = _hash_failures(root, manifest)
             if errors:
-                raise WorkflowError("; ".join(errors))
+                raise RailsKernelError("; ".join(errors))
         except INFRASTRUCTURE_ERRORS as exc:
             failure = str(exc)
         finally:
             cleanup = _remove_trees(root, trees)
         if failure or cleanup:
-            raise WorkflowError("; ".join(([failure] if failure else []) + cleanup))
+            raise RailsKernelError("; ".join(([failure] if failure else []) + cleanup))
 
 
-def _common(repo: StrPath) -> Path:
+def _git_common_dir(repo: StrPath) -> Path:
     common = Path(_git(repo, "rev-parse", "--git-common-dir").strip())
     return (common if common.is_absolute() else Path(repo) / common).resolve()
 
@@ -1241,18 +1242,14 @@ def _atomic_json(path: StrPath, value: object) -> None:
             Path(name).unlink(missing_ok=True)
 
 
-def _range(repo: StrPath, parent: str, head: str, target_ref: str) -> tuple[str, str]:
+def _validated_parent(repo: StrPath, parent: str, head: str, target_ref: str) -> str:
+    """parent as a commit, once it is a strict ancestor of head and merge-base(target_ref, head)."""
     parent, target = _commit(repo, parent), _commit(repo, target_ref)
     if not _ancestor(repo, parent, head, strict=True):
-        raise WorkflowError("parent must be a strict ancestor of head")
+        raise RailsKernelError("parent must be a strict ancestor of head")
     if parent != _git(repo, "merge-base", target, head).strip():
-        raise WorkflowError("parent must equal merge-base(target_ref, head)")
-    return parent, target
-
-
-def gate_policy(config: dict[str, Any]) -> dict[str, Any]:
-    """The policy consumed here from a validated repo config: the format command and CI."""
-    return {"format": config["commands"].get("format"), "ci": config["ci"]}
+        raise RailsKernelError("parent must equal merge-base(target_ref, head)")
+    return parent
 
 
 def deterministic_checks(
@@ -1308,7 +1305,7 @@ def result_path(repo: StrPath, head: str) -> Path:
 
     Rails' merge guard reads `status: "pass"` for the exact head from this file.
     """
-    return _common(repo) / "omp-prove" / f"{head}.result.json"
+    return _git_common_dir(repo) / "omp-prove" / f"{head}.result.json"
 
 
 def _write_result(result: dict[str, Any], repo: StrPath, head: str) -> Exception | None:
@@ -1475,16 +1472,16 @@ def _prove_head(
     """prove()'s checks on the exact head; blocking findings join `result`, prerequisites raise."""
     _limit(request.max_checks)
     if not isinstance(request.objective, str) or not request.objective.strip():
-        raise WorkflowError("objective must be nonblank")
-    parent, _ = _range(repo, request.parent, head, request.target_ref)
+        raise RailsKernelError("objective must be nonblank")
+    parent = _validated_parent(repo, request.parent, head, request.target_ref)
     frozen = request.frozen
     if not isinstance(frozen, (tuple, list)) or len(frozen) != 2:
-        raise WorkflowError("frozen must be freeze()'s (manifest_path, sha256)")
+        raise RailsKernelError("frozen must be freeze()'s (manifest_path, sha256)")
     manifest = load_manifest(frozen[0], frozen[1], request.max_checks)
     result["manifest"] = manifest
     base = manifest["base"]
     if not _ancestor(repo, base, parent):
-        raise WorkflowError("base must be an ancestor of parent")
+        raise RailsKernelError("base must be an ancestor of parent")
     config = _config_with_green_ci(repo, head)
     findings, log_errors = _harness_check_findings(repo, parent, head)
     result["blocking"].extend(findings)
@@ -1501,7 +1498,7 @@ def _prove_head(
         if not _ancestor(repo, commit, head, strict=True) or not _ancestor(
             repo, base, commit
         ):
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{proof['id']}: proof parent must be an ancestor of head at or after base"
             )
         _command_files(proof, (repo,))
@@ -1515,7 +1512,7 @@ def _config_with_green_ci(repo: Path, head: str) -> dict[str, Any]:
     ci.enabled false means the repo has no CI requirement at merge.
     """
     config = read_config(repo)
-    ci = gate_policy(config)["ci"]
+    ci = config["ci"]
     if ci["enabled"]:
         context = ci["requiredContext"]
         state = _required_context_state(repo, head, context)
@@ -1606,13 +1603,13 @@ def blind_label(
 ) -> dict[str, list[dict[str, Any]]]:
     """Two independent read-only sessions; humans confirm every label before writing."""
     if not isinstance(batch_files, (list, tuple)) or 2 * len(batch_files) > MAX_AGENTS:
-        raise WorkflowError(f"labellers exceeds cap {MAX_AGENTS}; merge batches")
+        raise RailsKernelError(f"labellers exceeds cap {MAX_AGENTS}; merge batches")
     if (
         not isinstance(labels, (list, tuple))
         or not labels
         or any(not isinstance(x, str) or not x.strip() for x in labels)
     ):
-        raise WorkflowError("labels must be nonblank strings")
+        raise RailsKernelError("labels must be nonblank strings")
     batches = [_label_batch(filename) for filename in batch_files]
     failed: list[dict[str, Any]] = []
     jobs = _start_labellers(batch_files, rubric_path, labels, LABELLERS, failed)
@@ -1648,7 +1645,7 @@ def _label_batch(filename: StrPath) -> list[str]:
     try:
         batch = json.loads(Path(filename).read_text())
     except (OSError, ValueError) as exc:
-        raise WorkflowError(f"invalid batch: {exc}") from exc
+        raise RailsKernelError(f"invalid batch: {exc}") from exc
     cases = batch.get("cases") if isinstance(batch, dict) else batch
     if not isinstance(cases, list) or any(
         not isinstance(c, dict)
@@ -1656,10 +1653,10 @@ def _label_batch(filename: StrPath) -> list[str]:
         or not c["id"].strip()
         for c in cases
     ):
-        raise WorkflowError("batch must contain cases with nonblank string IDs")
+        raise RailsKernelError("batch must contain cases with nonblank string IDs")
     ids = [c["id"] for c in cases]
     if len(set(ids)) != len(ids):
-        raise WorkflowError("duplicate case ID")
+        raise RailsKernelError("duplicate case ID")
     return ids
 
 
@@ -1751,7 +1748,7 @@ def _tally(
 
 # Dependency advisories: the commit gate's SECURITY.dependency-audit findings, assessed by the
 # calibrated severity judgment and routed to the owner or to an in-flow fix. The line format is the
-# catalogue row's contract (guardrails/data/guardrail-rules.json); repos print exactly it.
+# catalogue row's contract (engine/data/guardrail-rules.json); repos print exactly it.
 DEPENDENCY_AUDIT = "SECURITY.dependency-audit"
 ADVISORY_FIELDS = (
     "lock",
@@ -1856,7 +1853,7 @@ def _check_fallback(name: str, ident: str, fallback: object) -> None:
         or fallback == name
         or not (_harness_root() / JUDGMENTS / fallback / "thresholds.json").is_file()
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: decision {ident} is a band without a fallback judge; "
             "use a single threshold, or name a registered fallback judgment"
         )
@@ -1866,18 +1863,20 @@ def _check_bool_decision(name: str, ident: str, decision: dict[str, Any]) -> Non
     """A single cutoff {threshold}, or a band {no_at_most < yes_at_least, fallback}; never both."""
     keys = set(decision)
     if keys & CUTOFF_KEYS and keys & BAND_KEYS:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: decision {ident} holds both a threshold and a band"
         )
     if "threshold" in decision:
         if not _fraction(decision["threshold"]):
-            raise WorkflowError(f"{name}: decision {ident} needs a threshold in [0, 1]")
+            raise RailsKernelError(
+                f"{name}: decision {ident} needs a threshold in [0, 1]"
+            )
         return
     low, high = decision.get("no_at_most"), decision.get("yes_at_least")
     if not keys & BAND_KEYS:
-        raise WorkflowError(f"{name}: decision {ident} needs a threshold in [0, 1]")
+        raise RailsKernelError(f"{name}: decision {ident} needs a threshold in [0, 1]")
     if not (_fraction(low) and _fraction(high) and low < high):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: decision {ident} needs 0 <= no_at_most < yes_at_least <= 1"
         )
     _check_fallback(name, ident, decision.get("fallback"))
@@ -1886,7 +1885,7 @@ def _check_bool_decision(name: str, ident: str, decision: dict[str, Any]) -> Non
 def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None:
     """A decision fits its question type and carries its taxonomy and mode."""
     if not isinstance(decision, dict):
-        raise WorkflowError(f"{name}: decision {ident} must be an object")
+        raise RailsKernelError(f"{name}: decision {ident} must be an object")
     kind = question.get("type") if isinstance(question, dict) else None
     if kind == "bool":
         _check_bool_decision(name, ident, decision)
@@ -1895,16 +1894,16 @@ def _check_decision(name: str, ident: str, question: Any, decision: Any) -> None
             if not _fraction(decision["threshold"]) or decision.get("option") not in (
                 question.get("criteria") or {}
             ):
-                raise WorkflowError(
+                raise RailsKernelError(
                     f"{name}: decision {ident} needs an option of the question "
                     "and a threshold in [0, 1]"
                 )
         elif not _fraction(decision.get("round_up_floor")):
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{name}: decision {ident} needs a round_up_floor in [0, 1]"
             )
     else:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: question {ident} must be a bool or choice question"
         )
     _check_taxonomy(name, ident, kind, decision)
@@ -1915,7 +1914,7 @@ def _check_taxonomy(name: str, ident: str, kind: str, decision: dict[str, Any]) 
     """Every taxonomy field is present and inside the jev-actions vocabulary."""
     for field, allowed in TAXONOMY_ENUMS.items():
         if decision.get(field) not in allowed:
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{name}: decision {ident} needs {field} in {list(allowed)}"
             )
     overlays = decision.get("overlays")
@@ -1924,28 +1923,30 @@ def _check_taxonomy(name: str, ident: str, kind: str, decision: dict[str, Any]) 
         or any(overlay not in OVERLAYS for overlay in overlays)
         or len(set(overlays)) != len(overlays)
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: decision {ident} needs overlays, a list of distinct {list(OVERLAYS)}"
         )
     if decision.get("primitive") != PRIMITIVES[kind]:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: decision {ident} answers a {kind} question, so its primitive is {PRIMITIVES[kind]}"
         )
     area = decision.get("policy_area")
     if not isinstance(area, str) or not POLICY_AREA.fullmatch(area):
-        raise WorkflowError(f"{name}: decision {ident} needs a kebab-case policy_area")
+        raise RailsKernelError(
+            f"{name}: decision {ident} needs a kebab-case policy_area"
+        )
 
 
 def _check_mode(name: str, ident: str, kind: str, decision: dict[str, Any]) -> None:
     """An enforced decision has no shadow_exit; a shadow one is a bool with {labelled_flags: n}."""
     if decision["mode"] == "enforced":
         if "shadow_exit" in decision:
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{name}: decision {ident} is enforced; remove its shadow_exit"
             )
         return
     if not _store().shadow_capable(kind, decision):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: decision {ident} cannot run in shadow mode: only a bool answer or a "
             "choice option threshold has a non-blocking outcome"
         )
@@ -1958,7 +1959,7 @@ def _check_mode(name: str, ident: str, kind: str, decision: dict[str, Any]) -> N
         or isinstance(flags, bool)
         or flags < 1
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f'{name}: decision {ident} runs in shadow mode and needs shadow_exit {{"labelled_flags": n}}, n >= 1'
         )
 
@@ -1966,7 +1967,7 @@ def _check_mode(name: str, ident: str, kind: str, decision: dict[str, Any]) -> N
 def load_judgment(name: str) -> Judgment:
     """judgments/<name>/ with its thresholds; stale version keys raise (re-score, then re-tune)."""
     if not isinstance(name, str) or not JUDGMENT_NAME.fullmatch(name):
-        raise WorkflowError(f"invalid judgment name: {name!r}")
+        raise RailsKernelError(f"invalid judgment name: {name!r}")
     directory = _harness_root() / JUDGMENTS / name
     try:
         document = json.loads((directory / "questions.json").read_text())
@@ -1974,13 +1975,13 @@ def load_judgment(name: str) -> Judgment:
         questions, state = document["questions"], document["state"]
         model, decisions = thresholds["model"], thresholds["decisions"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise WorkflowError(f"cannot read judgment {name}: {exc}") from exc
+        raise RailsKernelError(f"cannot read judgment {name}: {exc}") from exc
     if (
         not isinstance(questions, dict)
         or not questions
         or not isinstance(decisions, dict)
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: questions and decisions must be non-empty objects"
         )
     if (
@@ -1988,7 +1989,7 @@ def load_judgment(name: str) -> Judgment:
         or not model
         or thresholds.get("score_space") != "raw"
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: thresholds need a pinned model and raw score space"
         )
     if thresholds.get("version_key") != _judgment_digest({
@@ -1996,11 +1997,13 @@ def load_judgment(name: str) -> Judgment:
         "state": state,
         "model": model,
     }):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: thresholds are stale for the current questions or model; re-score the cases and re-tune"
         )
     if set(decisions) != set(questions):
-        raise WorkflowError(f"{name}: thresholds must hold one decision per question")
+        raise RailsKernelError(
+            f"{name}: thresholds must hold one decision per question"
+        )
     for ident, question in questions.items():
         decision = decisions[ident]
         _check_decision(name, ident, question, decision)
@@ -2010,7 +2013,7 @@ def load_judgment(name: str) -> Judgment:
             "model": model,
         })
         if decision.get("version_key") != expected:
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{name}: decision {ident} is stale; re-score and re-tune it"
             )
     judgment = Judgment(
@@ -2058,7 +2061,7 @@ def _register_questions(judgment: Judgment) -> None:
     try:
         store.record_questions(_question_rows(judgment))
     except store.StoreError as exc:
-        raise WorkflowError(f"{judgment.name}: {exc}") from exc
+        raise RailsKernelError(f"{judgment.name}: {exc}") from exc
 
 
 def effective_judgment(
@@ -2086,7 +2089,7 @@ def effective_judgment(
         )
         if MODE_RANK[mode] > MODE_RANK[decision["mode"]]:
             # The config validator refuses this; a config that reached here was not validated.
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{judgment.name}/{ident}: the repo config sets {mode} above the global "
                 f"{decision['mode']} mode; only measurement promotes a question"
             )
@@ -2135,9 +2138,11 @@ def _configured_judge_model() -> str:
         KeyError,
         TypeError,
     ) as exc:
-        raise WorkflowError(f"cannot read the configured judge model: {exc}") from exc
+        raise RailsKernelError(
+            f"cannot read the configured judge model: {exc}"
+        ) from exc
     if completed.returncode != 0 or not isinstance(model, str) or not model:
-        raise WorkflowError("omp config get modelRoles names no judge model")
+        raise RailsKernelError("omp config get modelRoles names no judge model")
     return model
 
 
@@ -2147,7 +2152,7 @@ def require_direct_judge_route() -> None:
     The opt-in Jev Inspector route (inspector.env) sets it; it serves interactive inspection only.
     """
     if os.environ.get("TYPESAFE_BASE_URL", "").strip():
-        raise WorkflowError(
+        raise RailsKernelError(
             "gate judgments run on the direct TypeSafe endpoint; start omp without "
             "TYPESAFE_BASE_URL (the Jev Inspector route is for interactive inspection only)"
         )
@@ -2157,7 +2162,7 @@ def require_judge_model(judgment: Judgment) -> None:
     """Refuse a judgment whose thresholds were tuned on another model than the judge role."""
     configured = _configured_judge_model()
     if configured != judgment.model:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{judgment.name}: thresholds are tuned on {judgment.model} but the judge role is "
             f"{configured}; re-score the cases and re-tune"
         )
@@ -2177,7 +2182,7 @@ def _answers(
                 if question["type"] == "bool"
                 else _probability(answers, ident, "choice", question["criteria"])
             )
-        except WorkflowError as exc:
+        except RailsKernelError as exc:
             failures[ident] = str(exc)
     return parsed, failures
 
@@ -2253,7 +2258,7 @@ class JudgmentCall:
         try:
             store.record_decisions(rows, payload)
         except store.StoreError as exc:
-            raise WorkflowError(f"{self.judgment.name}: {exc}") from exc
+            raise RailsKernelError(f"{self.judgment.name}: {exc}") from exc
 
 
 def judgment_record(
@@ -2286,7 +2291,7 @@ def judgment_record(
         answers,
     )
     if failures:
-        raise WorkflowError(next(iter(failures.values())))
+        raise RailsKernelError(next(iter(failures.values())))
     return {
         "call_id": call.call_id,
         "judgment": judgment.name,
@@ -2326,11 +2331,11 @@ def decision_context(value: object) -> Any:
     """A rail's {trigger, repo, commit, pr, item_kind, item} as a decision store context."""
     store = _store()
     if not isinstance(value, dict) or "trigger" not in value:
-        raise WorkflowError("decision context needs at least a trigger")
+        raise RailsKernelError("decision context needs at least a trigger")
     try:
         return store.DecisionContext(**value)
     except (TypeError, store.StoreError) as exc:
-        raise WorkflowError(f"invalid decision context: {exc}") from exc
+        raise RailsKernelError(f"invalid decision context: {exc}") from exc
 
 
 async def decide(name: str, state: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -2356,12 +2361,12 @@ async def _decide(
     name = judgment.name
     require_judge_model(judgment)
     if not isinstance(state, dict) or not state:
-        raise WorkflowError(f"{name}: state must be a non-empty object")
+        raise RailsKernelError(f"{name}: state must be a non-empty object")
     try:
         answers = await _kernel("judge")(state, judgment.questions)
     except Exception as exc:
         judgment_error(judgment, state, f"judgment failed: {exc}", context)
-        raise WorkflowError(f"{name}: judgment failed: {exc}") from exc
+        raise RailsKernelError(f"{name}: judgment failed: {exc}") from exc
     return {**judgment_record(judgment, state, answers, context), "answers": answers}
 
 
@@ -2383,7 +2388,7 @@ def _asked_judgment(name: str, config: Mapping[str, Any] | None) -> Judgment:
     """The effective judgment a rail records against; refused when the config turns it all off."""
     judgment = effective_judgment(load_judgment(name), config)
     if not judgment.questions:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: every question is off in this repo's config; nothing was asked"
         )
     return judgment
@@ -2391,7 +2396,7 @@ def _asked_judgment(name: str, config: Mapping[str, Any] | None) -> Judgment:
 
 def _rail_state(name: str, state: object) -> dict[str, Any]:
     if not isinstance(state, dict) or not state:
-        raise WorkflowError(f"{name}: state must be a non-empty object")
+        raise RailsKernelError(f"{name}: state must be a non-empty object")
     return state
 
 
@@ -2411,12 +2416,12 @@ def record_answers(
         "model",
         "context",
     }:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: rail answers need exactly state, answers, model and context"
         )
     model = request["model"]
     if model != judgment.model:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: thresholds are tuned on {judgment.model} but {model!r} answered; "
             "re-score the cases and re-tune"
         )
@@ -2432,12 +2437,12 @@ def record_error(
     effective modes; returns the call id."""
     judgment = _asked_judgment(name, config)
     if not isinstance(request, dict) or set(request) != {"state", "error", "context"}:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{name}: a rail judge failure needs exactly state, error and context"
         )
     error = request["error"]
     if not isinstance(error, str) or not error.strip():
-        raise WorkflowError(f"{name}: a rail judge failure needs its error text")
+        raise RailsKernelError(f"{name}: a rail judge failure needs its error text")
     state = _rail_state(name, request["state"])
     context = decision_context(request["context"])
     return {"call_id": judgment_error(judgment, state, error, context)}
@@ -2447,7 +2452,7 @@ def _rail_request(path: str) -> object:
     try:
         return json.loads(Path(path).read_text())
     except (OSError, ValueError) as exc:
-        raise WorkflowError(f"cannot read rail answers {path}: {exc}") from exc
+        raise RailsKernelError(f"cannot read rail answers {path}: {exc}") from exc
 
 
 def rail_bridge(argv: list[str], cwd: StrPath) -> int:
@@ -2470,11 +2475,11 @@ def rail_bridge(argv: list[str], cwd: StrPath) -> int:
                     name, _rail_request(request), judgment_config(cwd)
                 )
             case _:
-                raise WorkflowError(
+                raise RailsKernelError(
                     "usage: questions <judgment> | record <judgment> <request.json> "
                     "| error <judgment> <request.json>"
                 )
-    except WorkflowError as exc:
+    except RailsKernelError as exc:
         print(json.dumps({"error": str(exc)}))
         return 1
     print(json.dumps(result, sort_keys=True, allow_nan=False))
@@ -2517,7 +2522,7 @@ def advisory_key(advisory: dict[str, Any]) -> str:
 def _listed(value: str, field: str, line: str) -> list[str]:
     items = value.split(",") if value else []
     if any(not item for item in items):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{DEPENDENCY_AUDIT} line has an empty {field} item: {line}"
         )
     return items
@@ -2530,9 +2535,9 @@ def parse_dependency_audit(output: object) -> dict[str, list[dict[str, Any]]]:
     line, or output the rails truncated, raises: a finding is never skipped.
     """
     if not isinstance(output, str):
-        raise WorkflowError("commit-gate output must be text")
+        raise RailsKernelError("commit-gate output must be text")
     if output.startswith("…"):
-        raise WorkflowError(
+        raise RailsKernelError(
             "commit-gate output is truncated; parse the full output of the config's commands.commit"
         )
     advisories, failures, seen = [], [], set()
@@ -2554,7 +2559,7 @@ def parse_dependency_audit(output: object) -> dict[str, list[dict[str, Any]]]:
         if match and match["kind"] in AUDIT_FAILURE_KINDS:
             failures.append(match.groupdict())
             continue
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{DEPENDENCY_AUDIT} line does not match the catalogue contract: {line}"
         )
     return {"advisories": advisories, "failures": failures}
@@ -2572,7 +2577,7 @@ def dependency_audit_findings(repo: StrPath) -> dict[str, Any]:
     ok, output = run_check(config["commands"]["commit"], repo)
     found = parse_dependency_audit(output)
     if ok and (found["advisories"] or found["failures"]):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"commands.commit passed but printed {DEPENDENCY_AUDIT} findings; every finding must block"
         )
     return {"ok": ok, "repo": os.fspath(repo), **found}
@@ -2582,12 +2587,14 @@ def _evidence(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
     """The cited evidence for one advisory, validated; a gap raises naming the advisory."""
     key = advisory_key(advisory)
     if not isinstance(evidence, dict) or set(evidence) != EVIDENCE_FIELDS:
-        raise WorkflowError(f"{key}: evidence needs exactly {sorted(EVIDENCE_FIELDS)}")
+        raise RailsKernelError(
+            f"{key}: evidence needs exactly {sorted(EVIDENCE_FIELDS)}"
+        )
     for field in ("advisory_text", "advisory_source", "scope_source"):
         if not isinstance(evidence[field], str) or not evidence[field].strip():
-            raise WorkflowError(f"{key}: evidence.{field} must be nonblank")
+            raise RailsKernelError(f"{key}: evidence.{field} must be nonblank")
     if evidence["scope"] not in ("runtime", "dev"):
-        raise WorkflowError(f"{key}: evidence.scope must be runtime or dev")
+        raise RailsKernelError(f"{key}: evidence.scope must be runtime or dev")
     search = evidence["code_search"]
     if (
         not isinstance(search, dict)
@@ -2603,13 +2610,13 @@ def _evidence(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
             for h in search["hits"]
         )
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{key}: evidence.code_search needs nonblank queries and hits of {{location, line}}"
         )
     if not isinstance(evidence["fix_options"], str) or (
         not advisory["fix"] and not evidence["fix_options"].strip()
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             f"{key}: evidence.fix_options must name a replacement or mitigation when no fixed version exists"
         )
     blocked = evidence["blocked_fix"]
@@ -2620,7 +2627,7 @@ def _evidence(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
             or set(blocked) != BLOCKED_FIX_FIELDS
             or any(not isinstance(v, str) or not v.strip() for v in blocked.values())
         ):
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{key}: evidence.blocked_fix needs exactly {sorted(BLOCKED_FIX_FIELDS)} for a fixed release, or null"
             )
         package, separator, version = blocked["blocked_by"].rpartition("@")
@@ -2633,7 +2640,7 @@ def _evidence(advisory: dict[str, Any], evidence: object) -> dict[str, Any]:
             or source.scheme != "https"
             or not source.netloc
         ):
-            raise WorkflowError(
+            raise RailsKernelError(
                 f"{key}: blocked_fix needs package@exact-version and an absolute HTTPS constraint_source"
             )
     return evidence
@@ -2655,7 +2662,7 @@ def _probability(
                 for p in probabilities.values()
             )
         ):
-            raise WorkflowError(f"judgment returned no valid {question} answer")
+            raise RailsKernelError(f"judgment returned no valid {question} answer")
         return probabilities
     value = answer.get("bool") if isinstance(answer, dict) else None
     if (
@@ -2663,7 +2670,7 @@ def _probability(
         or isinstance(value, bool)
         or not 0 <= value <= 1
     ):
-        raise WorkflowError(f"judgment returned no valid {question} answer")
+        raise RailsKernelError(f"judgment returned no valid {question} answer")
     return value
 
 
@@ -2864,8 +2871,8 @@ async def assess_advisory(
     try:
         judgment = effective_judgment(load_judgment(SEVERITY_JUDGMENT), config)
         decided = await _decide(judgment, state, context)
-    except WorkflowError as exc:
-        raise WorkflowError(
+    except RailsKernelError as exc:
+        raise RailsKernelError(
             f"{advisory_key(advisory)}: severity judgment failed: {exc}"
         ) from exc
     return rate_advisory(advisory, evidence, decided["answers"], judgment.decisions)
@@ -2874,9 +2881,9 @@ async def assess_advisory(
 def owner_report(
     assessments: list[dict[str, Any]], failures: Iterable[dict[str, Any]] = ()
 ) -> str:
-    """The report the workflow halts with: each advisory, severity, evidence and suggested fix."""
+    """The report triage halts with: each advisory, severity, evidence and suggested fix."""
     lines = [
-        f"Dependency advisories need the owner ({DEPENDENCY_AUDIT}). The workflow stopped; nothing was changed for them."
+        f"Dependency advisories need the owner ({DEPENDENCY_AUDIT}). Triage stopped; nothing was changed for them."
     ]
     for item in assessments:
         a, d = item["advisory"], item["dimensions"]
@@ -2924,19 +2931,19 @@ async def triage_advisories(
     The severity questions run at their effective modes under the config of `found["repo"]`.
     Returns ``{halt, owner, fix, failures, report}``. Any high or critical advisory, any advisory
     with no fixed release or a fix blocked by a pinned dependent, and any exception-file failure
-    halts the workflow with ``report`` for the owner; ``fix`` lists only unblocked low and medium
-    advisories to upgrade in the flow, and ``failures`` the other checker failures to fix.
+    halts the task with ``report`` for the owner; ``fix`` lists only unblocked low and medium
+    advisories to upgrade in the same change, and ``failures`` the other checker failures to fix.
     """
     repo = found.get("repo")
     if not isinstance(repo, str) or not repo:
-        raise WorkflowError(
+        raise RailsKernelError(
             "found must be dependency_audit_findings(repo)'s result, which names its repo"
         )
     keys = [advisory_key(a) for a in found["advisories"]]
     missing = sorted(set(keys) - set(evidence))
     extra = sorted(set(evidence) - set(keys))
     if missing or extra:
-        raise WorkflowError(
+        raise RailsKernelError(
             f"evidence must cover exactly the advisories found; missing {missing}, unknown {extra}"
         )
     config = judgment_config(repo)
@@ -2966,14 +2973,14 @@ KIND_QUESTION = "technical_kind_grouping"
 STRUCTURE_QUESTIONS = frozenset({KIND_QUESTION, PAIR_QUESTION, CONSUMER_QUESTION})
 
 
-def _structure_config() -> Judgment:
+def _structure_judgment() -> Judgment:
     """The structure-naming judgment: its proposal questions, consumer_placement a Choice and the rest bool."""
     judgment = load_judgment(STRUCTURE_JUDGMENT)
     if set(judgment.questions) != STRUCTURE_QUESTIONS or any(
         q.get("type") != ("choice" if ident == CONSUMER_QUESTION else "bool")
         for ident, q in judgment.questions.items()
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             "structure questions must be exactly these, consumer_placement a choice "
             "and the rest bool: " + ", ".join(sorted(STRUCTURE_QUESTIONS))
         )
@@ -3004,7 +3011,7 @@ def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
         stdout_only=True,
     )
     if not ok:
-        raise WorkflowError(f"{subcommand} failed: {output}")
+        raise RailsKernelError(f"{subcommand} failed: {output}")
     return json.loads(output)
 
 
@@ -3018,7 +3025,7 @@ def _name_pairs(repo: Path, parent: str, head: str) -> list[dict[str, Any]]:
         or set(pair.get("state") or {}) != {"first", "second"}
         for pair in pairs
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             "name-pairs must emit {pairs: [{id, proposer_score, state}]}"
         )
     return pairs
@@ -3033,7 +3040,7 @@ def _consumer_candidates(repo: Path, parent: str, head: str) -> list[dict[str, A
         or set(item.get("state") or {}) != {"file", "package"}
         for item in found
     ):
-        raise WorkflowError(
+        raise RailsKernelError(
             "consumer-candidates must emit {candidates: [{path, state}]}"
         )
     return found
@@ -3048,7 +3055,9 @@ def _kind_candidates(repo: Path, parent: str, head: str) -> list[dict[str, Any]]
         or set(item.get("state") or {}) != {"file", "folder", "importers"}
         for item in found
     ):
-        raise WorkflowError("kind-candidates must emit {candidates: [{path, state}]}")
+        raise RailsKernelError(
+            "kind-candidates must emit {candidates: [{path, state}]}"
+        )
     return found
 
 
@@ -3143,10 +3152,10 @@ async def structure_review(
         repo = Path(repo).resolve()
         head = _commit(repo, head)
         result["head"] = head
-        published = _common(repo) / "omp-structure" / f"{head}.json"
-        parent, _ = _range(repo, parent, head, target_ref)
+        published = _git_common_dir(repo) / "omp-structure" / f"{head}.json"
+        parent = _validated_parent(repo, parent, head, target_ref)
         result["parent"] = parent
-        judgment = effective_judgment(_structure_config(), judgment_config(repo))
+        judgment = effective_judgment(_structure_judgment(), judgment_config(repo))
         result["thresholds"] = judgment.thresholds
         result["version_key"] = judgment.version_key
         # eval's judge API exposes answers, not a reported model: the judge role is checked instead.
@@ -3156,7 +3165,7 @@ async def structure_review(
         )
         require_direct_judge_route()
         require_judge_model(judgment)
-        review = StructureJudgment(judgment, result, _github_repo(repo))
+        review = StructureReview(judgment, result, _github_repo(repo))
         # A question the repo config turns off runs neither its proposer nor the judge.
         if review.asks(KIND_QUESTION):
             await review.judge_kind_files(_kind_candidates(repo, parent, head))
@@ -3192,7 +3201,7 @@ def _structure_status(result: dict[str, Any]) -> str:
     return "incomplete" if result["errors"] else "pass"
 
 
-class StructureJudgment:
+class StructureReview:
     """Judge code-proposed files and pairs through the eval kernel; record scores and findings."""
 
     def __init__(self, judgment: Judgment, result: dict[str, Any], repo: str) -> None:
@@ -3220,7 +3229,7 @@ class StructureJudgment:
             async for key, item in batch.drain_iter():
                 try:
                     if not item.ok:
-                        raise WorkflowError(str(item.error))
+                        raise RailsKernelError(str(item.error))
                     found[key] = read(item.answers)
                 except INFRASTRUCTURE_ERRORS as exc:
                     found[key] = str(exc)
@@ -3271,7 +3280,7 @@ class StructureJudgment:
             verdict = outcome(decision, score)
         try:
             call.log([row], [ident], {"answers": values})
-        except WorkflowError as exc:
+        except RailsKernelError as exc:
             self.result["errors"].append(f"{item_id}: {exc}")
         if verdict is not None:
             self.record_proposal(ident, proposal, row, verdict)

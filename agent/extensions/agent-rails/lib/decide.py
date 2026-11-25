@@ -1,4 +1,4 @@
-"""The rails' entry to the judgment registry in engine/workflows.py.
+"""The rails' entry to the judgment registry in lib/rails_kernel.py.
 
 Usage: python decide.py questions <judgment> | record <judgment> <request.json>
 | error <judgment> <request.json>
@@ -13,11 +13,11 @@ import runpy
 import sys
 from pathlib import Path
 
-WORKFLOWS = Path(__file__).resolve().parent.parent / "engine" / "workflows.py"
+KERNEL = Path(__file__).resolve().with_name("rails_kernel.py")
 
 
 def main(argv: list[str]) -> int:
-    bridge = runpy.run_path(str(WORKFLOWS))["rail_bridge"]
+    bridge = runpy.run_path(str(KERNEL))["rail_bridge"]
     return int(bridge(argv, os.getcwd()))
 
 

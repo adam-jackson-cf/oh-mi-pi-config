@@ -9,9 +9,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "agent/extensions/agent-rails/references"
-CATALOGUE = (
-    ROOT / "agent/extensions/agent-rails/engine/guardrails/data/guardrail-rules.json"
-)
+CATALOGUE = ROOT / "agent/extensions/agent-rails/engine/data/guardrail-rules.json"
 JUDGMENTS = ROOT / "agent/extensions/agent-rails/judgments"
 RULES = ROOT / "agent/extensions/agent-rails/rules"
 THRESHOLDS = JUDGMENTS / "structure-naming/thresholds.json"

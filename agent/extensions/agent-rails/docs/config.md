@@ -57,7 +57,7 @@ Writer rules:
    Injected prompts and subagent prompts never write the config.
 5. Every write validates the whole file first and replaces it atomically.
 
-[config-template.json](../engine/guardrails/data/config-template.json) is the template for the
+[config-template.json](../engine/data/config-template.json) is the template for the
 setup and test sections.
 
 ## Onboarding and the owner commands
@@ -99,7 +99,7 @@ it; `IMPORTED_SKILLS` in `tests/test_skill_references.py` lists it.
 
 It differs from the rails in three known ways:
 
-1. Rule catalogue. The engine catalogue, `engine/guardrails/data/guardrail-rules.json` (172
+1. Rule catalogue. The engine catalogue, `engine/data/guardrail-rules.json` (172
    rules), is the only rule authority for the rails, `gates.rules` and `config-check
    --list-rules`. The skill's `assets/guardrail-rules.json` (164 rules) is the target
    repository's own catalogue, and no rails code reads it. The IDs drift: the engine's

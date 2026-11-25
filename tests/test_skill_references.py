@@ -135,7 +135,7 @@ class SkillReferenceTests(unittest.TestCase):
             PACKAGE / "rails.yml",
             PACKAGE / "index.ts",
             PACKAGE / "AGENTS.md",
-            PACKAGE / "engine/workflows.py",
+            PACKAGE / "lib/rails_kernel.py",
             *PACKAGE_REFERENCES,
             *(ROOT / "agent/agents").glob("*.md"),
             *(ROOT / "agent/rules").glob("*.md"),

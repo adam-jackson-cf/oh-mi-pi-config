@@ -3,7 +3,6 @@ from __future__ import annotations
 import ast
 import json
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +17,7 @@ from guardrails.foundation.findings import Finding, Remediation, remediation
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
 
+DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
 PATTERNS_FILE = "pytest-patterns.json"
 INLINED_PATTERNS = frozenset({"no-test-hooks-environment"})
 SKIPPED_PARTS = frozenset({
@@ -43,12 +43,7 @@ class Pattern:
 
 
 def load_patterns() -> list[Pattern]:
-    text = (
-        resources
-        .files("guardrails.data")
-        .joinpath(PATTERNS_FILE)
-        .read_text(encoding="utf-8")
-    )
+    text = (DATA_FOLDER / PATTERNS_FILE).read_text(encoding="utf-8")
     patterns = []
     for data in json.loads(text):
         options: Config = {"rule": data["rule"]}

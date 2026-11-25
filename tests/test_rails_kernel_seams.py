@@ -21,7 +21,7 @@ from test_agentrails_fixture import approval, config, fixture, write_config
 from test_decision_store import (
     no_unclosed_connections as no_unclosed_connections,
 )
-from test_workflows import workflow
+from test_rails_kernel import rails_kernel
 
 from guardrails.host.process import run_text
 
@@ -102,16 +102,16 @@ class RepositoryCase(unittest.TestCase):
         self.commit("base")
         self.parent = git(self.repo, "rev-parse", "HEAD")
         self.manifest_path = (
-            workflow._common(self.repo) / "omp-manifests" / "example.json"
+            rails_kernel._git_common_dir(self.repo) / "omp-manifests" / "example.json"
         )
         self.manifest_path.parent.mkdir(parents=True)
         self.ci_patch = patch.object(
-            workflow, "_required_context_state", return_value="success"
+            rails_kernel, "_required_context_state", return_value="success"
         )
         self.ci = self.ci_patch.start()
         self.addCleanup(self.ci_patch.stop)
         self.comment_patch = patch.object(
-            workflow,
+            rails_kernel,
             "_post_result_comment",
             return_value="https://github.com/example-owner/example-repo/pull/1#issuecomment-1",
         )
@@ -163,7 +163,7 @@ class RepositoryCase(unittest.TestCase):
                     p,
                     parent=p.get("parent", self.parent),
                     sha256={
-                        name: workflow._sha(self.repo / name) for name in p["files"]
+                        name: rails_kernel._sha(self.repo / name) for name in p["files"]
                     },
                 )
                 for p in proofs
@@ -177,11 +177,11 @@ class RepositoryCase(unittest.TestCase):
 
     def prove(self, objective: str = "fix value", **kwargs: Any) -> dict[str, Any]:
         args = dict(target_ref=self.parent, **kwargs)
-        result: dict[str, Any] = workflow.prove(
+        result: dict[str, Any] = rails_kernel.prove(
             self.repo,
             self.parent,
             self.head,
-            (self.manifest_path, workflow._sha(self.manifest_path)),
+            (self.manifest_path, rails_kernel._sha(self.manifest_path)),
             objective,
             **args,
         )
@@ -191,14 +191,14 @@ class RepositoryCase(unittest.TestCase):
 
     def freeze(self, proofs: list[dict[str, Any]], **kwargs: Any) -> Any:
         try:
-            return workflow.freeze(
+            return rails_kernel.freeze(
                 self.repo, self.manifest_path, proofs, "example", **kwargs
             )
         finally:
             self.assert_cleaned()
 
     def stored_status(self, head: str | None = None) -> Any:
-        path = workflow.result_path(self.repo, head or self.head)
+        path = rails_kernel.result_path(self.repo, head or self.head)
         return json.loads(path.read_text())["status"] if path.exists() else None
 
     def assert_block(self, result: dict[str, Any], fragment: str) -> None:
@@ -269,7 +269,7 @@ class ProofRunTests(RepositoryCase):
             with self.subTest(elsewhere=str(elsewhere)):
                 self.manifest_path = elsewhere
                 with pytest.raises(
-                    workflow.WorkflowError,
+                    rails_kernel.RailsKernelError,
                     match=re.escape("<git-common-dir>/omp-manifests/<slug>.json"),
                 ):
                     self.freeze([proof])
@@ -277,7 +277,7 @@ class ProofRunTests(RepositoryCase):
         self.manifest_path = durable
         path, digest = self.freeze([proof])
         assert path == durable.resolve()
-        assert workflow._sha(path) == digest
+        assert rails_kernel._sha(path) == digest
         with tempfile.TemporaryDirectory() as scratch:
             previous = Path(scratch) / "previous.json"
             previous.write_bytes(path.read_bytes())
@@ -289,7 +289,7 @@ class ProofRunTests(RepositoryCase):
         assert "kind" not in json.loads(path.read_text())["proofs"][0]
         self.write("value", "fixed")
         self.head = self.commit("implementation")
-        result = workflow.prove(
+        result = rails_kernel.prove(
             self.repo,
             self.parent,
             self.head,
@@ -309,7 +309,7 @@ class ProofRunTests(RepositoryCase):
             with (
                 self.subTest(code=code),
                 pytest.raises(
-                    workflow.WorkflowError,
+                    rails_kernel.RailsKernelError,
                     match="P1: passes at baseline; a proof must fail at base",
                 ),
             ):
@@ -342,9 +342,11 @@ class ProofRunTests(RepositoryCase):
         self.head = git(self.repo, "rev-parse", "HEAD")
         self.gate(commit=["true"])
         with patch.object(
-            workflow, "_setup", side_effect=AssertionError("zero proofs build no trees")
+            rails_kernel,
+            "_setup",
+            side_effect=AssertionError("zero proofs build no trees"),
         ):
-            result = workflow.prove(
+            result = rails_kernel.prove(
                 self.repo,
                 self.parent,
                 self.head,
@@ -388,7 +390,7 @@ class ProofRunTests(RepositoryCase):
                 "STRUCT.entry-point-placement",
             } <= rules, "the deterministic structure checks log a row per rule"
             self.ci.return_value = "pending"
-            result = workflow.prove(
+            result = rails_kernel.prove(
                 self.repo,
                 self.parent,
                 self.head,
@@ -483,8 +485,8 @@ class ProofRunTests(RepositoryCase):
                     "assert Path('value').read_text() == 'overlaid'",
                 ],
             }
-            record = workflow._execute(
-                workflow.Placement(
+            record = rails_kernel._execute(
+                rails_kernel.Placement(
                     tree, overlay={"overlay": b"proof", "value": b"overlaid"}
                 ),
                 proof,
@@ -508,7 +510,9 @@ class ProofRunTests(RepositoryCase):
                 "from pathlib import Path; assert Path('value').read_text() == 'old'; "
                 "assert not Path('artifact').exists(); assert not Path('overlay').exists()",
             ]
-            assert workflow._execute(workflow.Placement(tree), proof, baselines)["ok"]
+            assert rails_kernel._execute(
+                rails_kernel.Placement(tree), proof, baselines
+            )["ok"]
             assert (outside / "keep").read_text() == "safe"
             assert not (tree / "linked").is_symlink()
             assert not (tree / "new-dir").exists()
@@ -529,7 +533,7 @@ class ProofRunTests(RepositoryCase):
         ]
         self.save(data)
         with patch.object(
-            workflow, "_entries", side_effect=OSError("baseline listing failed")
+            rails_kernel, "_entries", side_effect=OSError("baseline listing failed")
         ):
             result = self.prove()
         self.assert_block(
@@ -539,7 +543,7 @@ class ProofRunTests(RepositoryCase):
 
     def test_execution_cleanup_failure_prevents_pass(self) -> None:
         self.change()
-        entries = workflow._entries
+        entries = rails_kernel._entries
         calls = 0
 
         def fail_cleanup(tree: Path) -> Any:
@@ -549,7 +553,7 @@ class ProofRunTests(RepositoryCase):
                 raise OSError("artifact cleanup failed")
             return entries(tree)
 
-        with patch.object(workflow, "_entries", side_effect=fail_cleanup):
+        with patch.object(rails_kernel, "_entries", side_effect=fail_cleanup):
             result = self.prove()
         self.assert_block(result, "cleanup infrastructure: artifact cleanup failed")
         assert result["deterministic"]["proofs"]["P1"][0]["ok"] is None
@@ -575,7 +579,7 @@ class ProofRunTests(RepositoryCase):
             with self.subTest(cmd=cmd):
                 data["proofs"][0]["cmd"] = cmd
                 self.save(data)
-                with patch.object(workflow, "CHECK_TIMEOUT", timeout):
+                with patch.object(rails_kernel, "CHECK_TIMEOUT", timeout):
                     result = self.prove()
                 self.assert_block(result, fragment)
                 record = result["deterministic"]["proofs"]["P1"][0]
@@ -583,8 +587,10 @@ class ProofRunTests(RepositoryCase):
                 assert "P1: head run 1" in record["error"]
         proof = self.proof(code="import time; time.sleep(2)\n")
         with (
-            patch.object(workflow, "CHECK_TIMEOUT", 0.01),
-            pytest.raises(workflow.WorkflowError, match="infrastructure: timeout"),
+            patch.object(rails_kernel, "CHECK_TIMEOUT", 0.01),
+            pytest.raises(
+                rails_kernel.RailsKernelError, match="infrastructure: timeout"
+            ),
         ):
             self.freeze([proof])
 
@@ -630,17 +636,17 @@ class ProofRunTests(RepositoryCase):
             {"target_ref": "missing"},
             {"digest": "0" * 64},
         ):
-            workflow._atomic_json(
-                workflow.result_path(self.repo, self.head),
+            rails_kernel._atomic_json(
+                rails_kernel.result_path(self.repo, self.head),
                 {"head": self.head, "status": "pass"},
             )
-            result = workflow.prove(
+            result = rails_kernel.prove(
                 self.repo,
                 kwargs.get("parent", self.parent),
                 self.head,
                 (
                     self.manifest_path,
-                    kwargs.get("digest", workflow._sha(self.manifest_path)),
+                    kwargs.get("digest", rails_kernel._sha(self.manifest_path)),
                 ),
                 "fix",
                 target_ref=kwargs.get("target_ref", self.parent),
@@ -651,11 +657,11 @@ class ProofRunTests(RepositoryCase):
     def test_strict_range_and_proof_ancestry(self) -> None:
         data = self.change()
         for parent, target in ((self.head, self.parent), (self.parent, self.head)):
-            result = workflow.prove(
+            result = rails_kernel.prove(
                 self.repo,
                 parent,
                 self.head,
-                (self.manifest_path, workflow._sha(self.manifest_path)),
+                (self.manifest_path, rails_kernel._sha(self.manifest_path)),
                 "fix",
                 target_ref=target,
             )
@@ -689,13 +695,13 @@ class FreezeTests(RepositoryCase):
             path.write_text(text)
             self.change()
             with patch.object(
-                workflow, "_setup", side_effect=AssertionError("setup must not run")
+                rails_kernel, "_setup", side_effect=AssertionError("setup must not run")
             ):
                 assert self.prove()["status"] == "fail"
 
     def test_cleanup_failure_blocks_and_keeps_evidence(self) -> None:
         self.change()
-        original = workflow._git
+        original = rails_kernel._git
         removed = []
 
         def fail_remove(repo: Path, *args: str) -> Any:
@@ -704,12 +710,12 @@ class FreezeTests(RepositoryCase):
                 raise InjectedRemovalError("injected removal failure")
             return original(repo, *args)
 
-        with patch.object(workflow, "_git", side_effect=fail_remove):
-            result = workflow.prove(
+        with patch.object(rails_kernel, "_git", side_effect=fail_remove):
+            result = rails_kernel.prove(
                 self.repo,
                 self.parent,
                 self.head,
-                (self.manifest_path, workflow._sha(self.manifest_path)),
+                (self.manifest_path, rails_kernel._sha(self.manifest_path)),
                 "fix",
                 target_ref=self.parent,
             )
@@ -723,17 +729,17 @@ class FreezeTests(RepositoryCase):
         previous = self.freeze([proof], setup=[sys.executable, "-c", "pass"])
         old = json.loads(previous[0].read_text())
         with patch.object(
-            workflow, "_execute", side_effect=AssertionError("retention reran")
+            rails_kernel, "_execute", side_effect=AssertionError("retention reran")
         ):
             retained = self.freeze([proof], previous=previous)
         assert json.loads(retained[0].read_text()) == old
         self.write("value", "fixed")
         self.commit("implementation")
         for kwargs in ({"base": "HEAD"}, {"setup": ["true"]}):
-            with pytest.raises(workflow.WorkflowError, match="immutable"):
+            with pytest.raises(rails_kernel.RailsKernelError, match="immutable"):
                 self.freeze([proof], previous=retained, **kwargs)
         modified = dict(proof, criterion="specific value")
-        with pytest.raises(workflow.WorkflowError, match="silent proof change"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="silent proof change"):
             self.freeze([modified], previous=retained)
         updated = self.freeze(
             [modified], previous=retained, revise={"P1": "clarify criterion"}
@@ -749,12 +755,13 @@ class FreezeTests(RepositoryCase):
         self.write("value", "fixed")
         self.commit("defective implementation")
         with pytest.raises(
-            workflow.WorkflowError, match="defective implementation commit as parent"
+            rails_kernel.RailsKernelError,
+            match="defective implementation commit as parent",
         ):
             self.freeze([proof])
         revisions: tuple[object, ...] = ({"P1": " "}, {"unknown": "reason"}, [])
         for revise in revisions:
-            with pytest.raises(workflow.WorkflowError):
+            with pytest.raises(rails_kernel.RailsKernelError):
                 self.freeze([proof], revise=revise)
 
     def test_freeze_paths_command_files_and_option_guards(self) -> None:
@@ -773,20 +780,20 @@ class FreezeTests(RepositoryCase):
         ):
             with self.subTest(token=token):
                 candidate = dict(proof, cmd=[sys.executable, token])
-                with pytest.raises(workflow.WorkflowError):
+                with pytest.raises(rails_kernel.RailsKernelError):
                     self.freeze([candidate])
 
     def test_freeze_ignored_symlink_and_check_ignore_error(self) -> None:
         proof = self.proof()
         self.write(".gitignore", "proof.py\n")
         self.commit("ignore")
-        with pytest.raises(workflow.WorkflowError, match="ignored"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="ignored"):
             self.freeze([proof])
         self.write(".gitignore", "")
         self.commit("unignore")
         (self.repo / "proof.py").unlink(missing_ok=True)
         (self.repo / "proof.py").symlink_to(self.repo / "value")
-        with pytest.raises(workflow.WorkflowError, match="symlink"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="symlink"):
             self.freeze([proof])
         (self.repo / "proof.py").unlink()
         proof = self.proof()
@@ -798,22 +805,24 @@ class FreezeTests(RepositoryCase):
             return original(cmd, **kwargs)
 
         with (
-            patch.object(workflow.subprocess, "run", side_effect=fail_ignore),
-            pytest.raises(workflow.WorkflowError, match="check-ignore infrastructure"),
+            patch.object(rails_kernel.subprocess, "run", side_effect=fail_ignore),
+            pytest.raises(
+                rails_kernel.RailsKernelError, match="check-ignore infrastructure"
+            ),
         ):
             self.freeze([proof])
 
     def test_caps_are_proof_specific(self) -> None:
         proofs = [self.proof(f"proof{i}.py", ident=f"P{i}") for i in range(17)]
         self.freeze(proofs, max_checks=17)
-        with pytest.raises(workflow.WorkflowError):
+        with pytest.raises(rails_kernel.RailsKernelError):
             self.freeze(proofs)
         self.change(proofs=proofs)
         assert self.prove(max_checks=17)["status"] == "pass"
         self.assert_block(self.prove(), "within max_checks")
         self.assert_block(self.prove(max_checks=1), "within max_checks")
         for cap in (0, -1, True, 1.5, "2"):
-            with pytest.raises(workflow.WorkflowError):
+            with pytest.raises(rails_kernel.RailsKernelError):
                 self.freeze(proofs, max_checks=cap)
             self.assert_block(self.prove(max_checks=cap), "positive integer")
 
@@ -828,11 +837,11 @@ class FreezeTests(RepositoryCase):
         ):
             with (
                 patch.object(
-                    workflow,
+                    rails_kernel,
                     "_git",
                     side_effect=AssertionError("Git ran before draft validation"),
                 ),
-                pytest.raises(workflow.WorkflowError),
+                pytest.raises(rails_kernel.RailsKernelError),
             ):
                 self.freeze(invalid)
 
@@ -859,7 +868,7 @@ class FreezeTests(RepositoryCase):
         previous = self.freeze([first, second])
         old_second = json.loads(previous[0].read_text())["proofs"][1]
         self.commit("frozen proofs")
-        with pytest.raises(workflow.WorkflowError, match="silent proof change"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="silent proof change"):
             self.freeze([first], previous=previous)
         self.freeze(
             [first], previous=previous, revise={"P2": "remove duplicate criterion"}
@@ -890,8 +899,8 @@ class FreezeTests(RepositoryCase):
     def test_freeze_parent_before_base_and_slug_change(self) -> None:
         proof = self.proof()
         previous = self.freeze([proof])
-        with pytest.raises(workflow.WorkflowError, match="immutable"):
-            workflow.freeze(
+        with pytest.raises(rails_kernel.RailsKernelError, match="immutable"):
+            rails_kernel.freeze(
                 self.repo,
                 self.manifest_path.with_name("different.json"),
                 [proof],
@@ -899,7 +908,7 @@ class FreezeTests(RepositoryCase):
                 previous=previous,
             )
         self.commit("later base")
-        with pytest.raises(workflow.WorkflowError, match="at or after base"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="at or after base"):
             self.freeze([dict(proof, parent=self.parent)], base="HEAD")
 
     def test_result_file_is_the_one_merge_signal_in_the_common_git_directory(
@@ -919,20 +928,20 @@ class FreezeTests(RepositoryCase):
                 ))
                 return original(source, destination)
 
-            with patch.object(workflow.os, "replace", side_effect=inspect):
-                result = workflow.prove(
+            with patch.object(rails_kernel.os, "replace", side_effect=inspect):
+                result = rails_kernel.prove(
                     linked,
                     self.parent,
                     self.head,
-                    (self.manifest_path, workflow._sha(self.manifest_path)),
+                    (self.manifest_path, rails_kernel._sha(self.manifest_path)),
                     "fix value",
                     target_ref=self.parent,
                 )
             assert result["status"] == "pass", result
-            path = workflow.result_path(linked, self.head)
+            path = rails_kernel.result_path(linked, self.head)
             assert (
                 path
-                == workflow._common(self.repo)
+                == rails_kernel._git_common_dir(self.repo)
                 / "omp-prove"
                 / f"{self.head}.result.json"
             )
@@ -956,10 +965,12 @@ class ConfigGateTests(RepositoryCase):
         self.config_file().unlink()
         self.change()
         with patch.object(
-            workflow, "_setup", side_effect=AssertionError("trees must not be built")
+            rails_kernel,
+            "_setup",
+            side_effect=AssertionError("trees must not be built"),
         ):
             result = self.prove()
-        self.assert_block(result, workflow.GUARDRAIL_PREREQUISITE)
+        self.assert_block(result, rails_kernel.ONBOARDING_PREREQUISITE)
         self.assert_block(result, "is not onboarded (.agentrails/config.json missing)")
 
     def test_prove_requires_a_commit_command(self) -> None:
@@ -984,7 +995,7 @@ class ConfigGateTests(RepositoryCase):
         linked = self.tmp / "linked"
         git(self.repo, "worktree", "add", "-qb", "linked", str(linked))
         try:
-            assert workflow.read_config(linked)["commands"]["commit"] == ["false"]
+            assert rails_kernel.read_config(linked)["commands"]["commit"] == ["false"]
         finally:
             git(self.repo, "worktree", "remove", "--force", str(linked))
 
@@ -995,17 +1006,19 @@ class ConfigGateTests(RepositoryCase):
                 self.manifest_path.unlink(missing_ok=True)
                 self.config_file().write_text(text)
                 with pytest.raises(
-                    workflow.WorkflowError,
+                    rails_kernel.RailsKernelError,
                     match=re.escape("(.agentrails/config.json invalid)"),
                 ):
-                    workflow.read_config(self.repo)
-                with pytest.raises(workflow.WorkflowError, match="not onboarded"):
+                    rails_kernel.read_config(self.repo)
+                with pytest.raises(
+                    rails_kernel.RailsKernelError, match="not onboarded"
+                ):
                     self.freeze([self.proof()])
                 assert not self.manifest_path.exists()
 
     def test_freeze_without_a_config_refuses_and_has_no_setup_escape(self) -> None:
         self.config_file().unlink()
-        with pytest.raises(workflow.WorkflowError) as raised:
+        with pytest.raises(rails_kernel.RailsKernelError) as raised:
             self.freeze([self.proof()])
         assert "is not onboarded (.agentrails/config.json missing)" in str(raised.value)
         assert not self.manifest_path.exists()
@@ -1019,7 +1032,7 @@ class ConfigGateTests(RepositoryCase):
             "import os; print(repr(os.environ.get('AGENT')), os.environ.get('KEEP'))",
         ]
         with patch.dict(os.environ, {"AGENT": "1", "KEEP": "kept"}):
-            ok, out = workflow.run_check(probe, self.repo)
+            ok, out = rails_kernel.run_check(probe, self.repo)
             assert os.environ["AGENT"] == "1", (
                 "the harness's own environment is unchanged"
             )
@@ -1034,10 +1047,10 @@ class ConfigGateTests(RepositoryCase):
                     "-c",
                     f"import sys; print('data'); print('status', file=sys.stderr); sys.exit({code})",
                 ]
-                ok, output = workflow.run_check(cmd, self.repo, stdout_only=True)
+                ok, output = rails_kernel.run_check(cmd, self.repo, stdout_only=True)
                 assert ok == (code == 0)
                 assert output == ("data\n" if ok else "data\nstatus\n")
-        assert workflow.run_check(cmd, self.repo) == (False, "data\nstatus\n")
+        assert rails_kernel.run_check(cmd, self.repo) == (False, "data\nstatus\n")
 
     def test_freeze_formats_before_hashing_and_reports_changed_files(self) -> None:
         self.write(
@@ -1055,11 +1068,13 @@ class ConfigGateTests(RepositoryCase):
         assert result.formatted == ["other.txt", "proof.py"]
         assert (self.repo / "proof.py").read_text().endswith("# formatted\n")
         manifest = json.loads(path.read_text())
-        assert manifest["proofs"][0]["sha256"]["proof.py"] == workflow._sha(
+        assert manifest["proofs"][0]["sha256"]["proof.py"] == rails_kernel._sha(
             self.repo / "proof.py"
         )
-        assert workflow._sha(path) == digest
-        with pytest.raises(workflow.WorkflowError, match="unfrozen change: other.txt"):
+        assert rails_kernel._sha(path) == digest
+        with pytest.raises(
+            rails_kernel.RailsKernelError, match="unfrozen change: other.txt"
+        ):
             self.freeze([proof])
         git(self.repo, "commit", "-qm", "commit formatter output", "--", "other.txt")
         assert self.freeze([proof]).formatted == []
@@ -1074,7 +1089,8 @@ class ConfigGateTests(RepositoryCase):
         )
         self.rebase_parent()
         with pytest.raises(
-            workflow.WorkflowError, match="checks.format failed:\n(.|\n)*cannot format"
+            rails_kernel.RailsKernelError,
+            match="checks.format failed:\n(.|\n)*cannot format",
         ):
             self.freeze([self.proof()])
         assert not self.manifest_path.exists()
@@ -1094,7 +1110,7 @@ class FeatureMapTests(RepositoryCase):
             + RED_AT_BASE
         )
         with pytest.raises(
-            workflow.WorkflowError,
+            rails_kernel.RailsKernelError,
             match="P1: red came from the environment doctor, not the behaviour",
         ):
             self.freeze([doctor])
@@ -1112,7 +1128,7 @@ class FeatureMapTests(RepositoryCase):
         assert path.exists()
         path.unlink()
         self.profile("<doctor failure marker>")
-        with pytest.raises(workflow.WorkflowError, match="config.json invalid"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="config.json invalid"):
             self.freeze([self.proof()], base=self.parent)
 
     def test_freeze_refuses_a_proof_no_feature_map_document_links(self) -> None:
@@ -1120,7 +1136,7 @@ class FeatureMapTests(RepositoryCase):
         self.rebase_parent("map links only the journey")
         unmapped = self.proof("unmapped.py")
         with pytest.raises(
-            workflow.WorkflowError,
+            rails_kernel.RailsKernelError,
             match=re.escape(
                 f"proof files not linked from any feature-map document under {MAP_PATH}: P1: unmapped.py"
             ),
@@ -1132,7 +1148,8 @@ class FeatureMapTests(RepositoryCase):
         )
         self.rebase_parent("prose mention")
         with pytest.raises(
-            workflow.WorkflowError, match="not linked from any feature-map document"
+            rails_kernel.RailsKernelError,
+            match="not linked from any feature-map document",
         ):
             self.freeze([unmapped])
 
@@ -1156,17 +1173,19 @@ class FeatureMapTests(RepositoryCase):
         ]
         self.write_config()
         with pytest.raises(
-            workflow.WorkflowError, match=re.escape(workflow.FEATURE_MAP_SETUP)
+            rails_kernel.RailsKernelError,
+            match=re.escape(rails_kernel.FEATURE_MAP_SETUP),
         ):
             self.freeze([self.proof()])
         assert not self.manifest_path.exists()
         del self.sections["approvals"]
         self.profile(None, feature_map_path="<feature map path>")
-        with pytest.raises(workflow.WorkflowError, match="config.json invalid"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="config.json invalid"):
             self.freeze([self.proof()])
         self.profile(None, feature_map_path="docs/missing")
         with pytest.raises(
-            workflow.WorkflowError, match="feature map docs/missing .* does not exist"
+            rails_kernel.RailsKernelError,
+            match="feature map docs/missing .* does not exist",
         ):
             self.freeze([self.proof()])
         assert not self.manifest_path.exists()
@@ -1216,7 +1235,7 @@ class FeatureMapTests(RepositoryCase):
         self.commit("docs")
         path, digest = self.freeze([], base=self.parent)
         self.head = git(self.repo, "rev-parse", "HEAD")
-        result = workflow.prove(
+        result = rails_kernel.prove(
             self.repo,
             self.parent,
             self.head,
@@ -1229,7 +1248,7 @@ class FeatureMapTests(RepositoryCase):
             f"{MAP_PATH}/value.md", map_doc("../../proof.py") + "\nMore behaviour.\n"
         )
         self.head = self.commit("behaviour change without proof")
-        result = workflow.prove(
+        result = rails_kernel.prove(
             self.repo,
             self.parent,
             self.head,
@@ -1248,11 +1267,11 @@ class FeatureMapTests(RepositoryCase):
         (self.repo / "oracle").rename(self.repo / "verifier")
         self.head = self.commit("rename oracle to verifier")
         with patch.object(
-            workflow,
+            rails_kernel,
             "deterministic_checks",
             side_effect=AssertionError("no frozen proofs"),
         ):
-            result = workflow.prove(
+            result = rails_kernel.prove(
                 self.repo,
                 self.parent,
                 self.head,
@@ -1282,11 +1301,11 @@ class FeatureMapTests(RepositoryCase):
         self.write("verifier/runtime.py", padding + "class VerifierPlugin:\n    pass\n")
         self.head = self.commit("rename all oracle owner definitions")
         with patch.object(
-            workflow,
+            rails_kernel,
             "deterministic_checks",
             side_effect=AssertionError("no frozen proofs"),
         ):
-            result = workflow.prove(
+            result = rails_kernel.prove(
                 self.repo,
                 self.parent,
                 self.head,
@@ -1308,8 +1327,8 @@ class FeatureMapTests(RepositoryCase):
         self.write("docs.md", "Documentation-only change.\n")
         self.head = self.commit("docs")
         missing_python = str(self.tmp / "missing-harness-python")
-        with patch.object(workflow.sys, "executable", missing_python):
-            result = workflow.prove(
+        with patch.object(rails_kernel.sys, "executable", missing_python):
+            result = rails_kernel.prove(
                 self.repo,
                 self.parent,
                 self.head,
@@ -1328,10 +1347,12 @@ class FeatureMapTests(RepositoryCase):
         self.write("docs.md", "Documentation-only change.\n")
         self.head = self.commit("docs")
         with (
-            patch.object(workflow, "load_manifest", side_effect=AttributeError("bug")),
+            patch.object(
+                rails_kernel, "load_manifest", side_effect=AttributeError("bug")
+            ),
             pytest.raises(AttributeError, match="bug"),
         ):
-            workflow.prove(
+            rails_kernel.prove(
                 self.repo,
                 self.parent,
                 self.head,
@@ -1357,7 +1378,10 @@ class FeatureMapTests(RepositoryCase):
         def inspect_launch(cmd: list[str], **kwargs: Any) -> Any:
             if "rename-residue" in cmd:
                 assert cmd[:4] == [sys.executable, "-I", "-S", "-c"]
-                assert Path(cmd[5]) == workflow._harness_root() / workflow.ENGINE_PATH
+                assert (
+                    Path(cmd[5])
+                    == rails_kernel._harness_root() / rails_kernel.ENGINE_PATH
+                )
                 launches.append(list(cmd))
                 cmd = list(cmd)
                 cmd[4] = (
@@ -1366,8 +1390,8 @@ class FeatureMapTests(RepositoryCase):
                 )
             return original(cmd, **kwargs)
 
-        with patch.object(workflow.subprocess, "run", side_effect=inspect_launch):
-            result = workflow.prove(
+        with patch.object(rails_kernel.subprocess, "run", side_effect=inspect_launch):
+            result = rails_kernel.prove(
                 self.repo,
                 self.parent,
                 self.head,
@@ -1452,7 +1476,7 @@ class JourneyAndResultTests(RepositoryCase):
                 self.ci.reset_mock()
                 self.ci.return_value = state
                 with patch.object(
-                    workflow,
+                    rails_kernel,
                     "_setup",
                     side_effect=AssertionError("trees must not be built"),
                 ):
@@ -1531,10 +1555,12 @@ class JourneyAndResultTests(RepositoryCase):
         for statuses, runs, expected in cases:
             with (
                 self.subTest(expected=expected, statuses=statuses, runs=runs),
-                patch.object(workflow, "_github", side_effect=respond(statuses, runs)),
+                patch.object(
+                    rails_kernel, "_github", side_effect=respond(statuses, runs)
+                ),
             ):
                 assert (
-                    workflow._required_context_state(self.repo, head, "ci/gate")
+                    rails_kernel._required_context_state(self.repo, head, "ci/gate")
                     == expected
                 )
 
@@ -1542,14 +1568,14 @@ class JourneyAndResultTests(RepositoryCase):
         self.change()
         result = self.prove()
         assert result["status"] == "pass", result
-        path = workflow.result_path(self.repo, self.head)
-        assert path.parent == workflow._common(self.repo) / "omp-prove"
+        path = rails_kernel.result_path(self.repo, self.head)
+        assert path.parent == rails_kernel._git_common_dir(self.repo) / "omp-prove"
         assert json.loads(path.read_text()) == result
         assert result["prComment"] == self.comment.return_value
         assert (result["head"], result["objective"], result["manifestSha256"]) == (
             self.head,
             "fix value",
-            workflow._sha(self.manifest_path),
+            rails_kernel._sha(self.manifest_path),
         )
         repo, head, posted = self.comment.call_args.args
         assert (repo, head, posted["status"]) == (
@@ -1568,7 +1594,7 @@ class JourneyAndResultTests(RepositoryCase):
 
     def test_unpublished_pass_fails(self) -> None:
         self.change()
-        self.comment.side_effect = workflow.WorkflowError(
+        self.comment.side_effect = rails_kernel.RailsKernelError(
             "no unique open PR at requested head"
         )
         result = self.prove()
@@ -1582,7 +1608,7 @@ class JourneyAndResultTests(RepositoryCase):
         self.change()
         assert self.prove()["status"] == "pass"
         writes = []
-        original = workflow._atomic_json
+        original = rails_kernel._atomic_json
 
         def fail_second(path: Path, value: object) -> Any:
             writes.append(path)
@@ -1590,7 +1616,7 @@ class JourneyAndResultTests(RepositoryCase):
                 raise OSError("disk full")
             return original(path, value)
 
-        with patch.object(workflow, "_atomic_json", side_effect=fail_second):
+        with patch.object(rails_kernel, "_atomic_json", side_effect=fail_second):
             result = self.prove()
         self.assert_block(result, "infrastructure: publishing prove result: disk full")
         assert self.stored_status() is None
@@ -1604,8 +1630,8 @@ class JourneyAndResultTests(RepositoryCase):
                 "proofs": {"P1": [{"location": "head", "output": "x" * 5000 + "END"}]}
             },
         }
-        body = workflow._result_comment(result)
-        assert body.startswith(workflow.RESULT_MARKER)
+        body = rails_kernel._result_comment(result)
+        assert body.startswith(rails_kernel.RESULT_MARKER)
         assert "[TRUNCATED to last 1000 chars]" in body
         assert "END" in body
         assert (
@@ -1614,9 +1640,9 @@ class JourneyAndResultTests(RepositoryCase):
         result["deterministic"]["proofs"] = {
             f"P{n}": [{"output": "y" * 5000}] * 3 for n in range(30)
         }
-        assert len(workflow._result_comment(result)) <= workflow.COMMENT_LIMIT
-        result["blocking"] = ["z" * workflow.COMMENT_LIMIT]
-        assert "too large for a PR comment" in workflow._result_comment(result)
+        assert len(rails_kernel._result_comment(result)) <= rails_kernel.COMMENT_LIMIT
+        result["blocking"] = ["z" * rails_kernel.COMMENT_LIMIT]
+        assert "too large for a PR comment" in rails_kernel._result_comment(result)
 
     def test_post_result_comment_targets_the_one_open_pr_at_head(self) -> None:
         self.comment_patch.stop()
@@ -1632,16 +1658,16 @@ class JourneyAndResultTests(RepositoryCase):
 
         with (
             patch.object(
-                workflow,
+                rails_kernel,
                 "_github",
                 return_value=[
                     {"number": 7, "headRefOid": head},
                     {"number": 8, "headRefOid": "b" * 40},
                 ],
             ) as github,
-            patch.object(workflow, "_gh", side_effect=gh) as text,
+            patch.object(rails_kernel, "_gh", side_effect=gh) as text,
         ):
-            url = workflow._post_result_comment(
+            url = rails_kernel._post_result_comment(
                 self.repo, head, {"status": "pass", "head": head}
             )
         assert (
@@ -1661,10 +1687,10 @@ class JourneyAndResultTests(RepositoryCase):
         assert text.call_args.args[1:4] == ("pr", "comment", "7")
         assert '"status": "pass"' in bodies[0]
         with (
-            patch.object(workflow, "_github", return_value=[]),
-            pytest.raises(workflow.WorkflowError, match="no unique open PR"),
+            patch.object(rails_kernel, "_github", return_value=[]),
+            pytest.raises(rails_kernel.RailsKernelError, match="no unique open PR"),
         ):
-            workflow._post_result_comment(
+            rails_kernel._post_result_comment(
                 self.repo, head, {"status": "pass", "head": head}
             )
 
@@ -1739,7 +1765,7 @@ class JudgmentConfigTests(unittest.TestCase):
         git(self.tmp, "init", "-q", "--bare", str(bare))
         for cwd in (self.tmp, self.repo, bare):
             with self.subTest(cwd=cwd.name):
-                assert workflow.judgment_config(cwd) is None
+                assert rails_kernel.judgment_config(cwd) is None
                 code, asked = self.bridge(cwd, "questions", "implementation-integrity")
                 assert (code, list(asked["questions"])) == (0, ["weakens_verification"])
 
@@ -1752,7 +1778,7 @@ class JudgmentConfigTests(unittest.TestCase):
         linked = self.tmp / "linked"
         git(self.repo, "worktree", "add", "-qb", "linked", str(linked))
         self.addCleanup(git, self.repo, "worktree", "remove", "--force", str(linked))
-        resolved = workflow.judgment_config(linked)
+        resolved = rails_kernel.judgment_config(linked)
         assert resolved is not None
         assert resolved["judgments"] == overrides
         assert self.bridge(linked, "questions", "implementation-integrity") == (
@@ -1764,7 +1790,7 @@ class JudgmentConfigTests(unittest.TestCase):
             json.dumps({
                 "state": {"work_request": {"title": "x"}},
                 "answers": {"evidence_gap": {"type": "bool", "bool": 0.95}},
-                "model": workflow.load_judgment("completion-evidence").model,
+                "model": rails_kernel.load_judgment("completion-evidence").model,
                 "context": {"trigger": "pr", "repo": "example-owner/example-repo"},
             })
         )
@@ -1793,10 +1819,10 @@ class JudgmentConfigTests(unittest.TestCase):
         path = write_config(self.repo, config())
         path.write_text("{")
         with pytest.raises(
-            workflow.WorkflowError,
+            rails_kernel.RailsKernelError,
             match=re.escape("(.agentrails/config.json invalid)"),
         ):
-            workflow.judgment_config(self.repo)
+            rails_kernel.judgment_config(self.repo)
         code, refused = self.bridge(self.repo, "questions", "in-scope")
         assert code == 1
         assert "is not onboarded" in refused["error"]
@@ -1828,7 +1854,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         git(self.repo, "add", ".")
         git(self.repo, "commit", "-qm", "head")
         self.head = git(self.repo, "rev-parse", "HEAD")
-        self.judgment = workflow._structure_config()
+        self.judgment = rails_kernel._structure_judgment()
         self.questions, self.thresholds = (
             self.judgment.questions,
             self.judgment.thresholds,
@@ -1902,29 +1928,35 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             return Batch()
 
         with (
-            patch.object(workflow, "_structure_config", return_value=self.judgment),
             patch.object(
-                workflow, "_configured_judge_model", return_value=self.judge_role
+                rails_kernel, "_structure_judgment", return_value=self.judgment
+            ),
+            patch.object(
+                rails_kernel, "_configured_judge_model", return_value=self.judge_role
             ),
             patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.agent)}),
-            patch.object(workflow, "_kind_candidates", return_value=self.kinds),
-            patch.object(workflow, "_name_pairs", return_value=self.pairs),
-            patch.object(workflow, "_consumer_candidates", return_value=self.consumers),
-            patch.object(workflow, "judge_batch", judge_batch, create=True),
+            patch.object(rails_kernel, "_kind_candidates", return_value=self.kinds),
+            patch.object(rails_kernel, "_name_pairs", return_value=self.pairs),
             patch.object(
-                workflow,
+                rails_kernel, "_consumer_candidates", return_value=self.consumers
+            ),
+            patch.object(rails_kernel, "judge_batch", judge_batch, create=True),
+            patch.object(
+                rails_kernel,
                 "_post_structure_comment",
                 side_effect=post_error,
                 return_value="https://example.test/comment",
             ) as post,
         ):
-            result = await workflow.structure_review(
+            result = await rails_kernel.structure_review(
                 self.repo, self.parent, self.head, target_ref=self.parent
             )
         post.assert_called_once()
         saved = json.loads(
             (
-                workflow._common(self.repo) / "omp-structure" / f"{self.head}.json"
+                rails_kernel._git_common_dir(self.repo)
+                / "omp-structure"
+                / f"{self.head}.json"
             ).read_text()
         )
         assert saved == result
@@ -1953,7 +1985,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
     async def test_every_enforced_finding_blocks_and_never_changes_prove_signal(
         self,
     ) -> None:
-        signal = workflow.result_path(self.repo, self.head)
+        signal = rails_kernel.result_path(self.repo, self.head)
         signal.parent.mkdir()
         signal.write_text('{"status":"pass"}')
         result = await self.review()
@@ -1963,15 +1995,15 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             self.head,
         )
         assert {(item["question"], item["mode"]) for item in result["findings"]} == {
-            (workflow.KIND_QUESTION, "shadow"),
-            (workflow.PAIR_QUESTION, "enforced"),
-            (workflow.CONSUMER_QUESTION, "shadow"),
+            (rails_kernel.KIND_QUESTION, "shadow"),
+            (rails_kernel.PAIR_QUESTION, "enforced"),
+            (rails_kernel.CONSUMER_QUESTION, "shadow"),
         }
         assert len(result["pairs"][PAIR_ID]["digest"]) == 64
         assert "units" not in result
         assert signal.read_text() == '{"status":"pass"}'
         assert result["thresholds"] == self.thresholds
-        comment = workflow._structure_comment(result)
+        comment = rails_kernel._structure_comment(result)
         assert "raw judgment probabilities" in comment
         assert "Every enforced finding blocks merge" in comment
         assert comment.count("(shadow, not blocking)") == 2
@@ -1980,10 +2012,10 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
             (row["question"], row["outcome"], row["mode"], row["trigger"], row["item"])
             for row in logged
         } == {
-            (workflow.KIND_QUESTION, "flag", "shadow", "pr", "src/models/order.py"),
-            (workflow.PAIR_QUESTION, "flag", "enforced", "pr", PAIR_ID),
+            (rails_kernel.KIND_QUESTION, "flag", "shadow", "pr", "src/models/order.py"),
+            (rails_kernel.PAIR_QUESTION, "flag", "enforced", "pr", PAIR_ID),
             (
-                workflow.CONSUMER_QUESTION,
+                rails_kernel.CONSUMER_QUESTION,
                 "flag",
                 "shadow",
                 "pr",
@@ -1997,22 +2029,22 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
     async def test_shadow_findings_are_reported_and_logged_but_never_block(
         self,
     ) -> None:
-        self.shadow(workflow.PAIR_QUESTION, workflow.CONSUMER_QUESTION)
+        self.shadow(rails_kernel.PAIR_QUESTION, rails_kernel.CONSUMER_QUESTION)
         result = await self.review()
         assert (result["status"], result["halt"]) == ("pass", False)
         assert {item["mode"] for item in result["findings"]} == {"shadow"}
-        comment = workflow._structure_comment(result)
+        comment = rails_kernel._structure_comment(result)
         assert comment.count("(shadow, not blocking)") == 3
         assert "**Blocked:**" not in comment
         assert {(row["mode"], row["outcome"]) for row in self.logged()} == {
             ("shadow", "flag")
         }
-        self.enforce(workflow.PAIR_QUESTION)
+        self.enforce(rails_kernel.PAIR_QUESTION)
         mixed = await self.review()
         assert (mixed["status"], mixed["halt"]) == ("blocked", True)
         assert [
             item["question"] for item in mixed["findings"] if item["mode"] == "enforced"
-        ] == [workflow.PAIR_QUESTION]
+        ] == [rails_kernel.PAIR_QUESTION]
 
     async def test_the_repo_config_turns_questions_off_or_to_shadow(self) -> None:
         write_config(
@@ -2032,12 +2064,12 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert result["kind_files"] == {}
         assert (result["status"], result["halt"]) == ("pass", False)
         assert {(item["question"], item["mode"]) for item in result["findings"]} == {
-            (workflow.PAIR_QUESTION, "shadow"),
-            (workflow.CONSUMER_QUESTION, "shadow"),
+            (rails_kernel.PAIR_QUESTION, "shadow"),
+            (rails_kernel.CONSUMER_QUESTION, "shadow"),
         }
         assert {(row["question"], row["mode"]) for row in self.logged()} == {
-            (workflow.PAIR_QUESTION, "shadow"),
-            (workflow.CONSUMER_QUESTION, "shadow"),
+            (rails_kernel.PAIR_QUESTION, "shadow"),
+            (rails_kernel.CONSUMER_QUESTION, "shadow"),
         }
 
     async def test_scores_below_the_threshold_pass_without_findings(self) -> None:
@@ -2057,7 +2089,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_escalated_band_decision_leaves_the_review_incomplete(
         self,
     ) -> None:
-        decision = self.judgment.decisions[workflow.KIND_QUESTION]
+        decision = self.judgment.decisions[rails_kernel.KIND_QUESTION]
         del decision["threshold"]
         decision.update(no_at_most=0.3, yes_at_least=0.9, fallback="backup")
         self.pairs, self.consumers = [], []
@@ -2087,7 +2119,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert (result["halt"], result["status"]) == (True, "blocked")
         assert {
             "item": PAIR_ID,
-            "question": workflow.PAIR_QUESTION,
+            "question": rails_kernel.PAIR_QUESTION,
             "mode": "enforced",
             "score": 0.051143,
             "threshold": 0.051143,
@@ -2128,9 +2160,9 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
 
     def test_proposers_use_isolated_harness_cli_and_exact_commit_range(self) -> None:
         with patch.object(
-            workflow, "run_check", return_value=(True, json.dumps({"pairs": []}))
+            rails_kernel, "run_check", return_value=(True, json.dumps({"pairs": []}))
         ) as run:
-            assert workflow._name_pairs(self.repo, self.parent, self.head) == []
+            assert rails_kernel._name_pairs(self.repo, self.parent, self.head) == []
         argv = run.call_args.args[0]
         assert argv[:3] == [sys.executable, "-I", "-S"]
         assert "name-pairs" in argv
@@ -2153,7 +2185,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         git(self.repo, "commit", "-qm", "add order model")
         head = git(self.repo, "rev-parse", "HEAD")
 
-        found = workflow._kind_candidates(self.repo, self.parent, head)
+        found = rails_kernel._kind_candidates(self.repo, self.parent, head)
 
         assert [item["path"] for item in found] == ["src/models/order.py"]
         assert found[0]["state"]["folder"] == "src/models"
@@ -2162,20 +2194,20 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         self,
     ) -> None:
         with (
-            patch.object(workflow, "_pr_at_head", return_value={"number": 12}),
-            patch.object(workflow, "_github_repo", return_value="owner/repo"),
+            patch.object(rails_kernel, "_pr_at_head", return_value={"number": 12}),
+            patch.object(rails_kernel, "_github_repo", return_value="owner/repo"),
             patch.object(
-                workflow,
+                rails_kernel,
                 "_github",
                 side_effect=[
-                    [{"id": 7, "body": workflow.STRUCTURE_MARKER}],
+                    [{"id": 7, "body": rails_kernel.STRUCTURE_MARKER}],
                     {"html_url": "https://example.test/comment"},
                 ],
             ) as github,
         ):
             result = {"head": self.head, "halt": False, "findings": [], "errors": []}
             assert (
-                workflow._post_structure_comment(self.repo, self.head, result)
+                rails_kernel._post_structure_comment(self.repo, self.head, result)
                 == "https://example.test/comment"
             )
         assert "repos/owner/repo/issues/comments/7" in github.call_args.args

@@ -8,7 +8,6 @@ with --settings fill only the keys a checker section lacks.
 from __future__ import annotations
 
 import json
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -16,12 +15,13 @@ from guardrails.context.config.house_style import load_house_style
 from guardrails.context.config.section_schema import PLACEHOLDER, ConfigValueError
 from guardrails.context.config.validator import validate_section
 
+DATA_FOLDER = Path(__file__).resolve().parents[3] / "data"
 SETUP_SECTIONS = ("commands", "checkers", "structure", "houseStyle", "tests")
 TEMPLATE = "config-template.json"
 
 
 def template() -> dict[str, Any]:
-    text = resources.files("guardrails.data").joinpath(TEMPLATE).read_text("utf-8")
+    text = (DATA_FOLDER / TEMPLATE).read_text("utf-8")
     loaded: dict[str, Any] = json.loads(text)
     return {name: loaded[name] for name in SETUP_SECTIONS}
 

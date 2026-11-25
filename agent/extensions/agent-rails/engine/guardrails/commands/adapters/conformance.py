@@ -7,7 +7,6 @@ import subprocess
 import tempfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +14,7 @@ from guardrails.checker.growth import CollectedFile, Snapshot, growth_findings
 from guardrails.foundation.findings import Finding
 from guardrails.test_report.junit import FAILING, Case
 
+DATA_FOLDER = Path(__file__).resolve().parents[3] / "data"
 CASES_FILE = "conformance-cases.json"
 CASE_TIMEOUT_S = 300
 CASE_ERRORS: tuple[type[Exception], ...] = (
@@ -25,7 +25,7 @@ CASE_ERRORS: tuple[type[Exception], ...] = (
 )
 APPROVED_SKIP = "approved-static-skip"
 # Cases that run another case's fixture unchanged, judged under a different config or evidence
-# kind. The pytest adapter names its fixtures in bindings.json instead.
+# kind. The pytest adapter names its fixtures in data/pytest-conformance-bindings.json instead.
 REUSED_FIXTURES = {
     APPROVED_SKIP: "unapproved-static-skip",
     "expected-failure-recorded": "expected-failure-marker",
@@ -69,7 +69,7 @@ class Harness:
 
 
 def load_cases() -> list[dict[str, Any]]:
-    text = resources.files("guardrails.data").joinpath(CASES_FILE).read_text("utf-8")
+    text = (DATA_FOLDER / CASES_FILE).read_text("utf-8")
     cases: list[dict[str, Any]] = json.loads(text)["cases"]
     return cases
 

@@ -4,8 +4,7 @@ import json
 import re
 from collections import Counter, defaultdict
 from functools import cache
-from importlib import resources
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.commands.structure_naming.name_pair.extract import (
@@ -18,6 +17,7 @@ from guardrails.commands.structure_naming.name_pair.extract import (
     words,
 )
 
+DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
 TRIVIAL = re.compile(
     r"^(utf-?8|utf-?16|ascii|latin-?1|true|false|none|null|yes|no|on|off|json|yaml|text"
     r"|html|xml|csv|id|name|type|value|key|data|default|auto|main|master|dev|prod|test"
@@ -71,9 +71,7 @@ Pair = dict[str, Any]
 
 @cache
 def synonyms() -> dict[str, frozenset[str]]:
-    data = json.loads(
-        resources.files("guardrails.data").joinpath("name-synonyms.json").read_bytes()
-    )
+    data = json.loads((DATA_FOLDER / "name-synonyms.json").read_bytes())
     found: dict[str, set[str]] = defaultdict(set)
     for group in data["groups"]:
         for first in group:

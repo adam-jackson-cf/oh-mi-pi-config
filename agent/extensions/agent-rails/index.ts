@@ -213,7 +213,7 @@ const guardrailsProject = join(import.meta.dir, "engine");
 const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "check"];
 const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "path-check"];
 const defaultConfigCheckCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "config-check"];
-// The judgment registry (engine/workflows.py) as the rails call it: questions, then record.
+// The judgment registry (lib/rails_kernel.py) as the rails call it: questions, then record.
 const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "python", join(import.meta.dir, "lib", "decide.py")];
 // The harness checks run only after commands.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the config has not given the step to it.

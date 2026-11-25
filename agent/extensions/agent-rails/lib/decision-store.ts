@@ -1,5 +1,5 @@
 // The agent-rails decision store: one SQLite database under the omp agent dir that holds every Jev
-// judgment answer, deterministic check result and rail decision. engine/guardrails/data/decision-store.sql
+// judgment answer, deterministic check result and rail decision. engine/data/decision-store.sql
 // is the only schema; the engine applies the same file through Python's sqlite3.
 import { Database } from "bun:sqlite";
 import { mkdirSync, readFileSync } from "node:fs";
@@ -7,7 +7,7 @@ import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 
 export const STORE_FILE = "agent-rails/agent-rails.db";
-export const SCHEMA_PATH = join(import.meta.dir, "..", "engine", "guardrails", "data", "decision-store.sql");
+export const SCHEMA_PATH = join(import.meta.dir, "..", "engine", "data", "decision-store.sql");
 const BUSY_TIMEOUT_MS = 5000;
 let schema: { text: string; version: number } | undefined;
 

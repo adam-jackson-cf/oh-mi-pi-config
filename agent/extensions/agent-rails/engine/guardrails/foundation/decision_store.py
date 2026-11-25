@@ -21,10 +21,10 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
+DATA_FOLDER = Path(__file__).resolve().parents[2] / "data"
 STORE_FILE = "agent-rails/agent-rails.db"
 SCHEMA_FILE = "decision-store.sql"
 BUSY_TIMEOUT_SECONDS = 5.0
@@ -118,12 +118,7 @@ class DecisionContext:
 
 @cache
 def schema_text() -> str:
-    return (
-        resources
-        .files("guardrails.data")
-        .joinpath(SCHEMA_FILE)
-        .read_text(encoding="utf-8")
-    )
+    return (DATA_FOLDER / SCHEMA_FILE).read_text(encoding="utf-8")
 
 
 def schema_version() -> int:

@@ -84,7 +84,7 @@ function shellStateReason(command: string, protection: Protection): string | und
 
 const EVAL_PROCESS = /\bsh\s*\(|\bsubprocess\b|\bos\s*\.\s*(?:system|popen|exec\w*|spawn\w*|posix_spawn\w*|fork\w*)\b|\bPopen\b|\bpty\b|\bBun\s*\.\s*(?:spawn\w*|\$)|\bchild_process\b|\$`|\bexecSync\b|\bspawnSync\b|\bexecFile\w*|^\s*!|%%?(?:sx|system|bash|sh|script|run|sc)\b|\bget_ipython\b|\bgetoutput\b/m;
 const EVAL_WRITES = /\b(?:open|write_text|write_bytes|writeFile\w*|appendFile\w*|unlink\w*|rename\w*|remove\w*|rmtree|rmdir|shutil|copy\w*|move|symlink\w*|chmod|truncate|replace|mkdir|makedirs|touch|createWriteStream|write)\b/;
-const PROOF_NAMES = "prove|structure_review|result_path|freeze|deterministic_checks|_write_result|_publish_result|_atomic_json|_common";
+const PROOF_NAMES = "prove|structure_review|result_path|freeze|deterministic_checks|_write_result|_publish_result|_atomic_json|_git_common_dir";
 const EVAL_TAMPER = new RegExp(`\\b(?:def|class|async\\s+def)\\s+(?:${PROOF_NAMES})\\b|\\b(?:${PROOF_NAMES})\\s*=(?!=)|\\bsetattr\\s*\\(|\\bglobals\\s*\\(|__builtins__|\\bbuiltins\\b|\\bsys\\s*\\.\\s*modules\\b|\\breload\\s*\\(`);
 const EVAL_COMMIT = /\bcommit\s*\.\s*draft\b|\bno_verify\b|\bnoVerify\b/;
 

@@ -10,7 +10,7 @@ context = decision_context({"trigger": ..., "repo": ..., "item": ...})
 answers = await decide(name, state, context)
 ```
 
-Load `<extension>/engine/workflows.py` in an eval cell; it needs `judge()`. `trigger` is `commit`,
+Load `<extension>/lib/rails_kernel.py` in an eval cell; it needs `judge()`. `trigger` is `commit`,
 `prove`, `pr` or `manual`; `repo`, `commit`, `pr`, `item_kind` and `item` name what was judged.
 
 | Step | What `decide()` does |
@@ -22,7 +22,7 @@ Load `<extension>/engine/workflows.py` in an eval cell; it needs `judge()`. `tri
 | Log | One `decisions` row per question in the decision store |
 
 - The store is `<agent dir>/agent-rails/agent-rails.db` (`PI_CODING_AGENT_DIR`, else `~/.omp/agent`), with one schema,
-  [decision-store.sql](../engine/guardrails/data/decision-store.sql). Flags, errors and a stable 1-in-10 sample of passes keep their payload until reviewed.
+  [decision-store.sql](../engine/data/decision-store.sql). Flags, errors and a stable 1-in-10 sample of passes keep their payload until reviewed.
 - It returns the logged record plus `answers`: `call_id`, `judgment`, `state_sha256`, `model`,
   `question_version`, `probabilities`, `outcomes`, `modes` and `timestamp`.
 - Choice questions return probabilities only. Treat `escalate` as uncertain: take the conservative

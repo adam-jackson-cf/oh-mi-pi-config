@@ -53,7 +53,7 @@ adapter. Per-repo values go in the config, never in adapter code.
 
 The conformance cases are framework-agnostic: each names an input situation and
 the verdict every adapter must produce. The canonical list is the engine's
-[`data/conformance-cases.json`](../../data/conformance-cases.json).
+[`engine/data/conformance-cases.json`](../../../data/conformance-cases.json).
 It includes, for example:
 
 - a test patches an owned module → `TEST.no-self-mocking`;
@@ -86,7 +86,7 @@ It includes, for example:
   shared conformance run), `marker_bindings.py` (marker-read inlining for
   lint) and `javascript/` (the Vitest and Bun case collector, lint, Stryker
   normaliser and `node_guard/` runtime). Source patterns are run-time data in
-  `guardrails/data/<name>-patterns.json`.
+  `engine/data/<name>-patterns.json`.
 - The harness runs the adapter against the target from outside its tree; JUnit
   and other evidence go to a temporary directory outside the worktree.
 - **Generalisation (rule of two):** keep framework-specific choices that only

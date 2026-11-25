@@ -1,4 +1,4 @@
-// Judgment calls as the decision store holds them: engine/workflows.py decide(), structure_review()
+// Judgment calls as the decision store holds them: lib/rails_kernel.py decide(), structure_review()
 // and the rail bridge write one decisions row per question answered; a call is the rows sharing a call_id.
 import { existsSync } from "node:fs";
 import { z } from "@oh-my-pi/pi-coding-agent";

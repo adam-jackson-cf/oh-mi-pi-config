@@ -116,38 +116,38 @@ function judgeStub(): JudgeStub { return { scores: {}, calls: [], model: judgeMo
 // double runs the same bridge with every bool decision widened to 0.3-0.7, as a band with a fallback judge would be.
 const bandedBridge = [
 	"import dataclasses, importlib.util, os, sys",
-	"spec = importlib.util.spec_from_file_location('agent_rails_workflows', sys.argv[1])",
-	"workflows = importlib.util.module_from_spec(spec)",
-	"sys.modules[spec.name] = workflows",
-	"spec.loader.exec_module(workflows)",
-	"shipped = workflows.load_judgment",
+	"spec = importlib.util.spec_from_file_location('agent_rails_kernel', sys.argv[1])",
+	"kernel = importlib.util.module_from_spec(spec)",
+	"sys.modules[spec.name] = kernel",
+	"spec.loader.exec_module(kernel)",
+	"shipped = kernel.load_judgment",
 	"band = {'no_at_most': 0.3, 'yes_at_least': 0.7, 'fallback': 'seam-fallback'}",
 	"def banded(name):",
 	"    judgment = shipped(name)",
 	"    widen = lambda ident, d: {**{k: v for k, v in d.items() if k != 'threshold'}, **band} if judgment.questions[ident]['type'] == 'bool' else d",
 	"    return dataclasses.replace(judgment, decisions={ident: widen(ident, d) for ident, d in judgment.decisions.items()})",
-	"workflows.load_judgment = banded",
-	"sys.exit(workflows.rail_bridge(sys.argv[2:], os.getcwd()))",
+	"kernel.load_judgment = banded",
+	"sys.exit(kernel.rail_bridge(sys.argv[2:], os.getcwd()))",
 ].join("\n");
-const workflowsScript = resolve(import.meta.dir, "../agent/extensions/agent-rails/engine/workflows.py");
-const bandedDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", bandedBridge, workflowsScript];
+const kernelScript = resolve(import.meta.dir, "../agent/extensions/agent-rails/lib/rails_kernel.py");
+const bandedDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", bandedBridge, kernelScript];
 // No shipped judgment runs in shadow mode yet: this registry double runs the same bridge with every
 // bool decision in shadow mode, as thresholds.json declares it for a judgment whose precision is unmeasured.
 const shadowBridge = [
 	"import dataclasses, importlib.util, os, sys",
-	"spec = importlib.util.spec_from_file_location('agent_rails_workflows', sys.argv[1])",
-	"workflows = importlib.util.module_from_spec(spec)",
-	"sys.modules[spec.name] = workflows",
-	"spec.loader.exec_module(workflows)",
-	"shipped = workflows.load_judgment",
+	"spec = importlib.util.spec_from_file_location('agent_rails_kernel', sys.argv[1])",
+	"kernel = importlib.util.module_from_spec(spec)",
+	"sys.modules[spec.name] = kernel",
+	"spec.loader.exec_module(kernel)",
+	"shipped = kernel.load_judgment",
 	"def shadowed(name):",
 	"    judgment = shipped(name)",
 	"    shadow = lambda ident, d: {**d, 'mode': 'shadow', 'shadow_exit': {'labelled_flags': 10}} if judgment.questions[ident]['type'] == 'bool' else d",
 	"    return dataclasses.replace(judgment, decisions={ident: shadow(ident, d) for ident, d in judgment.decisions.items()})",
-	"workflows.load_judgment = shadowed",
-	"sys.exit(workflows.rail_bridge(sys.argv[2:], os.getcwd()))",
+	"kernel.load_judgment = shadowed",
+	"sys.exit(kernel.rail_bridge(sys.argv[2:], os.getcwd()))",
 ].join("\n");
-const shadowDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", shadowBridge, workflowsScript];
+const shadowDecideCommand = ["uv", "run", "--locked", "--project", resolve(import.meta.dir, ".."), "python", "-c", shadowBridge, kernelScript];
 type Registry = "shipped" | "banded" | "shadow";
 const registryCommands = { shipped: decideCommand, banded: bandedDecideCommand, shadow: shadowDecideCommand } satisfies Record<Registry, string[]>;
 

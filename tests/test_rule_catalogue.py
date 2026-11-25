@@ -1,4 +1,4 @@
-"""The packaged rule catalogue, its coverage by these tests, toolchain parity and versions.
+"""The engine rule catalogue, its coverage by these tests, toolchain parity and versions.
 
 Every rule the package proves is named by a test here.
 """
@@ -11,7 +11,6 @@ import os
 import re
 import sys
 import unittest
-from importlib import resources
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -112,9 +111,10 @@ def imported_sources(sources: list[Path]) -> list[Path]:
     ]
 
 
-def packaged_catalogue() -> dict[str, Any]:
-    data = resources.files("guardrails.data").joinpath("guardrail-rules.json")
-    catalogue: dict[str, Any] = json.loads(data.read_bytes())
+def engine_catalogue() -> dict[str, Any]:
+    catalogue: dict[str, Any] = json.loads(
+        (ENGINE / "data/guardrail-rules.json").read_bytes()
+    )
     return catalogue
 
 
@@ -156,7 +156,7 @@ def repeated_remediations(entries: list[dict[str, Any]]) -> list[str]:
 
 
 def adapter_rule_files() -> dict[str, list[dict[str, Any]]]:
-    data = ENGINE / "guardrails/data"
+    data = ENGINE / "data"
     return {
         name: json.loads((data / name).read_text())
         for name in ("pytest-patterns.json", "javascript-patterns.json")
@@ -169,7 +169,7 @@ def entry_keys(entries: list[dict[str, Any]]) -> set[str]:
 
 class RemediationSchemaTests(unittest.TestCase):
     def test_every_catalogue_rule_states_root_cause_and_fix(self) -> None:
-        rules = packaged_catalogue()["rules"]
+        rules = engine_catalogue()["rules"]
         for rule in rules:
             with self.subTest(rule=rule["id"]):
                 assert remediation_problems(rule) == []
@@ -220,11 +220,11 @@ class RemediationSchemaTests(unittest.TestCase):
         ]) == [cause]
 
 
-class PackagedCatalogueTests(unittest.TestCase):
+class EngineCatalogueTests(unittest.TestCase):
     """The catalogue ships in the package; its implementation rules resolve to emitting modules."""
 
     def setUp(self) -> None:
-        self.catalogue = packaged_catalogue()
+        self.catalogue = engine_catalogue()
 
     def test_catalogue_ships_as_package_data(self) -> None:
         assert self.catalogue["schema_version"] == 1
@@ -327,7 +327,7 @@ class DependencyAuditContractTests(unittest.TestCase):
     """SECURITY.dependency-audit belongs to the repo's checker; the catalogue states its contract."""
 
     def setUp(self) -> None:
-        rows = packaged_catalogue()["rules"]
+        rows = engine_catalogue()["rules"]
         self.row = next(
             rule for rule in rows if rule["id"] == "SECURITY.dependency-audit"
         )

@@ -877,7 +877,7 @@
       "kind": "bespoke",
       "applicability": "conditional",
       "contract": {
-        "restricted_name_parts": "guardrails/data/house-style.json banned_words",
+        "restricted_name_parts": "engine/data/house-style.json banned_words",
         "target_allowlist_required": true
       },
       "summary": "No unapproved generic directory names",
@@ -897,7 +897,7 @@
       "kind": "bespoke",
       "applicability": "conditional",
       "contract": {
-        "restricted_name_parts": "guardrails/data/house-style.json banned_words",
+        "restricted_name_parts": "engine/data/house-style.json banned_words",
         "target_allowlist_required": true
       },
       "summary": "No unapproved generic module names",

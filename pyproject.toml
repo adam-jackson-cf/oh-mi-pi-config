@@ -1,6 +1,6 @@
 # Shared Python verification tooling for every owned Python file in this repository.
 # The ruff and mypy settings mirror the harness catalogue,
-# agent/extensions/agent-rails/engine/guardrails/data/native-tools.json; change both together.
+# agent/extensions/agent-rails/engine/data/native-tools.json; change both together.
 # Target values (Python version, first-party modules, source roots) come from this repository.
 
 [project]
@@ -152,7 +152,7 @@ ignore = ["E501", "B006", "B008", "A005"]
 "**/tests/**" = ["S101", "PLR2004"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["guardrails", "workflows"]
+known-first-party = ["guardrails", "rails_kernel"]
 force-single-line = false
 combine-as-imports = true
 split-on-trailing-comma = true

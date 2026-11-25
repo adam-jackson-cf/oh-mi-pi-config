@@ -21,4 +21,4 @@ build-backend = "setuptools.build_meta"
 include = ["guardrails*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.yml", "*.md", "*.ts", "*.txt", "*.sql"]
+"*" = ["*.md", "*.ts", "*.txt"]

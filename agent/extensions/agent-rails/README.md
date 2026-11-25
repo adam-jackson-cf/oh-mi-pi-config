@@ -39,7 +39,8 @@ ordinary work in that repository.
 The rails watch the agent's edits, shell commands and replies. They refuse actions the repository's
 config does not allow, ask the owner where the config says `ask`, and prove a PR before merge.
 
-- `index.ts` and `lib/`: the extension entry, guards, rails runtime, onboarding and config writer
+- `index.ts` and `lib/`: the extension entry, guards, rails runtime, onboarding, config writer
+  and the eval-kernel API for proofs and judgments (`lib/rails_kernel.py`)
 - `rails.yml`: the edit tools, path fields and Git-write and ask-first command patterns
 - `engine/`: the `guardrails` Python checkers and rule catalogue, run outside the repository
 - `judgments/`: calibrated Jev judgments behind `decide()`
@@ -68,6 +69,8 @@ config does not allow, ask the owner where the config says `ask`, and prove a PR
 - [docs/known-limits.md](docs/known-limits.md): what the rails do not catch or measure today
 - [docs/external-dependencies.md](docs/external-dependencies.md): what the extension relies on
   outside its folder
+- [docs/engine.md](docs/engine.md): the `guardrails` engine: how to run it, its layers,
+  adapters, configuration and language coverage
 - [references/judgments.md](references/judgments.md),
   [references/proofs-and-merge.md](references/proofs-and-merge.md) and
   [references/structure-and-naming.md](references/structure-and-naming.md): the rules refusals cite

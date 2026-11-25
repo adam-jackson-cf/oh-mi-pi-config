@@ -191,10 +191,10 @@ tests/fixtures/*
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
 !tests/test_implementation_integrity_judgment.py
-!tests/test_workflows.py
+!tests/test_rails_kernel.py
 !tests/test_extension_impact_judgment.py
 !tests/test_orca_install_seams.py
-!tests/test_workflows_seams.py
+!tests/test_rails_kernel_seams.py
 !tests/test_device_rollout_seams.py
 !tests/test_skill_references_seams.py
 !tests/test_in_scope_judgment.py

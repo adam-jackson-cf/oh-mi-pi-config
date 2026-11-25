@@ -3,18 +3,16 @@ from __future__ import annotations
 import fnmatch
 import json
 from functools import cache
-from importlib import resources
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
+
+DATA_FOLDER = Path(__file__).resolve().parents[2] / "data"
 
 
 @cache
 def load_pack(name: str) -> dict[str, Any]:
     pack: dict[str, Any] = json.loads(
-        resources
-        .files("guardrails.data")
-        .joinpath("conventions", f"{name}.json")
-        .read_bytes()
+        (DATA_FOLDER / "conventions" / f"{name}.json").read_bytes()
     )
     return pack
 

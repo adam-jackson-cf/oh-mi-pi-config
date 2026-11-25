@@ -45,20 +45,20 @@ def isolated_decision_store(
 
 MODULE = (
     Path(__file__).resolve().parents[1]
-    / "agent/extensions/agent-rails/engine/workflows.py"
+    / "agent/extensions/agent-rails/lib/rails_kernel.py"
 )
 
-spec = importlib.util.spec_from_file_location("workflows", MODULE)
+spec = importlib.util.spec_from_file_location("rails_kernel", MODULE)
 
 assert spec is not None
 
 assert spec.loader is not None
 
-workflow = importlib.util.module_from_spec(spec)
+rails_kernel = importlib.util.module_from_spec(spec)
 
-spec.loader.exec_module(workflow)
+spec.loader.exec_module(rails_kernel)
 
-READ_JUDGE_MODEL = workflow._configured_judge_model
+READ_JUDGE_MODEL = rails_kernel._configured_judge_model
 CONFIG = Path(__file__).resolve().parents[1] / "agent/config.yml"
 CONFIGURED_JUDGE = next(
     line.split(":", 1)[1].strip()
@@ -110,7 +110,7 @@ class SchemaTests(unittest.TestCase):
 
     def load(self, data: dict[str, Any]) -> Any:
         self.path.write_text(json.dumps(data))
-        return workflow.load_manifest(self.path, workflow._sha(self.path))
+        return rails_kernel.load_manifest(self.path, rails_kernel._sha(self.path))
 
     def test_manifest_invalid_shapes(self) -> None:
         mutations = [
@@ -126,7 +126,7 @@ class SchemaTests(unittest.TestCase):
         for key, value in mutations:
             with (
                 self.subTest(key=key, value=value),
-                pytest.raises(workflow.WorkflowError),
+                pytest.raises(rails_kernel.RailsKernelError),
             ):
                 self.load(dict(self.data, **{key: value}))
         for key, value in (
@@ -142,12 +142,12 @@ class SchemaTests(unittest.TestCase):
             data["proofs"][0][key] = value
             with (
                 self.subTest(key=key, value=value),
-                pytest.raises(workflow.WorkflowError),
+                pytest.raises(rails_kernel.RailsKernelError),
             ):
                 self.load(data)
         self.path.write_text("{")
-        with pytest.raises(workflow.WorkflowError):
-            workflow.load_manifest(self.path, workflow._sha(self.path))
+        with pytest.raises(rails_kernel.RailsKernelError):
+            rails_kernel.load_manifest(self.path, rails_kernel._sha(self.path))
 
     def test_zero_proofs_are_valid(self) -> None:
         data = dict(self.data, proofs=[])
@@ -160,7 +160,7 @@ class SchemaTests(unittest.TestCase):
             with (
                 self.subTest(key=key),
                 pytest.raises(
-                    workflow.WorkflowError, match=f"P: unknown proof field {key}"
+                    rails_kernel.RailsKernelError, match=f"P: unknown proof field {key}"
                 ),
             ):
                 self.load(data)
@@ -168,7 +168,7 @@ class SchemaTests(unittest.TestCase):
     def test_unknown_manifest_fields_are_refused_by_name(self) -> None:
         data = dict(self.data, unknownField=2)
         with pytest.raises(
-            workflow.WorkflowError, match="unknown manifest field unknownField"
+            rails_kernel.RailsKernelError, match="unknown manifest field unknownField"
         ):
             self.load(data)
 
@@ -189,23 +189,14 @@ class SchemaTests(unittest.TestCase):
         ):
             data = copy.deepcopy(self.data)
             data["proofs"][0].update(files=[name], sha256={name: "b" * 64})
-            with self.subTest(name=name), pytest.raises(workflow.WorkflowError):
+            with self.subTest(name=name), pytest.raises(rails_kernel.RailsKernelError):
                 self.load(data)
         with patch.object(
-            workflow.tempfile,
+            rails_kernel.tempfile,
             "gettempdir",
             side_effect=AssertionError("lexical validation touched host"),
         ):
             assert self.load(self.data) == self.data
-
-    def test_gate_policy_reads_the_validated_repo_config(self) -> None:
-        # repo_config.validate owns the schema (tests/test_repo_config.py); gate_policy returns
-        # the fields freeze() and prove() consume from a config it accepted.
-        ci = {"enabled": True, "runner": "ci-gate", "requiredContext": "gate"}
-        config = {"commands": {"commit": ["c"], "format": ["ruff", "format"]}, "ci": ci}
-        assert workflow.gate_policy(config) == {"format": ["ruff", "format"], "ci": ci}
-        off = {"commands": {"commit": ["c"]}, "ci": {"enabled": False}}
-        assert workflow.gate_policy(off) == {"format": None, "ci": {"enabled": False}}
 
     def test_journey_flag_must_be_boolean(self) -> None:
         for value in (True, False):
@@ -214,13 +205,15 @@ class SchemaTests(unittest.TestCase):
             assert self.load(data) == data
         data = copy.deepcopy(self.data)
         data["proofs"][0]["journey"] = "yes"
-        with pytest.raises(workflow.WorkflowError, match="journey must be a boolean"):
+        with pytest.raises(
+            rails_kernel.RailsKernelError, match="journey must be a boolean"
+        ):
             self.load(data)
 
     def test_harness_root_survives_a_later_kernel_load(self) -> None:
         loaded: dict[str, Any] = {"__name__": "kernel"}
         exec(compile(MODULE.read_text(), "<cell>", "exec"), loaded)
-        with pytest.raises(loaded["WorkflowError"], match="without __file__"):
+        with pytest.raises(loaded["RailsKernelError"], match="without __file__"):
             loaded["_harness_root"]()
         # The eval kernel's %load sets __file__ in the shared namespace; a later %load replaces it.
         kernel: dict[str, Any] = {"__name__": "kernel", "__file__": str(MODULE)}
@@ -228,7 +221,7 @@ class SchemaTests(unittest.TestCase):
         kernel["__file__"] = "/elsewhere/other.py"
         assert kernel["_harness_root"]() == Path(__file__).resolve().parents[1]
 
-    def test_workflow_code_holds_no_model_ids_or_hosts(self) -> None:
+    def test_kernel_code_holds_no_model_ids_or_hosts(self) -> None:
         text = MODULE.read_text()
         for pattern in (
             r"gpt-\d",
@@ -252,10 +245,12 @@ class LabelTests(unittest.TestCase):
         self.addCleanup(scratch.cleanup)
         self.path = Path(scratch.name) / "batch.json"
         self.path.write_text(json.dumps({"cases": [{"id": "a"}, {"id": "b"}]}))
-        self.spawn = patch.object(workflow, "agent", create=True, return_value="job")
+        self.spawn = patch.object(
+            rails_kernel, "agent", create=True, return_value="job"
+        )
         self.agent = self.spawn.start()
         self.addCleanup(self.spawn.stop)
-        self.wait_patch = patch.object(workflow, "wait", create=True)
+        self.wait_patch = patch.object(rails_kernel, "wait", create=True)
         self.wait = self.wait_patch.start()
         self.addCleanup(self.wait_patch.stop)
 
@@ -264,7 +259,7 @@ class LabelTests(unittest.TestCase):
 
     def label(self, results: list[Any]) -> Any:
         self.wait.return_value = results
-        result = workflow.blind_label([self.path], "rubric", ["yes", "no"])
+        result = rails_kernel.blind_label([self.path], "rubric", ["yes", "no"])
         json.dumps(result)
         assert sorted(r["id"] for r in result["agreed"] + result["disputed"]) == [
             "a",
@@ -304,15 +299,15 @@ class LabelTests(unittest.TestCase):
     def test_inputs_validated_before_spawn(self) -> None:
         for cases in (None, [{"id": ""}], [{"id": "a"}, {"id": "a"}], [{"id": 1}]):
             self.path.write_text(json.dumps(cases))
-            with pytest.raises(workflow.WorkflowError):
-                workflow.blind_label([self.path], "rubric", ["yes"])
-        with pytest.raises(workflow.WorkflowError):
-            workflow.blind_label([self.path] * 9, "rubric", ["yes"])
+            with pytest.raises(rails_kernel.RailsKernelError):
+                rails_kernel.blind_label([self.path], "rubric", ["yes"])
+        with pytest.raises(rails_kernel.RailsKernelError):
+            rails_kernel.blind_label([self.path] * 9, "rubric", ["yes"])
         self.agent.assert_not_called()
 
 
 CATALOGUE = Path(__file__).resolve().parents[1] / (
-    "agent/extensions/agent-rails/engine/guardrails/data/guardrail-rules.json"
+    "agent/extensions/agent-rails/engine/data/guardrail-rules.json"
 )
 
 ADVISORY = (
@@ -371,7 +366,7 @@ def answers(
         message = f"unknown answer overrides: {sorted(unknown)}"
         raise TypeError(message)
     values = {**DEFAULT_PRECONDITIONS, **overrides}
-    probabilities = dict.fromkeys(workflow.IMPACT_LEVEL, 0.0)
+    probabilities = dict.fromkeys(rails_kernel.IMPACT_LEVEL, 0.0)
     probabilities.update(spread or {impact: 1.0})
     return {
         "impact": {
@@ -397,7 +392,7 @@ class DependencyAuditParsingTests(unittest.TestCase):
             "SECURITY.dependency-audit failure=manifest-without-lock path=tools/package.json reason=dependencies but no lock",
             "test_security.py::test_dependency PASSED mentions SECURITY.dependency-audit mid-line",
         ])
-        found = workflow.parse_dependency_audit(output)
+        found = rails_kernel.parse_dependency_audit(output)
         assert found["advisories"] == [
             {
                 "lock": "uv.lock",
@@ -426,7 +421,7 @@ class DependencyAuditParsingTests(unittest.TestCase):
             }
         ]
         assert (
-            workflow.advisory_key(found["advisories"][0])
+            rails_kernel.advisory_key(found["advisories"][0])
             == "uv.lock:PyYAML@5.3.1:GHSA-8q59-q68h-6hv4"
         )
 
@@ -450,22 +445,24 @@ class DependencyAuditParsingTests(unittest.TestCase):
             with (
                 self.subTest(line=line),
                 pytest.raises(
-                    workflow.WorkflowError, match="SECURITY.dependency-audit"
+                    rails_kernel.RailsKernelError, match="SECURITY.dependency-audit"
                 ),
             ):
-                workflow.parse_dependency_audit(line)
-        with pytest.raises(workflow.WorkflowError, match="truncated"):
-            workflow.parse_dependency_audit("…" + ADVISORY)
+                rails_kernel.parse_dependency_audit(line)
+        with pytest.raises(rails_kernel.RailsKernelError, match="truncated"):
+            rails_kernel.parse_dependency_audit("…" + ADVISORY)
 
     def test_the_parser_matches_the_catalogue_contract(self) -> None:
         rows = json.loads(CATALOGUE.read_text())["rules"]
         contract = next(
-            rule for rule in rows if rule["id"] == workflow.DEPENDENCY_AUDIT
+            rule for rule in rows if rule["id"] == rails_kernel.DEPENDENCY_AUDIT
         )["contract"]
-        assert list(workflow.ADVISORY_FIELDS) == contract["advisory_fields_in_order"]
-        assert list(workflow.AUDIT_FAILURE_KINDS) == contract["failure_kinds"]
+        assert (
+            list(rails_kernel.ADVISORY_FIELDS) == contract["advisory_fields_in_order"]
+        )
+        assert list(rails_kernel.AUDIT_FAILURE_KINDS) == contract["failure_kinds"]
         example = re.sub(r"<[^>]+>", "x", contract["advisory_line"])
-        assert len(workflow.parse_dependency_audit(example)["advisories"]) == 1
+        assert len(rails_kernel.parse_dependency_audit(example)["advisories"]) == 1
 
 
 class HarnessCheckLogTests(unittest.TestCase):
@@ -483,9 +480,9 @@ class HarnessCheckLogTests(unittest.TestCase):
             (True, "prefix-folder: ok\n"),
         ])
         with patch.object(
-            workflow, "run_check", side_effect=lambda *a, **k: next(outputs)
+            rails_kernel, "run_check", side_effect=lambda *a, **k: next(outputs)
         ) as run:
-            found, errors = workflow._harness_check_findings(
+            found, errors = rails_kernel._harness_check_findings(
                 Path("/repo"), "p" * 40, "h" * 40
             )
         assert found == ["src/a.py: GATE.path-check: bad name; rename it"]
@@ -510,22 +507,24 @@ class HarnessCheckLogTests(unittest.TestCase):
 class SeverityRubricTests(unittest.TestCase):
     def setUp(self) -> None:
         isolated_agent(self)
-        self.decisions = workflow.load_judgment("dependency-severity").decisions
-        self.advisory = workflow.parse_dependency_audit(ADVISORY)["advisories"][0]
-        self.no_fix = workflow.parse_dependency_audit(NO_FIX)["advisories"][0]
+        self.decisions = rails_kernel.load_judgment("dependency-severity").decisions
+        self.advisory = rails_kernel.parse_dependency_audit(ADVISORY)["advisories"][0]
+        self.no_fix = rails_kernel.parse_dependency_audit(NO_FIX)["advisories"][0]
 
     def rate(self, answer: Any, advisory: Any = None, **kwargs: Any) -> Any:
-        return workflow.rate_advisory(
+        return rails_kernel.rate_advisory(
             advisory or self.advisory, evidence(**kwargs), answer, self.decisions
         )
 
     def test_thresholds_belong_to_the_current_questions_scores_and_judge_role(
         self,
     ) -> None:
-        judgment = workflow.load_judgment("dependency-severity")
-        assert set(self.decisions) == {"impact", *workflow.PRECONDITIONS, "reached"}
+        judgment = rails_kernel.load_judgment("dependency-severity")
+        assert set(self.decisions) == {"impact", *rails_kernel.PRECONDITIONS, "reached"}
         assert judgment.model == CONFIGURED_JUDGE
-        directory = workflow._harness_root() / workflow.JUDGMENTS / judgment.name
+        directory = (
+            rails_kernel._harness_root() / rails_kernel.JUDGMENTS / judgment.name
+        )
         scores = (directory / "scores.csv").read_bytes()
         assert (
             hashlib.sha256(scores).hexdigest() == judgment.thresholds["scores_sha256"]
@@ -534,7 +533,7 @@ class SeverityRubricTests(unittest.TestCase):
         assert {row["model"] for row in rows} == {judgment.model}
         assert {row["question_version"] for row in rows} == {
             f"{ident}@{self.decisions[ident]['version_key']}"
-            for ident in workflow.PRECONDITIONS + ("reached",)
+            for ident in rails_kernel.PRECONDITIONS + ("reached",)
         }
 
     def test_the_rubric_spans_every_level_and_both_exposures(self) -> None:
@@ -571,15 +570,17 @@ class SeverityRubricTests(unittest.TestCase):
         config = {
             "judgments": {
                 f"dependency-severity/{ident}": {"enabled": False}
-                for ident in (*workflow.PRECONDITIONS, "reached")
+                for ident in (*rails_kernel.PRECONDITIONS, "reached")
             }
         }
-        decisions = workflow.effective_judgment(
-            workflow.load_judgment("dependency-severity"), config
+        decisions = rails_kernel.effective_judgment(
+            rails_kernel.load_judgment("dependency-severity"), config
         ).decisions
         assert set(decisions) == {"impact"}
         unasked = {"impact": mild["impact"]}
-        rated = workflow.rate_advisory(self.advisory, evidence(), unasked, decisions)
+        rated = rails_kernel.rate_advisory(
+            self.advisory, evidence(), unasked, decisions
+        )
         assert rated["severity"] == "critical"
         assert rated["dimensions"]["preconditions"] == {
             "probabilities": {},
@@ -614,7 +615,7 @@ class SeverityRubricTests(unittest.TestCase):
         assert (rated["severity"], rated["route"]) == ("low", "owner")
         assert "dated exception" in rated["reasons"][0]
         assert rated["suggested_fix"] == "replace node-serialize with JSON.parse"
-        with pytest.raises(workflow.WorkflowError, match="fix_options"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="fix_options"):
             self.rate(answers(), advisory=self.no_fix)
 
     def test_invalid_judgment_answers_or_evidence_raise(self) -> None:
@@ -626,15 +627,18 @@ class SeverityRubricTests(unittest.TestCase):
             None,
             {**answers(), "impact": {"probabilities": {"rce": 1.0}}},
         ):
-            with self.subTest(answer=answer), pytest.raises(workflow.WorkflowError):
+            with (
+                self.subTest(answer=answer),
+                pytest.raises(rails_kernel.RailsKernelError),
+            ):
                 self.rate(answer)
         bad = evidence()
         bad["scope"] = "test"
-        with pytest.raises(workflow.WorkflowError, match="scope"):
-            workflow.rate_advisory(self.advisory, bad, answers(), self.decisions)
+        with pytest.raises(rails_kernel.RailsKernelError, match="scope"):
+            rails_kernel.rate_advisory(self.advisory, bad, answers(), self.decisions)
         bad = {**evidence(), "extra": 1}
-        with pytest.raises(workflow.WorkflowError, match="evidence needs"):
-            workflow.rate_advisory(self.advisory, bad, answers(), self.decisions)
+        with pytest.raises(rails_kernel.RailsKernelError, match="evidence needs"):
+            rails_kernel.rate_advisory(self.advisory, bad, answers(), self.decisions)
         for invalid in (
             {},
             {**BLOCKED_FIX, "constraint": ""},
@@ -642,9 +646,12 @@ class SeverityRubricTests(unittest.TestCase):
             {**BLOCKED_FIX, "constraint_source": "http://example.org"},
             {**BLOCKED_FIX, "unexpected": "value"},
         ):
-            with self.subTest(blocker=invalid), pytest.raises(workflow.WorkflowError):
+            with (
+                self.subTest(blocker=invalid),
+                pytest.raises(rails_kernel.RailsKernelError),
+            ):
                 self.rate(answers(), blocked_fix=invalid)
-        with pytest.raises(workflow.WorkflowError):
+        with pytest.raises(rails_kernel.RailsKernelError):
             self.rate(
                 answers(),
                 advisory=self.no_fix,
@@ -690,7 +697,7 @@ def write_judgment(
     flag: dict[str, Any] | None = None,
 ) -> Path:
     """A judgments/<name>/ folder under `root` with current version keys."""
-    directory: Path = root / workflow.JUDGMENTS / name
+    directory: Path = root / rails_kernel.JUDGMENTS / name
     directory.mkdir(parents=True)
     state = {"text": "the text judged"}
     questions = {
@@ -707,7 +714,7 @@ def write_judgment(
     thresholds = {
         "model": model,
         "score_space": "raw",
-        "version_key": workflow._judgment_digest({
+        "version_key": rails_kernel._judgment_digest({
             "questions": questions,
             "state": state,
             "model": model,
@@ -724,7 +731,7 @@ def write_judgment(
         },
     }
     for ident, question in questions.items():
-        thresholds["decisions"][ident]["version_key"] = workflow._judgment_digest({
+        thresholds["decisions"][ident]["version_key"] = rails_kernel._judgment_digest({
             "question": question,
             "state": state,
             "model": model,
@@ -737,23 +744,27 @@ class JudgmentRegistryTests(unittest.TestCase):
     def setUp(self) -> None:
         # Load the store from the real harness before _harness_root moves to the temp copy: a worker
         # that already imported guardrails from the repository would otherwise refuse the copy.
-        workflow._store()
+        rails_kernel._store()
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.root = Path(scratch.name) / "harness"
         self.agent = Path(scratch.name) / "agent"
         self.calls: list[Any] = []
         # The repo config at the kernel's or rail's cwd; None is an unconfigured repo. Resolving a
-        # real cwd runs git, so the seam tests cover it (test_workflows_seams.JudgmentConfigTests).
+        # real cwd runs git, so the seam tests cover it (test_rails_kernel_seams.JudgmentConfigTests).
         self.repo_config: dict[str, Any] | None = None
         for patcher in (
-            patch.object(workflow, "_harness_root", return_value=self.root),
+            patch.object(rails_kernel, "_harness_root", return_value=self.root),
             patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.agent)}),
             patch.object(
-                workflow, "_configured_judge_model", return_value="typesafe/jev-1.14.0"
+                rails_kernel,
+                "_configured_judge_model",
+                return_value="typesafe/jev-1.14.0",
             ),
             patch.object(
-                workflow, "judgment_config", side_effect=lambda cwd: self.repo_config
+                rails_kernel,
+                "judgment_config",
+                side_effect=lambda cwd: self.repo_config,
             ),
         ):
             patcher.start()
@@ -769,11 +780,11 @@ class JudgmentRegistryTests(unittest.TestCase):
                 "kind": {"type": "choice", "probabilities": {"note": 0.8, "log": 0.2}},
             }
 
-        context = workflow._store().DecisionContext(
+        context = rails_kernel._store().DecisionContext(
             "manual", item_kind="text", item="a note"
         )
-        with patch.object(workflow, "judge", judge, create=True):
-            return asyncio.run(workflow.decide(name, {"text": "a note"}, context))
+        with patch.object(rails_kernel, "judge", judge, create=True):
+            return asyncio.run(rails_kernel.decide(name, {"text": "a note"}, context))
 
     def logged(self, sql: str = "SELECT * FROM decisions ORDER BY rowid") -> list[Any]:
         return stored(self.agent, sql)
@@ -796,7 +807,7 @@ class JudgmentRegistryTests(unittest.TestCase):
         flags = [row for row in rows if row["question"] == "flag"]
         assert [row["outcome"] for row in flags] == ["flag", "flag", "pass", "pass"]
         assert len({row["call_id"] for row in rows}) == 4
-        judgment = workflow.load_judgment("demo")
+        judgment = rails_kernel.load_judgment("demo")
         assert {key: flags[0][key] for key in DECISION_FIELDS} == {
             "source": "jev",
             "judgment": "demo",
@@ -807,7 +818,7 @@ class JudgmentRegistryTests(unittest.TestCase):
             "model": "typesafe/jev-1.14.0",
             "question_version": judgment.decisions["flag"]["version_key"],
             "judgment_version": judgment.version_key,
-            "state_sha256": workflow._judgment_digest({"text": "a note"}),
+            "state_sha256": rails_kernel._judgment_digest({"text": "a note"}),
             "trigger": "manual",
             "item_kind": "text",
             "item": "a note",
@@ -818,7 +829,8 @@ class JudgmentRegistryTests(unittest.TestCase):
         assert json.loads(kind["choice_probabilities"]) == {"note": 0.8, "log": 0.2}
         assert self.calls[0][1] == judgment.questions
         assert (
-            workflow._store().store_path() == self.agent / "agent-rails/agent-rails.db"
+            rails_kernel._store().store_path()
+            == self.agent / "agent-rails/agent-rails.db"
         )
 
     def test_a_band_escalates_only_with_a_registered_fallback_judge(self) -> None:
@@ -875,39 +887,46 @@ class JudgmentRegistryTests(unittest.TestCase):
         for message, document in cases.items():
             with self.subTest(message=message):
                 (directory / "thresholds.json").write_text(json.dumps(document))
-                with pytest.raises(workflow.WorkflowError, match=message):
-                    workflow.load_judgment("demo")
+                with pytest.raises(rails_kernel.RailsKernelError, match=message):
+                    rails_kernel.load_judgment("demo")
         (directory / "thresholds.json").write_text(json.dumps(thresholds))
         reworded = copy.deepcopy(questions)
         reword(reworded)
         (directory / "questions.json").write_text(json.dumps(reworded))
-        with pytest.raises(workflow.WorkflowError, match="stale"):
-            workflow.load_judgment("demo")
+        with pytest.raises(rails_kernel.RailsKernelError, match="stale"):
+            rails_kernel.load_judgment("demo")
         for name in ("../demo", "Demo", "", "demo/x"):
             with (
                 self.subTest(name=name),
-                pytest.raises(workflow.WorkflowError, match="name"),
+                pytest.raises(rails_kernel.RailsKernelError, match="name"),
             ):
-                workflow.load_judgment(name)
-        with pytest.raises(workflow.WorkflowError, match="cannot read"):
-            workflow.load_judgment("absent")
+                rails_kernel.load_judgment(name)
+        with pytest.raises(rails_kernel.RailsKernelError, match="cannot read"):
+            rails_kernel.load_judgment("absent")
 
     def test_another_judge_model_failed_or_invalid_answers_never_decide(self) -> None:
         write_judgment(self.root)
         with (
             patch.object(
-                workflow,
+                rails_kernel,
                 "_configured_judge_model",
                 return_value="openrouter/typesafe/jev-1.14",
             ),
-            pytest.raises(workflow.WorkflowError, match="judge role is openrouter"),
+            pytest.raises(
+                rails_kernel.RailsKernelError, match="judge role is openrouter"
+            ),
         ):
             self.decide(0.9)
         assert self.calls == []
-        with pytest.raises(workflow.WorkflowError, match="judgment failed: offline"):
+        with pytest.raises(
+            rails_kernel.RailsKernelError, match="judgment failed: offline"
+        ):
             self.decide(RuntimeError("offline"))
         for invalid in (1.5, "yes", True, float("nan")):
-            with self.subTest(invalid=invalid), pytest.raises(workflow.WorkflowError):
+            with (
+                self.subTest(invalid=invalid),
+                pytest.raises(rails_kernel.RailsKernelError),
+            ):
                 self.decide(invalid)
         rows = self.logged()
         assert all(row["outcome"] is None for row in rows), "no failed call decides"
@@ -925,18 +944,18 @@ class JudgmentRegistryTests(unittest.TestCase):
         assert all(row["state_kept"] == 1 for row in rows), (
             "every error keeps its payload"
         )
-        with pytest.raises(workflow.WorkflowError, match="non-empty object"):
-            asyncio.run(workflow.decide("demo", {}, None))
+        with pytest.raises(rails_kernel.RailsKernelError, match="non-empty object"):
+            asyncio.run(rails_kernel.decide("demo", {}, None))
 
     def bridge(self, *argv: str) -> tuple[int, Any]:
         out = io.StringIO()
         with patch("sys.stdout", out):
-            code = workflow.rail_bridge(list(argv), self.root)
+            code = rails_kernel.rail_bridge(list(argv), self.root)
         return code, json.loads(out.getvalue())
 
     def test_rail_bridge_asks_then_records_the_host_answers(self) -> None:
         write_judgment(self.root)
-        judgment = workflow.load_judgment("demo")
+        judgment = rails_kernel.load_judgment("demo")
         assert self.bridge("questions", "demo") == (
             0,
             {
@@ -1030,7 +1049,7 @@ class JudgmentRegistryTests(unittest.TestCase):
             "value": {"judge": "typesafe/jev-1.14.0"},
         })
         with patch.object(
-            workflow.subprocess, "run", return_value=completed(good)
+            rails_kernel.subprocess, "run", return_value=completed(good)
         ) as run:
             assert READ_JUDGE_MODEL() == "typesafe/jev-1.14.0"
         assert run.call_args.args[0] == ["omp", "config", "get", "modelRoles", "--json"]
@@ -1043,22 +1062,22 @@ class JudgmentRegistryTests(unittest.TestCase):
             with (
                 self.subTest(stdout=stdout, code=code),
                 patch.object(
-                    workflow.subprocess, "run", return_value=completed(stdout, code)
+                    rails_kernel.subprocess, "run", return_value=completed(stdout, code)
                 ),
-                pytest.raises(workflow.WorkflowError, match="judge model"),
+                pytest.raises(rails_kernel.RailsKernelError, match="judge model"),
             ):
                 READ_JUDGE_MODEL()
         with (
             patch.object(
-                workflow.subprocess, "run", side_effect=FileNotFoundError("omp")
+                rails_kernel.subprocess, "run", side_effect=FileNotFoundError("omp")
             ),
-            pytest.raises(workflow.WorkflowError, match="judge model"),
+            pytest.raises(rails_kernel.RailsKernelError, match="judge model"),
         ):
             READ_JUDGE_MODEL()
 
     def test_agent_dir_defaults_to_the_omp_home(self) -> None:
         with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": ""}):
-            assert workflow._store().store_path() == (
+            assert rails_kernel._store().store_path() == (
                 Path.home() / ".omp/agent/agent-rails/agent-rails.db"
             )
 
@@ -1101,12 +1120,14 @@ class JudgmentRegistryTests(unittest.TestCase):
         for message, document in cases.items():
             with self.subTest(message=message):
                 (directory / "thresholds.json").write_text(json.dumps(document))
-                with pytest.raises(workflow.WorkflowError, match=re.escape(message)):
-                    workflow.load_judgment("demo")
+                with pytest.raises(
+                    rails_kernel.RailsKernelError, match=re.escape(message)
+                ):
+                    rails_kernel.load_judgment("demo")
 
     def test_loading_registers_each_question_version_with_its_taxonomy(self) -> None:
         write_judgment(self.root, flag={"threshold": 0.7, "override": {"by": "owner"}})
-        judgment = workflow.load_judgment("demo")
+        judgment = rails_kernel.load_judgment("demo")
         rows = {row["question"]: row for row in self.logged("SELECT * FROM questions")}
         assert set(rows) == {"flag", "kind"}
         flag = rows["flag"]
@@ -1119,7 +1140,7 @@ class JudgmentRegistryTests(unittest.TestCase):
         assert json.loads(flag["override"]) == {"by": "owner"}
         assert flag["shadow_exit"] is None
         assert json.loads(rows["kind"]["decision"]) == {"round_up_floor": 0.3}
-        workflow.load_judgment("demo")
+        rails_kernel.load_judgment("demo")
         assert len(self.logged("SELECT * FROM questions")) == 2, (
             "a reload replaces its rows"
         )
@@ -1128,10 +1149,10 @@ class JudgmentRegistryTests(unittest.TestCase):
         self,
     ) -> None:
         write_judgment(self.root)
-        store = workflow._store()
+        store = rails_kernel._store()
         for score in (0.9, 0.1):
             self.decide(score)
-        with pytest.raises(workflow.WorkflowError):
+        with pytest.raises(rails_kernel.RailsKernelError):
             self.decide(RuntimeError("offline"))
         rows = self.logged()
         kept = {row["call_id"] for row in self.logged("SELECT * FROM payloads")}
@@ -1206,13 +1227,13 @@ class JudgmentRegistryTests(unittest.TestCase):
                 write_judgment(
                     self.root, flag=shadow_flag if global_mode == "shadow" else None
                 )
-                judgment = workflow.load_judgment("demo")
+                judgment = rails_kernel.load_judgment("demo")
                 config = (
                     self.overrides()
                     if setting is None
                     else self.overrides(flag=setting)
                 )
-                effective = workflow.effective_judgment(judgment, config)
+                effective = rails_kernel.effective_judgment(judgment, config)
                 if expected == "off":
                     assert "flag" not in effective.decisions
                     assert "flag" not in effective.questions
@@ -1223,11 +1244,13 @@ class JudgmentRegistryTests(unittest.TestCase):
                 assert judgment.decisions["flag"]["mode"] == global_mode, (
                     "the global judgment is never changed"
                 )
-        assert workflow.effective_judgment(judgment, None) is judgment, (
+        assert rails_kernel.effective_judgment(judgment, None) is judgment, (
             "no repo config keeps the global modes"
         )
-        with pytest.raises(workflow.WorkflowError, match="only measurement promotes"):
-            workflow.effective_judgment(
+        with pytest.raises(
+            rails_kernel.RailsKernelError, match="only measurement promotes"
+        ):
+            rails_kernel.effective_judgment(
                 judgment, self.overrides(flag={"enabled": True, "mode": "enforced"})
             )
 
@@ -1279,7 +1302,7 @@ class JudgmentRegistryTests(unittest.TestCase):
         }
         assert questions == {"flag": "enforced", "kind": "enforced"}
         assert self.bridge("questions", "demo")[1]["questions"] == (
-            workflow.load_judgment("demo").questions
+            rails_kernel.load_judgment("demo").questions
         ), "a shadow question is still asked"
 
 
@@ -1309,12 +1332,12 @@ class ShippedJudgmentTests(unittest.TestCase):
     def test_shipped_judgments_load_on_the_configured_judge(self) -> None:
         for name in ("dependency-severity", "structure-naming"):
             with self.subTest(name=name):
-                judgment = workflow.load_judgment(name)
+                judgment = rails_kernel.load_judgment(name)
                 assert judgment.model == CONFIGURED_JUDGE
                 assert "status" not in judgment.thresholds
                 for decision in judgment.decisions.values():
                     assert "status" not in decision
-                directory = workflow._harness_root() / workflow.JUDGMENTS / name
+                directory = rails_kernel._harness_root() / rails_kernel.JUDGMENTS / name
                 scores = (directory / "scores.csv").read_bytes()
                 assert (
                     hashlib.sha256(scores).hexdigest()
@@ -1330,12 +1353,14 @@ class ShippedJudgmentTests(unittest.TestCase):
                     assert 0 <= float(row["score"]) <= 1
 
     def test_extension_impact_loads_on_the_rekeyed_config_state(self) -> None:
-        judgment = workflow.load_judgment("extension-impact")
+        judgment = rails_kernel.load_judgment("extension-impact")
         assert judgment.model == CONFIGURED_JUDGE
         assert set(judgment.state) == {"config", "change"}
         decision = judgment.decisions["impact"]
         assert decision["mode"] == "enforced"
-        directory = workflow._harness_root() / workflow.JUDGMENTS / judgment.name
+        directory = (
+            rails_kernel._harness_root() / rails_kernel.JUDGMENTS / judgment.name
+        )
         scores = (directory / "scores.csv").read_text()
         measured = decision["measured_on"]["question_version"]
         assert measured != f"impact@{decision['version_key']}"
@@ -1354,7 +1379,7 @@ class StructureProposalTests(unittest.TestCase):
         environment.start()
         self.addCleanup(environment.stop)
         self.store = Path(agent.name) / "agent-rails/agent-rails.db"
-        self.judgment = workflow.load_judgment("structure-naming")
+        self.judgment = rails_kernel.load_judgment("structure-naming")
         self.result: dict[str, Any] = {
             "head": "h" * 40,
             "pairs": {},
@@ -1389,10 +1414,10 @@ class StructureProposalTests(unittest.TestCase):
 
             return Batch()
 
-        return patch.object(workflow, "judge_batch", judge_batch, create=True)
+        return patch.object(rails_kernel, "judge_batch", judge_batch, create=True)
 
     def review(self) -> Any:
-        return workflow.StructureJudgment(self.judgment, self.result, "owner/repo")
+        return rails_kernel.StructureReview(self.judgment, self.result, "owner/repo")
 
     def rows(self) -> list[dict[str, Any]]:
         import sqlite3
@@ -1424,13 +1449,13 @@ class StructureProposalTests(unittest.TestCase):
             asyncio.run(self.review().judge_pairs(pairs))
 
     def test_an_off_question_is_never_asked_and_logs_nothing(self) -> None:
-        self.judgment = workflow.effective_judgment(
+        self.judgment = rails_kernel.effective_judgment(
             self.judgment,
             {"judgments": {"structure-naming/consumer_placement": {"enabled": False}}},
         )
         review = self.review()
-        assert not review.asks(workflow.CONSUMER_QUESTION)
-        assert review.asks(workflow.PAIR_QUESTION)
+        assert not review.asks(rails_kernel.CONSUMER_QUESTION)
+        assert review.asks(rails_kernel.PAIR_QUESTION)
         candidates = [
             {"path": "src/orders/dash.py", "state": {"file": {}, "package": {}}}
         ]
@@ -1449,11 +1474,11 @@ class StructureProposalTests(unittest.TestCase):
             "first": {"name": "y"},
             "second": {"name": "x"},
         }
-        assert list(questions) == [workflow.PAIR_QUESTION]
+        assert list(questions) == [rails_kernel.PAIR_QUESTION]
         assert self.result["findings"] == [
             {
                 "item": "a.py::x<>b.py::y",
-                "question": workflow.PAIR_QUESTION,
+                "question": rails_kernel.PAIR_QUESTION,
                 "mode": "enforced",
                 "score": 0.06,
                 "threshold": 0.051143,
@@ -1504,7 +1529,9 @@ class StructureProposalTests(unittest.TestCase):
     def test_a_file_is_asked_in_both_option_orders_and_scored_on_the_mean(self) -> None:
         self.consumer(0.9, 0.7)
         first, second = self.asked[0], self.asked[2]
-        criteria = list(self.judgment.questions[workflow.CONSUMER_QUESTION]["criteria"])
+        criteria = list(
+            self.judgment.questions[rails_kernel.CONSUMER_QUESTION]["criteria"]
+        )
         assert list(first[1]["kind"]["criteria"]) == criteria
         assert list(second[1]["kind"]["criteria"]) == list(reversed(criteria))
         assert self.result["findings"][0]["score"] == 0.8
@@ -1534,10 +1561,10 @@ class StructureProposalTests(unittest.TestCase):
         assert list(self.asked[0][1]) == ["own_capability"]
         (finding,) = self.result["findings"]
         assert (finding["question"], finding["mode"]) == (
-            workflow.KIND_QUESTION,
+            rails_kernel.KIND_QUESTION,
             "shadow",
         )
-        workflow._finish_structure(Path("."), "h" * 40, None, self.result)
+        rails_kernel._finish_structure(Path("."), "h" * 40, None, self.result)
         assert not self.result["halt"]
         (row,) = self.rows()
         assert (row["mode"], row["outcome"]) == ("shadow", "flag")
@@ -1549,7 +1576,7 @@ class StructureProposalTests(unittest.TestCase):
             commands.append(cmd)
             return ok, output
 
-        return patch.multiple(workflow, run_check=run_check), commands
+        return patch.multiple(rails_kernel, run_check=run_check), commands
 
     def test_a_proposer_passes_the_repo_only_and_returns_its_json(self) -> None:
         found = {
@@ -1559,26 +1586,31 @@ class StructureProposalTests(unittest.TestCase):
         }
         patched, commands = self.proposals(json.dumps(found))
         with patched:
-            assert workflow._name_pairs(Path("."), "b" * 40, "h" * 40) == found["pairs"]
+            assert (
+                rails_kernel._name_pairs(Path("."), "b" * 40, "h" * 40)
+                == found["pairs"]
+            )
         (command,) = commands
         assert command[command.index("name-pairs") + 1 : command.index("--base")] == [
             "--repo",
             ".",
         ]
 
-    def test_a_failed_proposer_is_a_workflow_error(self) -> None:
+    def test_a_failed_proposer_is_a_kernel_error(self) -> None:
         patched, _ = self.proposals("boom", ok=False)
         with (
             patched,
-            pytest.raises(workflow.WorkflowError, match="kind-candidates failed: boom"),
+            pytest.raises(
+                rails_kernel.RailsKernelError, match="kind-candidates failed: boom"
+            ),
         ):
-            workflow._kind_candidates(Path("."), "b" * 40, "h" * 40)
+            rails_kernel._kind_candidates(Path("."), "b" * 40, "h" * 40)
 
-    def test_a_proposal_of_the_wrong_shape_is_a_workflow_error(self) -> None:
+    def test_a_proposal_of_the_wrong_shape_is_a_kernel_error(self) -> None:
         readers = {
-            "name-pairs": (workflow._name_pairs, "pairs"),
-            "consumer-candidates": (workflow._consumer_candidates, "candidates"),
-            "kind-candidates": (workflow._kind_candidates, "candidates"),
+            "name-pairs": (rails_kernel._name_pairs, "pairs"),
+            "consumer-candidates": (rails_kernel._consumer_candidates, "candidates"),
+            "kind-candidates": (rails_kernel._kind_candidates, "candidates"),
         }
         shapes = [
             None,
@@ -1592,17 +1624,20 @@ class StructureProposalTests(unittest.TestCase):
                     with (
                         patched,
                         pytest.raises(
-                            workflow.WorkflowError, match=f"{subcommand} must emit"
+                            rails_kernel.RailsKernelError,
+                            match=f"{subcommand} must emit",
                         ),
                     ):
                         reader(Path("."), "b" * 40, "h" * 40)
 
     def test_a_choice_decision_names_one_of_its_options(self) -> None:
-        question = self.judgment.questions[workflow.CONSUMER_QUESTION]
-        decision = self.judgment.decisions[workflow.CONSUMER_QUESTION]
-        workflow._check_decision("j", "q", question, decision)
-        with pytest.raises(workflow.WorkflowError, match="option of the question"):
-            workflow._check_decision(
+        question = self.judgment.questions[rails_kernel.CONSUMER_QUESTION]
+        decision = self.judgment.decisions[rails_kernel.CONSUMER_QUESTION]
+        rails_kernel._check_decision("j", "q", question, decision)
+        with pytest.raises(
+            rails_kernel.RailsKernelError, match="option of the question"
+        ):
+            rails_kernel._check_decision(
                 "j", "q", question, {**decision, "option": "dashboard"}
             )
 
@@ -1616,20 +1651,20 @@ MALICIOUS = (
 class MaliciousPackageTests(unittest.TestCase):
     def setUp(self) -> None:
         isolated_agent(self)
-        self.decisions = workflow.load_judgment("dependency-severity").decisions
+        self.decisions = rails_kernel.load_judgment("dependency-severity").decisions
 
     def advisory(self, line: str) -> Any:
-        return workflow.parse_dependency_audit(line)["advisories"][0]
+        return rails_kernel.parse_dependency_audit(line)["advisories"][0]
 
     def test_a_mal_id_or_alias_marks_a_malicious_package(self) -> None:
-        assert workflow.malicious_package(self.advisory(MALICIOUS))
+        assert rails_kernel.malicious_package(self.advisory(MALICIOUS))
         own = MALICIOUS.replace(
             "advisory=GHSA-hxxf-q3w9-4xgw aliases=MAL-GHSA-hxxf-q3w9-4xgw",
             "advisory=MAL-2025-1 aliases=",
         )
-        assert workflow.malicious_package(self.advisory(own))
-        assert not workflow.malicious_package(self.advisory(ADVISORY))
-        assert not workflow.malicious_package(
+        assert rails_kernel.malicious_package(self.advisory(own))
+        assert not rails_kernel.malicious_package(self.advisory(ADVISORY))
+        assert not rails_kernel.malicious_package(
             self.advisory(MALICIOUS.replace("MAL-GHSA", "GHSA-MAL"))
         )
 
@@ -1645,7 +1680,7 @@ class MaliciousPackageTests(unittest.TestCase):
             (MALICIOUS, {"scope": "runtime"}),
         ):
             with self.subTest(line=line, kwargs=kwargs):
-                rated = workflow.malicious_assessment(
+                rated = rails_kernel.malicious_assessment(
                     self.advisory(line), evidence(**kwargs)
                 )
                 assert (rated["severity"], rated["route"]) == ("critical", "owner")
@@ -1659,14 +1694,14 @@ class MaliciousPackageTests(unittest.TestCase):
         async def judge(state: object, questions: object) -> Never:
             raise AssertionError("judge() must not run for a malicious package")
 
-        found = {**workflow.parse_dependency_audit(MALICIOUS), "repo": "/repo"}
-        key = workflow.advisory_key(found["advisories"][0])
+        found = {**rails_kernel.parse_dependency_audit(MALICIOUS), "repo": "/repo"}
+        key = rails_kernel.advisory_key(found["advisories"][0])
         with (
-            patch.object(workflow, "judge", judge, create=True),
-            patch.object(workflow, "judgment_config", return_value=None),
+            patch.object(rails_kernel, "judge", judge, create=True),
+            patch.object(rails_kernel, "judgment_config", return_value=None),
         ):
             result = asyncio.run(
-                workflow.triage_advisories(
+                rails_kernel.triage_advisories(
                     found, {key: evidence(scope="dev", hits=False)}
                 )
             )
@@ -1683,9 +1718,9 @@ class MaliciousPackageTests(unittest.TestCase):
     def test_the_contract_states_the_malicious_mark(self) -> None:
         rows = json.loads(CATALOGUE.read_text())["rules"]
         contract = next(
-            rule for rule in rows if rule["id"] == workflow.DEPENDENCY_AUDIT
+            rule for rule in rows if rule["id"] == rails_kernel.DEPENDENCY_AUDIT
         )["contract"]
-        assert workflow.MALICIOUS_PREFIX in contract["malicious_package_mark"]
+        assert rails_kernel.MALICIOUS_PREFIX in contract["malicious_package_mark"]
 
 
 def calls(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1708,7 +1743,7 @@ def calls(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 class TriageTests(unittest.TestCase):
     def setUp(self) -> None:
         self.found = {
-            **workflow.parse_dependency_audit(
+            **rails_kernel.parse_dependency_audit(
                 "\n".join([
                     ADVISORY,
                     ADVISORY.replace(
@@ -1719,7 +1754,7 @@ class TriageTests(unittest.TestCase):
             ),
             "repo": "/work/repo",
         }
-        self.keys = [workflow.advisory_key(a) for a in self.found["advisories"]]
+        self.keys = [rails_kernel.advisory_key(a) for a in self.found["advisories"]]
         self.calls: list[Any] = []
         # The config of found["repo"]; None is an unconfigured repo (resolving it runs git).
         self.repo_config: dict[str, Any] | None = None
@@ -1729,8 +1764,8 @@ class TriageTests(unittest.TestCase):
         async def judge(state: Any, questions: dict[str, Any]) -> Any:
             # Exercise the real frozen questions at the judge() boundary, not just the rubric.
             # Contract: xd://eval/judge; TypeSafe's wire name 'noul' is not accepted here.
-            frozen = workflow.effective_judgment(
-                workflow.load_judgment("dependency-severity"), self.repo_config
+            frozen = rails_kernel.effective_judgment(
+                rails_kernel.load_judgment("dependency-severity"), self.repo_config
             ).questions
             assert questions == frozen
             for ident, question in questions.items():
@@ -1756,13 +1791,15 @@ class TriageTests(unittest.TestCase):
             tempfile.TemporaryDirectory() as agent,
             patch.dict(os.environ, {"PI_CODING_AGENT_DIR": agent}),
             patch.object(
-                workflow, "_configured_judge_model", return_value=CONFIGURED_JUDGE
+                rails_kernel, "_configured_judge_model", return_value=CONFIGURED_JUDGE
             ),
-            patch.object(workflow, "judge", judge, create=True),
-            patch.object(workflow, "judgment_config", side_effect=self.resolve),
+            patch.object(rails_kernel, "judge", judge, create=True),
+            patch.object(rails_kernel, "judgment_config", side_effect=self.resolve),
         ):
             try:
-                return asyncio.run(workflow.triage_advisories(self.found, evidence_map))
+                return asyncio.run(
+                    rails_kernel.triage_advisories(self.found, evidence_map)
+                )
             finally:
                 self.logged = calls(stored(Path(agent)))
 
@@ -1784,9 +1821,9 @@ class TriageTests(unittest.TestCase):
         assert {item["severity"] for item in result["owner"]} == {"critical"}, (
             "an off precondition never lowers the severity"
         )
-        with pytest.raises(workflow.WorkflowError, match="names its repo"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="names its repo"):
             asyncio.run(
-                workflow.triage_advisories(
+                rails_kernel.triage_advisories(
                     {key: value for key, value in self.found.items() if key != "repo"},
                     {},
                 )
@@ -1817,11 +1854,11 @@ class TriageTests(unittest.TestCase):
         ):
             assert text in result["report"]
         state, questions = self.calls[0]
-        assert set(questions) == {"impact", *workflow.PRECONDITIONS, "reached"}
+        assert set(questions) == {"impact", *rails_kernel.PRECONDITIONS, "reached"}
         assert [record["judgment"] for record in self.logged] == [
             "dependency-severity"
         ] * 2
-        assert self.logged[0]["state_sha256"] == workflow._judgment_digest(state)
+        assert self.logged[0]["state_sha256"] == rails_kernel._judgment_digest(state)
         assert self.logged[1]["outcomes"]["reached"] == "pass"
         assert [record["context"] for record in self.logged] == [
             ("commit", "advisory", key) for key in self.keys
@@ -1831,7 +1868,7 @@ class TriageTests(unittest.TestCase):
     def test_the_inspector_route_never_serves_advisory_triage(self) -> None:
         with (
             patch.dict(os.environ, {"TYPESAFE_BASE_URL": "http://127.0.0.1:8787"}),
-            pytest.raises(workflow.WorkflowError, match="TYPESAFE_BASE_URL"),
+            pytest.raises(rails_kernel.RailsKernelError, match="TYPESAFE_BASE_URL"),
         ):
             self.run_triage(
                 {"PyYAML": answers(), "black": answers()},
@@ -1894,9 +1931,11 @@ class TriageTests(unittest.TestCase):
         assert result["owner"] == [], "the low advisories themselves stay in-flow fixes"
 
     def test_missing_evidence_or_a_failed_judgment_never_passes(self) -> None:
-        with pytest.raises(workflow.WorkflowError, match="missing"):
+        with pytest.raises(rails_kernel.RailsKernelError, match="missing"):
             self.run_triage({}, {self.keys[0]: evidence()})
-        with pytest.raises(workflow.WorkflowError, match="severity judgment failed"):
+        with pytest.raises(
+            rails_kernel.RailsKernelError, match="severity judgment failed"
+        ):
             self.run_triage(
                 {"PyYAML": RuntimeError("judge offline"), "black": answers()},
                 {key: evidence() for key in self.keys},

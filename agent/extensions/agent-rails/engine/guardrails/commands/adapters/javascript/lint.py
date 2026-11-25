@@ -4,7 +4,6 @@ import json
 import posixpath
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, replace
-from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
@@ -31,6 +30,7 @@ from guardrails.foundation.inventory import normalized_path, repo_paths
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
 
+DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
 SKIPPED = frozenset({".git", "node_modules", "dist", "build", ".venv", "coverage"})
 PATTERNS_FILE = "javascript-patterns.json"
 
@@ -46,12 +46,7 @@ class Pattern:
 
 
 def load_patterns() -> list[Pattern]:
-    text = (
-        resources
-        .files("guardrails.data")
-        .joinpath(PATTERNS_FILE)
-        .read_text(encoding="utf-8")
-    )
+    text = (DATA_FOLDER / PATTERNS_FILE).read_text(encoding="utf-8")
     return [
         Pattern(
             item["id"],

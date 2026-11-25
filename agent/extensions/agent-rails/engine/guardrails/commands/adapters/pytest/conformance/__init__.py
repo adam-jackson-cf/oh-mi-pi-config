@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from guardrails.test_report.junit import Report
 
 PACKAGE = "guardrails.commands.adapters.pytest.conformance"
+DATA_FOLDER = Path(__file__).resolve().parents[5] / "data"
+BINDINGS_FILE = "pytest-conformance-bindings.json"
 PYTEST_INI = "[pytest]\nmarkers =\n    fast: tier 1\n    slow: tier 2\n"
 BASE_CONFIG: dict[str, Any] = {
     "tests": {
@@ -50,9 +52,9 @@ BASE_CONFIG: dict[str, Any] = {
 PREREQUISITE = "GUARDRAILS.adapter-prerequisite"
 
 
-def data(name: str) -> dict[str, Any]:
+def bindings() -> dict[str, Any]:
     loaded: dict[str, Any] = json.loads(
-        resources.files(PACKAGE).joinpath(name).read_text(encoding="utf-8")
+        (DATA_FOLDER / BINDINGS_FILE).read_text(encoding="utf-8")
     )
     return loaded
 
@@ -199,7 +201,7 @@ def check_collection(
 
 
 def binding(case: dict[str, Any]) -> dict[str, Any]:
-    found: dict[str, Any] = data("bindings.json")["cases"].get(case["id"], {})
+    found: dict[str, Any] = bindings()["cases"].get(case["id"], {})
     return found
 
 
