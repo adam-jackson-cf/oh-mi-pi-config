@@ -5,7 +5,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.init.native_config import HEADER, load_data
+from guardrails.commands.init.native_tools import HEADER, load_data
 from guardrails.foundation.inventory import InventoryError, repo_paths
 
 SHELL_SUFFIXES = (".sh", ".bash")
@@ -33,7 +33,7 @@ SECTION = re.compile(r"^\s*\[(.+)\]\s*$")
 SETTING = re.compile(r"^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$")
 
 
-class ConfigError(ValueError):
+class TsconfigError(ValueError):
     pass
 
 
@@ -54,7 +54,7 @@ def jsonc(text: str) -> object:
         elif text.startswith("/*", index):
             close = text.find("*/", index + 2)
             if close < 0:
-                raise ConfigError("unterminated block comment")
+                raise TsconfigError("unterminated block comment")
             index = close + 2
         else:
             out.append(char)
@@ -62,7 +62,7 @@ def jsonc(text: str) -> object:
     try:
         return json.loads(re.sub(r",(\s*[}\]])", r"\1", "".join(out)))
     except json.JSONDecodeError as error:
-        raise ConfigError(str(error)) from error
+        raise TsconfigError(str(error)) from error
 
 
 def extends_target(repo: Path, folder: Path, base: str) -> Path:
@@ -72,7 +72,7 @@ def extends_target(repo: Path, folder: Path, base: str) -> Path:
     for candidate in (root, Path(f"{root}.json"), root / "tsconfig.json"):
         if candidate.is_file():
             return candidate
-    raise ConfigError(
+    raise TsconfigError(
         f"extends {base!r} cannot be read; install the repository's dependencies"
     )
 
@@ -81,13 +81,13 @@ def compiler_options(
     repo: Path, path: Path, seen: frozenset[Path] = frozenset()
 ) -> dict[str, Any]:
     if path in seen:
-        raise ConfigError(f"extends cycle at {path.name}")
+        raise TsconfigError(f"extends cycle at {path.name}")
     try:
         data = jsonc(path.read_text(encoding="utf-8"))
     except OSError as error:
-        raise ConfigError(str(error)) from error
+        raise TsconfigError(str(error)) from error
     if not isinstance(data, dict):
-        raise ConfigError(f"{path.name} is not a JSON object")
+        raise TsconfigError(f"{path.name} is not a JSON object")
     bases = data.get("extends") or []
     options: dict[str, Any] = {}
     for base in [bases] if isinstance(bases, str) else bases:
@@ -95,7 +95,7 @@ def compiler_options(
         options.update(compiler_options(repo, target, seen | {path}))
     own = data.get("compilerOptions") or {}
     if not isinstance(own, dict):
-        raise ConfigError(f"{path.name} compilerOptions is not an object")
+        raise TsconfigError(f"{path.name} compilerOptions is not an object")
     options.update(own)
     return options
 
@@ -103,7 +103,7 @@ def compiler_options(
 def tsconfig_report(repo: Path, wanted: dict[str, Any]) -> list[str]:
     try:
         options = compiler_options(repo, repo / "tsconfig.json")
-    except ConfigError as error:
+    except TsconfigError as error:
         return [f"native: tsc settings not verified; tsconfig.json: {error}"]
     return [
         f"native: tsconfig.json lacks TSC.{key} (compilerOptions.{key}: {json.dumps(value)})"

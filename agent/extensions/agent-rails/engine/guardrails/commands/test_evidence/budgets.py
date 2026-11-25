@@ -8,10 +8,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from guardrails.context.config.reader import approved_targets, tests_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import approved_targets, tests_settings
 from guardrails.host.process import run_text
-from guardrails.toolkit.test_report.junit import (
+from guardrails.test_report.junit import (
     REVISION_PROPERTY,
     RUNTIME_PROPERTY,
     TIER_PROPERTY,

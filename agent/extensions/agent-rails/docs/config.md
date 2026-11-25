@@ -2,7 +2,7 @@
 
 Each repository's rails settings live in one file in its main checkout:
 `.agentrails/config.json`. The repository never commits it, and it names no omp path.
-[repo_config.py](../engine/guardrails/context/config/repo_config.py) is the only validator;
+[validator.py](../engine/guardrails/context/config/validator.py) is the only validator;
 `guardrails config-check` runs it, and the TypeScript rails call that command.
 
 - Every object is strict: an unknown key at any depth is refused.

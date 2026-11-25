@@ -3,28 +3,15 @@ from __future__ import annotations
 import json
 import re
 import tomllib
-from importlib import resources
 from pathlib import Path
 from typing import Any, TypeGuard
 
+from guardrails.commands.init.native_tools import HEADER, load_data
+from guardrails.context.config.reader import structure_settings
 from guardrails.context.config.section_schema import PLACEHOLDER
-from guardrails.foundation.inventory import structure_settings
 
-DATA_FILE = "native-tools.json"
-HEADER = "# Proposed native-tool configuration; edit with owner approval.\n"
 REQUIRES = re.compile(r">=\s*(\d+)\.(\d+)")
 SKIPPED = frozenset({"tests", "test", "docs", "build", "dist", "node_modules"})
-
-
-def load_data() -> dict[str, Any]:
-    data = (
-        resources
-        .files("guardrails.data")
-        .joinpath(DATA_FILE)
-        .read_text(encoding="utf-8")
-    )
-    loaded: dict[str, Any] = json.loads(data)
-    return loaded
 
 
 def pyproject(repo: Path) -> dict[str, Any]:

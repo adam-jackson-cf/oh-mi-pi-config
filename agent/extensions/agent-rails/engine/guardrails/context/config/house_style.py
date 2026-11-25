@@ -6,9 +6,10 @@ from functools import cache
 from importlib import resources
 from typing import Any
 
+from guardrails.context.config.reader import config_exceptions
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import config_exceptions, matches
+from guardrails.foundation.inventory import matches
 
 DATA_FILE = "house-style.json"
 

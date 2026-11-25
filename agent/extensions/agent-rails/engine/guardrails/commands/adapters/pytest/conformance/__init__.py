@@ -12,10 +12,10 @@ from guardrails.commands.adapters import conformance, contract
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_text
-from guardrails.toolkit.test_report.junit import TIER_PROPERTY
+from guardrails.test_report.junit import TIER_PROPERTY
 
 if TYPE_CHECKING:
-    from guardrails.toolkit.test_report.junit import Report
+    from guardrails.test_report.junit import Report
 
 PACKAGE = "guardrails.commands.adapters.pytest.conformance"
 PYTEST_INI = "[pytest]\nmarkers =\n    fast: tier 1\n    slow: tier 2\n"
@@ -111,7 +111,7 @@ def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
     from guardrails.commands.adapters.pytest.dialect import DIALECT
     from guardrails.commands.adapters.pytest.invocation import tier_arguments
     from guardrails.commands.adapters.pytest.tiers import package_environment
-    from guardrails.toolkit.test_report.junit import ReportError, parse_report
+    from guardrails.test_report.junit import ReportError, parse_report
 
     home, scratch, report = root / "home", root / "tmp", root / "report.xml"
     home.mkdir()
@@ -160,7 +160,7 @@ def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
 def check_run(
     project: conformance.Project, case: dict[str, Any]
 ) -> conformance.Verdict:
-    from guardrails.toolkit.test_report.junit import GUARDS_PROPERTY
+    from guardrails.test_report.junit import GUARDS_PROPERTY
 
     tier = binding(case).get("tier", "t1")
     report, note = run_tier(project.root, tier)
@@ -189,7 +189,7 @@ def check_collection(
     project: conformance.Project, case: dict[str, Any]
 ) -> conformance.Verdict:
     from guardrails.commands.adapters.pytest.tiers import list_tiers
-    from guardrails.toolkit.test_report.collection import read_ids
+    from guardrails.test_report.collect_list import read_ids
 
     out = project.root / "collections"
     reported = list_tiers(project.path, project.config, ["t1"], out)

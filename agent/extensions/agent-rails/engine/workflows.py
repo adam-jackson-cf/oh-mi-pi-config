@@ -81,8 +81,6 @@ Baselines = dict[Path, set[str] | Exception]
 # Harness variables the omp runtime exports to its tools. Repo commands must behave as they do
 # without the harness, so run_check removes them at the exec boundary.
 HARNESS_ENV = ("AGENT",)
-# The line prefix a guardrails checker prints when it cannot log its results to the decision store.
-STORE_ERROR = "decision store: "
 # Captured at load: the eval kernel's %load sets __file__ in the shared namespace, and a later
 # %load of another script would overwrite it.
 _LOADED_FROM = globals().get("__file__")
@@ -179,7 +177,7 @@ def _repo_config() -> Any:
     if not _REPO_CONFIG:
         _REPO_CONFIG.extend(
             _guardrails_modules(
-                ("guardrails.context.config.repo_config",), "repo config validator"
+                ("guardrails.context.config.validator",), "repo config validator"
             )
         )
     return _REPO_CONFIG[0]
@@ -1539,6 +1537,7 @@ def _harness_check_findings(
     """
     found: list[str] = []
     log_errors: list[str] = []
+    store_error = _store().STORE_ERROR
     for checker in (
         "rename-residue",
         "path-check",
@@ -1570,11 +1569,11 @@ def _harness_check_findings(
         )
         lines = [line for line in output.splitlines() if line.strip()]
         log_errors.extend(
-            f"{checker}: {line}" for line in lines if line.startswith(STORE_ERROR)
+            f"{checker}: {line}" for line in lines if line.startswith(store_error)
         )
         if not ok:
-            found.extend(line for line in lines if not line.startswith(STORE_ERROR))
-            if not any(not line.startswith(STORE_ERROR) for line in lines):
+            found.extend(line for line in lines if not line.startswith(store_error))
+            if not any(not line.startswith(store_error) for line in lines):
                 found.append(f"{checker} failed without diagnostics")
     return found, log_errors
 

@@ -14,8 +14,8 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.context.config import repo_config
-from guardrails.context.config.repo_config import ConfigError
+from guardrails.context.config import validator
+from guardrails.context.config.validator import ConfigError
 from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.seam
@@ -77,18 +77,18 @@ class Repositories(unittest.TestCase):
         return path
 
     def test_a_linked_worktree_resolves_to_the_main_checkout(self) -> None:
-        assert repo_config.main_checkout(self.worktree) == self.main
-        assert repo_config.main_checkout(self.main / ".git") == self.main
-        assert repo_config.config_path(self.worktree) == (
+        assert validator.main_checkout(self.worktree) == self.main
+        assert validator.main_checkout(self.main / ".git") == self.main
+        assert validator.config_path(self.worktree) == (
             self.main / ".agentrails/config.json"
         )
 
     def test_the_origin_slug_is_lowercase_and_absent_without_a_github_origin(
         self,
     ) -> None:
-        assert repo_config.origin_slug(self.worktree) is None
+        assert validator.origin_slug(self.worktree) is None
         self.add_origin("https://gitlab.example/owner/ledger.git")
-        assert repo_config.origin_slug(self.worktree) is None
+        assert validator.origin_slug(self.worktree) is None
         git(
             "-C",
             str(self.main),
@@ -97,7 +97,7 @@ class Repositories(unittest.TestCase):
             "origin",
             "git@github.com:Example-Owner/Ledger.git",
         )
-        assert repo_config.origin_slug(self.worktree) == "example-owner/ledger"
+        assert validator.origin_slug(self.worktree) == "example-owner/ledger"
 
     def test_a_bare_repository_has_no_main_checkout(self) -> None:
         bare = self.temp / "ledger.git"
@@ -106,7 +106,7 @@ class Repositories(unittest.TestCase):
         git("-C", str(bare), "worktree", "add", "-q", str(linked), "main")
         for where in (bare, linked):
             with self.subTest(where=where.name), pytest.raises(ConfigError) as caught:
-                repo_config.main_checkout(where)
+                validator.main_checkout(where)
             assert caught.value.kind == "unresolved"
             assert "no main checkout" in caught.value.problems[0]
 
@@ -116,32 +116,32 @@ class Repositories(unittest.TestCase):
         plain = self.temp / "plain"
         plain.mkdir()
         with pytest.raises(ConfigError) as caught:
-            repo_config.main_checkout(plain)
+            validator.main_checkout(plain)
         assert caught.value.kind == "outside"
-        assert repo_config.origin_slug(plain) is None
+        assert validator.origin_slug(plain) is None
         with pytest.raises(ConfigError) as caught:
-            repo_config.main_checkout(self.temp / "absent")
+            validator.main_checkout(self.temp / "absent")
         assert caught.value.kind == "unresolved"
 
     def test_an_unreadable_git_config_leaves_the_origin_unresolved(self) -> None:
         (self.main / ".git/config").write_text('[remote "origin"\n')
         with pytest.raises(ConfigError) as caught:
-            repo_config.origin_slug(self.main)
+            validator.origin_slug(self.main)
         assert caught.value.kind == "unresolved"
         assert "git remote get-url origin" in caught.value.problems[0]
 
     def test_load_config_reads_and_validates_the_main_checkout_s_file(self) -> None:
         self.add_origin("https://github.com/example-owner/ledger.git")
         with pytest.raises(ConfigError) as caught:
-            repo_config.load_config(self.worktree)
+            validator.load_config(self.worktree)
         assert caught.value.kind == "missing"
         config = json.loads(MINIMAL.read_text())
         self.write_config(config)
-        assert repo_config.load_config(self.worktree) == config
+        assert validator.load_config(self.worktree) == config
         config["repo"]["slug"] = "example-owner/other"
         self.write_config(config)
         with pytest.raises(ConfigError) as caught:
-            repo_config.load_config(self.worktree)
+            validator.load_config(self.worktree)
         assert caught.value.kind == "invalid"
         assert caught.value.problems[0].startswith(
             "repo.slug: is 'example-owner/other'"

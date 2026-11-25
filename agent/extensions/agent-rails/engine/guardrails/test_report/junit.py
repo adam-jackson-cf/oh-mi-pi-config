@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.context.config import adapter_declarations
-from guardrails.foundation.inventory import settings
+from guardrails.context.config.reader import checker_settings
 
 FAILING = frozenset({"failed", "error"})
 TIER_PROPERTY = "guardrails.tier"
@@ -279,7 +279,7 @@ def report_options(repo: Path, argv: list[str]) -> ReportOptions:
 
 
 def evidence_settings(config: dict[str, Any]) -> dict[str, Any]:
-    return settings(config, "test_evidence")
+    return checker_settings(config, "test_evidence")
 
 
 def load_run_report(

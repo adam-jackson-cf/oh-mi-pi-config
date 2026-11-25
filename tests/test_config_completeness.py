@@ -15,13 +15,13 @@ import pytest
 from test_agentrails_fixture import approval, exception, fixture
 
 from guardrails.commands.init import sections_draft
-from guardrails.context.config import repo_config, section_schema
+from guardrails.context.config import section_schema, validator
 
 pytestmark = pytest.mark.fast
 
 
 def problems(config: dict[str, Any]) -> list[str]:
-    return repo_config.validate(config, origin=None)
+    return validator.validate(config, origin=None)
 
 
 def keys_of(found: list[str]) -> set[str]:
@@ -55,7 +55,7 @@ class ConfigCompleteTests(unittest.TestCase):
             "tests",
         }
         reported = {key.split(".")[1].split("[")[0] for key in keys_of(found)}
-        assert set(repo_config.TEST_KEYS) <= reported
+        assert set(validator.TEST_KEYS) <= reported
 
     def test_placeholders_and_sentinels_count_as_missing(self) -> None:
         for value in (

@@ -6,9 +6,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote
 
+from guardrails.context.config.reader import checker_settings, tests_settings
 from guardrails.context.config.section_schema import approved_exemption
 from guardrails.foundation.findings import Finding, config_label
-from guardrails.foundation.inventory import as_list, settings, tests_settings
+from guardrails.foundation.inventory import as_list
 
 RULE = "SURFACE.feature-map"
 CHECKER = "feature_map"
@@ -110,7 +111,7 @@ def linked_files(doc: str, text: str) -> set[str]:
 
 
 def index_files(config: dict[str, Any]) -> set[str]:
-    return set(as_list(settings(config, CHECKER).get("index_files")))
+    return set(as_list(checker_settings(config, CHECKER).get("index_files")))
 
 
 def link_findings(repo: Path, doc: str, document: Document) -> list[Finding]:

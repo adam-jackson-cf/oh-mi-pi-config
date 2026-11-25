@@ -19,7 +19,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.catalogue import toolchain_parity
+from guardrails.commands.toolchain import parity
 
 pytestmark = pytest.mark.seam
 
@@ -37,12 +37,12 @@ def rules_of(findings: list[Any]) -> list[str]:
 
 class RepoCase(unittest.TestCase):
     def setUp(self) -> None:
-        scratch = tempfile.TemporaryDirectory(prefix="omp-catalogue-")
+        scratch = tempfile.TemporaryDirectory(prefix="omp-toolchain-parity-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name).resolve()
         git(self.repo, "init", "-q")
-        git(self.repo, "config", "user.name", "Catalogue Test")
-        git(self.repo, "config", "user.email", "catalogue-test@example.invalid")
+        git(self.repo, "config", "user.name", "Toolchain Parity Test")
+        git(self.repo, "config", "user.email", "toolchain-parity-test@example.invalid")
         git(self.repo, "config", "commit.gpgsign", "false")
 
     def write(self, relative: str, text: str) -> Path:
@@ -126,7 +126,7 @@ class ToolchainParityTests(RepoCase):
 
     def parity(self, options: dict[str, Any], *argv: str) -> list[Any]:
         profile = {"checkers": {"toolchain_parity": options}}
-        return toolchain_parity.run(self.repo, profile, list(argv))
+        return parity.run(self.repo, profile, list(argv))
 
     def test_consistent_uv_toolchain_passes(self) -> None:
         assert self.parity({"uv": self.uv}) == []
@@ -219,23 +219,23 @@ class ToolchainParityTests(RepoCase):
 
     def test_node_pins_must_be_exact_equal_and_match_the_running_node(self) -> None:
         pins = {".nvmrc": b"v22.11.0\n", ".node-version": b"v22.11.0\n"}
-        assert toolchain_parity.node_pin_findings(pins, "22.11.0") == []
-        findings = toolchain_parity.node_pin_findings(
+        assert parity.node_pin_findings(pins, "22.11.0") == []
+        findings = parity.node_pin_findings(
             {**pins, ".node-version": b"lts/*\n"}, "22.11.0"
         )
         assert rules_of(findings) == ["GATE.local-ci-parity"] * 2
         assert "not one exact X.Y.Z" in findings[1].message
-        findings = toolchain_parity.node_pin_findings(pins, "20.1.0")
+        findings = parity.node_pin_findings(pins, "20.1.0")
         assert [f.path for f in findings] == [".nvmrc", ".node-version"]
         assert "running Node 20.1.0" in findings[0].message
-        missing = toolchain_parity.node_pin_findings({".nvmrc": None}, "22.11.0")
+        missing = parity.node_pin_findings({".nvmrc": None}, "22.11.0")
         assert "pin file is missing" in missing[0].message
 
     def test_an_unrunnable_node_blocks_instead_of_passing_the_pin(self) -> None:
-        findings = toolchain_parity.node_pin_findings({".nvmrc": b"22.11.0\n"}, None)
+        findings = parity.node_pin_findings({".nvmrc": b"22.11.0\n"}, None)
         assert rules_of(findings) == ["GATE.local-ci-parity"]
         assert "node --version failed" in findings[0].message
-        assert toolchain_parity.node_version(self.repo / "missing-directory") is None
+        assert parity.node_version(self.repo / "missing-directory") is None
 
     def test_package_manager_pin_selects_the_only_lockfile(self) -> None:
         options = {"package_manager": {"package_json": "package.json"}}

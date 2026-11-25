@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
 from guardrails.context.changes import (
@@ -11,29 +11,18 @@ from guardrails.context.changes import (
     parse_range,
     range_finding,
 )
-from guardrails.context.config import adapter_declarations
 from guardrails.context.config.house_style import apply_exceptions
-from guardrails.context.config.suite_files import is_test_file
+from guardrails.context.config.reader import checker_settings
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import matches_any, settings
 
 RULE = "TEST.no-evasion"
-CHECKER = "no_evasion"
+CHECKER = "timeout_increases"
 DEFAULT_TIMEOUT_PATTERN = r"(?P<key>\b[A-Za-z_]*timeout[A-Za-z_0-9]*)[\"']?\s*[:=(]\s*(?P<value>\d+(?:\.\d+)?)"
 FIX = (
     "keep the timeout and fix the slow or hanging behaviour, or move the work to the tier that "
     "owns it; never raise a timeout to get green"
 )
-
-
-def tier_locations(config: dict[str, Any]) -> list[str]:
-    return adapter_declarations.locations(config)
-
-
-def is_changed_test(path: str, config: dict[str, Any]) -> bool:
-    if PurePosixPath(path).name == "conftest.py":
-        return True
-    return is_test_file(path, config) or matches_any(path, tier_locations(config))
 
 
 def timeouts(
@@ -74,7 +63,7 @@ def increases(
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
-    options = settings(config, CHECKER)
+    options = checker_settings(config, CHECKER)
     pattern = re.compile(
         str(options.get("timeout_pattern") or DEFAULT_TIMEOUT_PATTERN), re.I
     )
@@ -82,7 +71,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         diff = parse_range(argv)
         for change in changed_files(repo, diff):
-            if change.status in {"A", "D"} or not is_changed_test(change.path, config):
+            if change.status in {"A", "D"} or not is_test_source(change.path, config):
                 continue
             for part in hunks(repo, diff, change.path):
                 found.extend(increases(change.path, part.removed, part.added, pattern))

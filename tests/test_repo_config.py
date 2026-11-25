@@ -18,8 +18,8 @@ import pytest
 
 from guardrails.commands import cli
 from guardrails.commands.check import whole_repo
-from guardrails.context.config import repo_config, section_schema
-from guardrails.context.config.repo_config import ConfigError, OfferedQuestion
+from guardrails.context.config import section_schema, validator
+from guardrails.context.config.validator import ConfigError, OfferedQuestion
 from guardrails.foundation import decision_store
 
 pytestmark = pytest.mark.fast
@@ -38,10 +38,10 @@ def fixture(name: str) -> dict[str, Any]:
 
 def outcome(path: Path) -> tuple[str, list[str]]:
     try:
-        config = repo_config.read_config(path)
+        config = validator.read_config(path)
     except ConfigError as error:
         return error.kind, error.problems
-    return "invalid", repo_config.validate(config, origin=None)
+    return "invalid", validator.validate(config, origin=None)
 
 
 def run_cli(*args: str) -> tuple[int, dict[str, Any]]:
@@ -64,7 +64,7 @@ class Fixtures(unittest.TestCase):
             with self.subTest(fixture=name):
                 config = fixture(name)
                 origin = config["repo"]["slug"]
-                assert repo_config.validate(config, origin=origin) == []
+                assert validator.validate(config, origin=origin) == []
 
     def test_every_invalid_fixture_fails_with_exactly_its_named_problem(self) -> None:
         names = sorted(path.name for path in (FIXTURES / "invalid").glob("*.json"))
@@ -81,35 +81,30 @@ class Fixtures(unittest.TestCase):
 class Validation(unittest.TestCase):
     def test_a_slug_that_differs_from_the_origin_is_refused(self) -> None:
         config = fixture("minimal.json")
-        assert repo_config.validate(config, origin="example-owner/other") == [
+        assert validator.validate(config, origin="example-owner/other") == [
             "repo.slug: is 'example-owner/ledger' but the origin remote names "
             "'example-owner/other'"
         ]
-        assert repo_config.validate(config, origin=None) == []
+        assert validator.validate(config, origin=None) == []
 
     def test_a_config_that_is_not_an_object_is_refused(self) -> None:
-        assert repo_config.validate([], origin=None) == [
-            "config: must be a JSON object"
-        ]
+        assert validator.validate([], origin=None) == ["config: must be a JSON object"]
 
     def test_shadow_is_refused_for_a_question_without_a_non_blocking_outcome(
         self,
     ) -> None:
         setting = {"enabled": True, "mode": "shadow"}
-        assert repo_config._mode_problem(
+        assert validator._mode_problem(
             OfferedQuestion("enforced", shadowable=False), setting
         ) == (
             "cannot run in shadow mode: only a bool answer or a choice option "
             "threshold has a non-blocking outcome"
         )
         assert (
-            repo_config._mode_problem(OfferedQuestion("enforced", True), setting)
-            is None
+            validator._mode_problem(OfferedQuestion("enforced", True), setting) is None
         )
         assert (
-            repo_config._mode_problem(
-                OfferedQuestion("shadow", True), {"enabled": False}
-            )
+            validator._mode_problem(OfferedQuestion("shadow", True), {"enabled": False})
             is None
         )
 
@@ -119,7 +114,7 @@ class Validation(unittest.TestCase):
             "extension-impact/impact": {"enabled": True},
             "completion-evidence/evidence_gap": {"enabled": "no"},
         }
-        assert repo_config.validate(config, origin=None) == [
+        assert validator.validate(config, origin=None) == [
             "judgments.extension-impact/impact.mode: is missing",
             "judgments.completion-evidence/evidence_gap.enabled: must be one of [false, true]",
         ]
@@ -131,7 +126,7 @@ class Validation(unittest.TestCase):
         config["gates"]["rules"] = []
         config["gates"]["prove"] = "yes"
         config["ci"] = []
-        assert repo_config.validate(config, origin=None) == [
+        assert validator.validate(config, origin=None) == [
             "repo: must be an object",
             "ci: must be an object",
             "gates.prove: must be true or false",
@@ -156,7 +151,7 @@ class Validation(unittest.TestCase):
         config["checkers"]["naming"] = []
         config["exceptions"][0]["approvedBy"] = " "
         config["exceptions"].append("NAME.conventions")
-        assert repo_config.validate(config, origin=None) == [
+        assert validator.validate(config, origin=None) == [
             "onboarding.questionnaireVersion: must be an integer of at least 1",
             "onboarding.skills.test-guidance.version: must be a lowercase hex sha256 digest",
             "onboarding.skills.test-guidance.ranAt: must be an ISO 8601 date-time with a "
@@ -167,7 +162,7 @@ class Validation(unittest.TestCase):
             "afterMerge.paths: must be a non-empty list of non-blank strings",
             "checkers.naming: must be an object",
             "checkers.check.run: must be a non-empty list of steps from "
-            f"{list(repo_config.CHECK_STEPS)}",
+            f"{list(validator.CHECK_STEPS)}",
             "exceptions[0].approvedBy: must be a non-blank string",
             "exceptions[1]: must be an object",
         ]
@@ -176,7 +171,7 @@ class Validation(unittest.TestCase):
         config = fixture("minimal.json")
         config["onboarding"]["skills"]["setup-repo-proofs"]["scope"] = {"kind": "all"}
         config["autonomy"] = []
-        assert repo_config.validate(config, origin=None) == [
+        assert validator.validate(config, origin=None) == [
             "onboarding.skills.setup-repo-proofs.scope.kind: must be one of "
             '["whole", "changed", "paths"]',
             "autonomy: must be an object",
@@ -189,7 +184,7 @@ class Validation(unittest.TestCase):
             "kind": "exemption",
             "target": "coverage",
         })
-        assert repo_config.validate(config, origin=None) == [
+        assert validator.validate(config, origin=None) == [
             "approvals[1].target: must name an exemptable field "
             f"{list(section_schema.EXEMPTION_TARGETS)}"
         ]
@@ -197,7 +192,7 @@ class Validation(unittest.TestCase):
     def test_tests_reuse_the_section_schema_adapter_rules(self) -> None:
         config = fixture("minimal.json")
         config["tests"]["adapters"][0]["name"] = "nose"
-        assert repo_config.validate(config, origin=None) == [
+        assert validator.validate(config, origin=None) == [
             "tests.adapters[0].name: 'nose' is not an installed adapter package"
         ]
 
@@ -205,27 +200,27 @@ class Validation(unittest.TestCase):
 class Sections(unittest.TestCase):
     def test_each_checked_section_of_the_full_fixture_validates_alone(self) -> None:
         config = fixture("full.json")
-        for name in repo_config.CHECKED_SECTIONS:
+        for name in validator.CHECKED_SECTIONS:
             with self.subTest(section=name):
-                assert repo_config.validate_section(name, config[name]) == []
+                assert validator.validate_section(name, config[name]) == []
 
     def test_a_section_reports_problems_under_its_own_name(self) -> None:
         tests = copy.deepcopy(fixture("minimal.json")["tests"])
         tests["fast_tier_budget"]["machines"][0]["approval"] = "ADR-0008"
-        assert repo_config.validate_section("tests", tests) == [
+        assert validator.validate_section("tests", tests) == [
             "tests.fast_tier_budget.machines[0].approval: is not a config key; remove "
             "it or fix its spelling"
         ]
-        assert repo_config.validate_section("tests", []) == ["tests: must be an object"]
+        assert validator.validate_section("tests", []) == ["tests: must be an object"]
 
     def test_sections_outside_the_checked_set_are_refused(self) -> None:
         with pytest.raises(ValueError, match="'repo' is not a section"):
-            repo_config.validate_section("repo", {})
+            validator.validate_section("repo", {})
 
     def test_owner_sections_check_their_entries_alone(self) -> None:
         approval = fixture("minimal.json")["approvals"][0]
-        assert repo_config.validate_section("approvals", [approval]) == []
-        assert repo_config.validate_section("approvals", [approval, approval]) == [
+        assert validator.validate_section("approvals", [approval]) == []
+        assert validator.validate_section("approvals", [approval, approval]) == [
             "approvals[1]: repeats an earlier (kind, target)"
         ]
         exception = {
@@ -235,7 +230,7 @@ class Sections(unittest.TestCase):
             "approvedBy": "o",
             "approvedAt": "2026-11-24T09:00:00Z",
         }
-        assert repo_config.validate_section("exceptions", [exception]) == [
+        assert validator.validate_section("exceptions", [exception]) == [
             'exceptions[0].rule: "NOT.a-rule" is not a rule id in the guardrail '
             "catalogue or a judgment question"
         ]
@@ -243,8 +238,8 @@ class Sections(unittest.TestCase):
 
 class Constants(unittest.TestCase):
     def test_sections_and_targets_match_the_engine_tables(self) -> None:
-        assert len(repo_config.SECTIONS) == 16
-        assert set(repo_config.CHECKED_SECTIONS) < set(repo_config.SECTIONS)
+        assert len(validator.SECTIONS) == 16
+        assert set(validator.CHECKED_SECTIONS) < set(validator.SECTIONS)
         assert set(section_schema.EXEMPTION_TARGETS) == {
             "tiers.t3",
             "verification_surface",
@@ -258,19 +253,19 @@ class Constants(unittest.TestCase):
             "surface-lint",
             "adapter lint",
         )
-        assert repo_config.GATE_KEYS[-1] == "rules"
+        assert validator.GATE_KEYS[-1] == "rules"
 
     def test_code_check_rules_leave_out_process_rules(self) -> None:
-        rules = repo_config.code_check_rules()
+        rules = validator.code_check_rules()
         assert "CODE.no-comments" in rules
         assert "CONFIG.complete" not in rules
-        assert rules < repo_config.rule_ids()
+        assert rules < validator.rule_ids()
 
     def test_offered_questions_carry_the_global_mode_and_shadow_capability(
         self,
     ) -> None:
-        offered = repo_config.offered_questions()
-        assert not repo_config.NOT_CONFIGURABLE & set(offered)
+        offered = validator.offered_questions()
+        assert not validator.NOT_CONFIGURABLE & set(offered)
         assert offered["structure-naming/consumer_placement"] == OfferedQuestion(
             "shadow", True
         )
@@ -288,9 +283,9 @@ class Constants(unittest.TestCase):
             "ssh://git@github.com/example-owner/ledger.git/\n",
         ):
             with self.subTest(url=url):
-                assert repo_config.parse_origin(url) == "example-owner/ledger"
-        assert repo_config.parse_origin("https://gitlab.com/a/b.git") is None
-        assert repo_config.parse_origin("git@github.com:a/..") is None
+                assert validator.parse_origin(url) == "example-owner/ledger"
+        assert validator.parse_origin("https://gitlab.com/a/b.git") is None
+        assert validator.parse_origin("git@github.com:a/..") is None
 
 
 class Reading(unittest.TestCase):
@@ -302,7 +297,7 @@ class Reading(unittest.TestCase):
     def test_a_missing_file_is_missing(self) -> None:
         path = self.temp / "config.json"
         with pytest.raises(ConfigError) as caught:
-            repo_config.read_config(path)
+            validator.read_config(path)
         assert (caught.value.kind, caught.value.path) == ("missing", path)
         assert str(caught.value) == f"config missing: {path} does not exist"
 
@@ -310,7 +305,7 @@ class Reading(unittest.TestCase):
         path = self.temp / "config.json"
         path.write_bytes(b"\xff\xfe")
         with pytest.raises(ConfigError) as caught:
-            repo_config.read_config(path)
+            validator.read_config(path)
         assert caught.value.kind == "invalid"
         assert "cannot be read" in caught.value.problems[0]
 
@@ -359,7 +354,7 @@ class Command(unittest.TestCase):
         code, result = run_cli("--list-rules")
         ids = [rule["id"] for rule in result["rules"]]
         assert code == 0
-        assert ids == sorted(repo_config.code_check_rules())
+        assert ids == sorted(validator.code_check_rules())
         assert all(rule["summary"] for rule in result["rules"])
 
     def test_list_questions_names_the_offered_questions_with_their_modes(
@@ -368,8 +363,8 @@ class Command(unittest.TestCase):
         code, result = run_cli("--list-questions")
         keys = [question["key"] for question in result["questions"]]
         assert code == 0
-        assert keys == sorted(repo_config.offered_questions())
-        assert not repo_config.NOT_CONFIGURABLE & set(keys)
+        assert keys == sorted(validator.offered_questions())
+        assert not validator.NOT_CONFIGURABLE & set(keys)
         assert {
             "key": "structure-naming/consumer_placement",
             "mode": "shadow",

@@ -8,9 +8,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.context.changes import DiffError, git, git_bytes
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches_any, settings
-from guardrails.toolkit.dispatch import SUBCOMMANDS
+from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "RENAME.residue"
 RENAME_THRESHOLD = "50%"
@@ -226,7 +227,7 @@ def commit_snapshot(
     renames = [
         Rename(rows[index + 1], rows[index + 2]) for index in range(0, len(rows) - 1, 3)
     ]
-    exclusions = as_list(settings(config, "check").get("exclude"))
+    exclusions = as_list(checker_settings(config, "check").get("exclude"))
     paths = git(repo, "ls-tree", "-r", "--name-only", "-z", head_id).split("\0")
     owned_paths = [path for path in paths if path and not matches_any(path, exclusions)]
     terms = retired_terms(renames, owned_paths)

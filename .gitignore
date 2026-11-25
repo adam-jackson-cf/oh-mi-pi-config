@@ -132,8 +132,8 @@ tests/*
 !tests/test_go_adapter.py
 !tests/test_go_adapter_seams.py
 !tests/test_go_evidence.py
-!tests/test_guarded_run.py
-!tests/test_guarded_run_seams.py
+!tests/test_guard_run.py
+!tests/test_guard_run_seams.py
 !tests/test_init.py
 !tests/test_init_language_servers.py
 !tests/test_kind_candidates.py
@@ -151,7 +151,7 @@ tests/*
 !tests/test_rename_residue_seams.py
 !tests/test_responsibility_overlap.py
 !tests/test_rule_catalogue.py
-!tests/test_rule_catalogue_seams.py
+!tests/test_toolchain_parity_seams.py
 !tests/test_structure.py
 !tests/test_structure_seams.py
 !tests/test_test_evidence.py

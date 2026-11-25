@@ -27,8 +27,9 @@ from test_agentrails_fixture import approval, config, fixture, write_config
 from guardrails.commands import cli
 from guardrails.commands.init import (
     lsp,
-    native_config,
     native_languages,
+    native_python,
+    native_tools,
     sections_draft,
 )
 from guardrails.context.config.house_style import load_house_style
@@ -365,7 +366,7 @@ def catalogue_values() -> dict[str, dict[str, Any]]:
 
 class NativeConfigTests(InitCase):
     def test_data_mirrors_the_catalogue_contracts(self) -> None:
-        data = native_config.load_data()
+        data = native_tools.load_data()
         ruff, contracts = data["ruff"], catalogue_values()
         # A rule may carry a selector, a value or both (a limit and the rule code enforcing it).
         selected = {
@@ -460,11 +461,11 @@ class NativeConfigTests(InitCase):
 
     def test_proposed_configs_never_name_the_harness(self) -> None:
         # Repositories stay unaware of omp: applying a proposal unchanged adds no harness mention.
-        data = native_config.load_data()
+        data = native_tools.load_data()
         rendered = {
-            "ruff.toml": native_config.render_ruff(data, (3, 11), ["target"]),
-            "mypy.ini": native_config.render_mypy(data, (3, 11), ["target"], ["src"]),
-            ".importlinter": native_config.render_importlinter(
+            "ruff.toml": native_python.render_ruff(data, (3, 11), ["target"]),
+            "mypy.ini": native_python.render_mypy(data, (3, 11), ["target"], ["src"]),
+            ".importlinter": native_python.render_importlinter(
                 "target", ["core", "cli"]
             ),
         }
@@ -488,7 +489,7 @@ SHELL_EDITORCONFIG = "root = true\n\n[*]\nindent_style = space\n\n[*.{sh,bash}]\
 
 class LanguageNativeConfigTests(InitCase):
     def test_language_data_mirrors_the_catalogue_contracts(self) -> None:
-        data, contracts = native_config.load_data(), language_contracts()
+        data, contracts = native_tools.load_data(), language_contracts()
         tsc, oxlint, golangci = (
             data["tsc"]["compilerOptions"],
             data["oxlint"],
@@ -717,7 +718,7 @@ class LanguageNativeConfigTests(InitCase):
         )
 
     def test_language_proposals_never_name_the_harness(self) -> None:
-        data = native_config.load_data()
+        data = native_tools.load_data()
         for text in (
             native_languages.render_tsconfig(data),
             native_languages.render_oxlint(data),

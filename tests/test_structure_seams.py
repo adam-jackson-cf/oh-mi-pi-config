@@ -508,7 +508,7 @@ class CheckerCliTests(CheckerCase):
             step for step in whole_repo.DEFAULT_STEPS if step != "python-fanout"
         ]
         self.profile["checkers"]["check"] = {
-            "run": ["python-test-hygiene"],
+            "run": ["python-subprocess-timeouts"],
             "repo": {
                 "naming": ["src/orders/cli/main.py"],
                 "structure": ["src/orders/cli/main.py"],
@@ -572,12 +572,12 @@ class CheckerCliTests(CheckerCase):
         code, out = self.run_cli("check")
         assert code == 1
         assert "checkers.python configures only repo-owned steps" in out
-        self.profile["checkers"]["check"]["run"].append("python-test-hygiene")
+        self.profile["checkers"]["check"]["run"].append("python-subprocess-timeouts")
         self.write_profile()
         assert "checkers.python configures" not in self.run_cli("check")[1]
         self.profile["checkers"]["naming"] = {"skip": ["vendor/**"]}
         self.profile["checkers"]["check"] = {
-            "run": ["python-test-hygiene"],
+            "run": ["python-subprocess-timeouts"],
             "repo": {"naming": ["src/orders/cli/main.py"]},
         }
         self.write_profile()

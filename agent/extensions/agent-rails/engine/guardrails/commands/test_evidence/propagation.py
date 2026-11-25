@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.test_evidence.collection import DUPLICATE_ID_FIX, EMPTY_FIX
+from guardrails.context.config.reader import approved_targets
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.test_report.collection import report_findings
-from guardrails.toolkit.test_report.junit import (
+from guardrails.test_report.junit import (
     EXIT_CODE_PROPERTY,
     FAILING,
     Case,
@@ -24,6 +26,63 @@ FAIL_FIX = (
 )
 TRUNCATED_FIX = "rerun the tier to completion and keep the whole report"
 EXIT_FIX = "fix the runner failure outside the test cases, then rerun the tier"
+EVASION = "TEST.no-evasion"
+SKIP_FIX = (
+    "make the test run and pass, or ask the owner for a skip approval (approvals kind "
+    "skip, target the test id or an fnmatch pattern) with their reason"
+)
+RETRY_FIX = "fix the flake's cause so it passes on the first run; never rely on retries"
+
+
+def approved(test_id: str, config: dict[str, Any]) -> bool:
+    return any(
+        fnmatchcase(test_id, pattern) for pattern in approved_targets(config, "skip")
+    )
+
+
+def report_findings(report: Report, config: dict[str, Any]) -> list[Finding]:
+    if not report.cases:
+        return [
+            Finding(RULE, report.source, "run report holds no test cases", EMPTY_FIX)
+        ]
+    found = []
+    by_id: dict[str, list[Any]] = {}
+    for case in report.cases:
+        by_id.setdefault(case.id, []).append(case)
+    for test_id, cases in by_id.items():
+        path = cases[-1].file or report.source
+        final = cases[-1]
+        earlier_failed = any(case.outcome in {"failed", "error"} for case in cases[:-1])
+        if final.outcome == "passed" and (final.retries > 0 or earlier_failed):
+            attempts = final.retries + len(cases) - 1
+            found.append(
+                Finding(
+                    EVASION,
+                    path,
+                    f"{test_id} passed only after {attempts} retries",
+                    RETRY_FIX,
+                )
+            )
+        elif len(cases) > 1:
+            found.append(
+                Finding(
+                    RULE,
+                    path,
+                    f"{test_id} is reported {len(cases)} times",
+                    DUPLICATE_ID_FIX,
+                )
+            )
+        if final.outcome in {"skipped", "xfail"} and not approved(test_id, config):
+            reason = f" ({final.reason})" if final.reason else ""
+            found.append(
+                Finding(
+                    EVASION,
+                    path,
+                    f"{test_id} is {final.outcome} without approval{reason}",
+                    SKIP_FIX,
+                )
+            )
+    return found
 
 
 def final_cases(report: Report) -> list[Case]:

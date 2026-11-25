@@ -28,15 +28,15 @@ from test_agentrails_fixture import (
     write_config,
 )
 
+from guardrails.checker import affected
 from guardrails.commands import cli
-from guardrails.commands.diffs import (
+from guardrails.commands.diff import (
     coverage_ratchet,
     golden_record,
     growth,
     identity_artefacts,
-    timeouts,
+    timeout_increases,
 )
-from guardrails.toolkit import affected
 
 pytestmark = pytest.mark.seam
 
@@ -117,7 +117,7 @@ BASE_PROFILE: dict[str, Any] = {
             "globs": ["tests/fixtures/golden/*"],
             "change_record": "docs/golden-changes.md",
         },
-        "identity_artefacts": {"non_production": ["docs/*"]},
+        "identity_artefact_scope": {"non_production": ["docs/*"]},
     },
 }
 
@@ -407,7 +407,7 @@ class TimeoutIncreaseTests(unittest.TestCase):
         )
 
     def check(self, profile: dict[str, Any] = BASE_PROFILE) -> list[Any]:
-        return timeouts.run(self.repo.path, profile, ["--base", self.base])
+        return timeout_increases.run(self.repo.path, profile, ["--base", self.base])
 
     def test_raised_timeout_in_a_changed_test_is_reported(self) -> None:
         self.repo.commit({

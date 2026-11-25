@@ -10,7 +10,7 @@ from guardrails.commands.adapters import contract
 from guardrails.commands.adapters.pytest.dialect import DIALECT
 from guardrails.commands.adapters.pytest.invocation import tier_arguments
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.dispatch import SUBCOMMANDS
+from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 NAME = DIALECT.name
 SUFFIXES = (".py",)
@@ -61,7 +61,7 @@ def t2_arguments(selector: object, paths: list[str]) -> list[str]:
 def affected_arguments(
     repo: Path, config: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
-    from guardrails.toolkit.affected import TierCommand, print_affected
+    from guardrails.checker.affected import TierCommand, print_affected
 
     command = TierCommand(NAME, SUFFIXES, t2_arguments)
     return print_affected(repo, config, command, base, head)

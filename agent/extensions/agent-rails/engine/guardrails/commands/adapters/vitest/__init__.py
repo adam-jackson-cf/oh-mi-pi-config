@@ -8,7 +8,7 @@ from typing import Any
 
 from guardrails.commands.adapters.contract import TIER_GUARDS, output_finding
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.dispatch import SUBCOMMANDS
+from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 NAME = "vitest"
 WRITING_ACTIONS = frozenset({"tiers", "junit-args", "mutation-report"})
@@ -53,9 +53,9 @@ def tier_arguments(tier: str, report_path: str) -> list[str]:
 def affected_arguments(
     repo: Path, config: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
+    from guardrails.checker.affected import TierCommand, print_affected
     from guardrails.commands.adapters.javascript import cases
     from guardrails.commands.adapters.vitest.tiers import selector_arguments
-    from guardrails.toolkit.affected import TierCommand, print_affected
 
     def t2_arguments(selector: object, paths: list[str]) -> list[str]:
         return [*selector_arguments(str(selector)), "--", *paths]
@@ -120,10 +120,10 @@ def mutation_report_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
     from guardrails.commands.adapters.javascript import stryker
-    from guardrails.foundation.inventory import settings
+    from guardrails.context.config.reader import checker_settings
 
     source = options.input or Path(
-        settings(config, "adapter_vitest").get(
+        checker_settings(config, "adapter_vitest").get(
             "mutation_report", "reports/mutation/mutation.json"
         )
     )

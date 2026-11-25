@@ -1,6 +1,6 @@
 """Section schemas the repo config's tests, structure, houseStyle and checkers reuse.
 
-repo_config.py is the validator; this module holds the shared leaf and section checks and
+validator.py checks the whole file; this module holds the shared leaf and section checks and
 the exemption reading the checkers use.
 """
 
@@ -13,7 +13,7 @@ from typing import Any, TypeGuard
 
 from guardrails.context.config.adapter_declarations import TIER_KEYS, installed
 from guardrails.context.config.house_style import load_house_style
-from guardrails.foundation.inventory import approved_targets, config_section
+from guardrails.context.config.reader import approved_targets, config_section
 
 EXEMPTION_TARGETS = (
     "tiers.t3",
@@ -114,16 +114,16 @@ CHECKER_SECTIONS = (
     "coverage_ratchet",
     "feature_map",
     "golden_record",
-    "guarded_run",
-    "identity_artefacts",
+    "guard_run",
+    "identity_artefact_scope",
     "journeys",
     "layout",
     "lever_selftest",
     "naming",
-    "no_evasion",
     "paths",
     "python",
     "test_evidence",
+    "timeout_increases",
     "toolchain_parity",
 )
 

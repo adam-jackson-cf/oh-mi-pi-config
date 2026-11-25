@@ -28,17 +28,21 @@ SKIPPED_PARTS = frozenset({
 })
 DEFAULT_TIMEOUT_S = 60.0
 PYTHON_CANARY = (
-    ("omp_lsp_canary.py", "def omp_lsp_canary():\n    return 1\n"),
+    ("agent_rails_lsp_canary.py", "def agent_rails_lsp_canary():\n    return 1\n"),
     (
-        "omp_lsp_caller.py",
-        "from omp_lsp_canary import omp_lsp_canary\n\nomp_lsp_canary()\n",
+        "agent_rails_lsp_caller.py",
+        "from agent_rails_lsp_canary import agent_rails_lsp_canary\n\nagent_rails_lsp_canary()\n",
     ),
 )
 TYPESCRIPT_CANARY = (
-    ("omp-lsp-canary.ts", "export function ompLspCanary(): number {\n  return 1;\n}\n"),
     (
-        "omp-lsp-caller.ts",
-        'import { ompLspCanary } from "./omp-lsp-canary";\n\nompLspCanary();\n',
+        "agent-rails-lsp-canary.ts",
+        "export function agentRailsLspCanary(): number {\n  return 1;\n}\n",
+    ),
+    (
+        "agent-rails-lsp-caller.ts",
+        'import { agentRailsLspCanary } from "./agent-rails-lsp-canary";\n\n'
+        "agentRailsLspCanary();\n",
     ),
 )
 
@@ -305,7 +309,7 @@ def canary(repo: Path, stack: Stack, server: str, timeout: float) -> str:
         return (
             f"references {where}:{symbol.line + 1} {symbol.name} -> {count} locations"
         )
-    with tempfile.TemporaryDirectory(prefix="omp-lsp-canary-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="agent-rails-lsp-canary-") as scratch:
         workspace = Path(scratch).resolve()
         for marker in stack.markers:
             if (repo / marker).is_file():

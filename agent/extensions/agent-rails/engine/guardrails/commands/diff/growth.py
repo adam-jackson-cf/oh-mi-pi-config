@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from guardrails.checker.growth import GROWTH, check
 from guardrails.context.changes import DiffError, parse_range, range_finding
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.growth import GROWTH, check
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:

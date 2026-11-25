@@ -30,8 +30,8 @@ from guardrails.commands.adapters import pytest as adapter
 from guardrails.commands.adapters.pytest.dialect import DIALECT
 from guardrails.commands.adapters.pytest.invocation import tier_arguments
 from guardrails.commands.test_evidence import propagation
-from guardrails.toolkit.test_report.collection import read_ids
-from guardrails.toolkit.test_report.junit import parse_report
+from guardrails.test_report.collect_list import read_ids
+from guardrails.test_report.junit import parse_report
 
 pytestmark = pytest.mark.seam
 
@@ -312,7 +312,7 @@ class ExtraTests(unittest.TestCase):
             assert "TEST.tier-selectors" in out
             assert "selected by tiers t1, t2" in out
 
-    def test_guarded_run_writes_the_shared_run_properties(self) -> None:
+    def test_guard_run_writes_the_shared_run_properties(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:
             repo = shop_repository(Path(scratch))
             report = Path(scratch, "t1.xml")

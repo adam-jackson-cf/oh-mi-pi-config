@@ -10,18 +10,14 @@ from guardrails.context.changes import (
     range_finding,
 )
 from guardrails.context.config import adapter_declarations
+from guardrails.context.config.reader import checker_settings, tests_settings
 from guardrails.context.config.section_schema import approved_exemption
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import (
-    as_list,
-    matches_any,
-    settings,
-    tests_settings,
-)
+from guardrails.foundation.inventory import as_list, matches_any
 
 RULE = "TEST.identity-artefacts"
-CHECKER = "identity_artefacts"
+CHECKER = "identity_artefact_scope"
 
 
 def test_locations(config: dict[str, Any]) -> list[str]:
@@ -37,7 +33,7 @@ def is_production(path: str, config: dict[str, Any], artefacts: list[str]) -> bo
     non_production = [
         *artefacts,
         *test_locations(config),
-        *as_list(settings(config, CHECKER).get("non_production")),
+        *as_list(checker_settings(config, CHECKER).get("non_production")),
     ]
     return not (matches_any(path, non_production) or is_test_file(path, config))
 

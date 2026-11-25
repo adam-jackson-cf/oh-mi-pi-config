@@ -29,7 +29,7 @@ from guardrails.commands.adapters.vitest.dialect import (
     guard_evidence,
     junit_arguments,
 )
-from guardrails.toolkit.test_report.junit import parse_text
+from guardrails.test_report.junit import parse_text
 
 pytestmark = pytest.mark.fast
 

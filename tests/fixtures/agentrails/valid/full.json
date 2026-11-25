@@ -83,7 +83,7 @@
         "python-scalability",
         "surface-lint",
         "adapter lint",
-        "python-test-hygiene"
+        "python-subprocess-timeouts"
       ],
       "exclude": [
         "tests/fixtures/**"
@@ -131,7 +131,7 @@
         ".python-version"
       ]
     },
-    "guarded_run": {
+    "guard_run": {
       "watch": [
         ".omp",
         ".ssh",
@@ -158,7 +158,9 @@
       "host",
       "foundation",
       "context",
-      "toolkit",
+      "test_report",
+      "checker",
+      "subcommand",
       "commands"
     ],
     "import_direction": {

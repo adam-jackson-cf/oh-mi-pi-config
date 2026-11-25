@@ -11,8 +11,9 @@ from guardrails.context.changes import (
     parse_range,
     range_finding,
 )
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding, config_label
-from guardrails.foundation.inventory import as_list, matches_any, settings
+from guardrails.foundation.inventory import as_list, matches_any
 
 RULE = "TEST.golden-change-record"
 CHECKER = "golden_record"
@@ -28,7 +29,7 @@ def changed_goldens(changes: list[Change], globs: list[str]) -> list[Change]:
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
-    options = settings(config, CHECKER)
+    options = checker_settings(config, CHECKER)
     globs = as_list(options.get("globs"))
     if not globs:
         return []

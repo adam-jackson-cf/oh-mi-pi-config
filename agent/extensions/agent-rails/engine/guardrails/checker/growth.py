@@ -16,7 +16,7 @@ from guardrails.foundation.inventory import matches_any
 GROWTH = "TEST.growth.justified"
 DUPLICATE = "TEST.duplicate-path"
 BEHAVIOUR_FIX = "name the test after the behavior it proves, or remove the test"
-DUPLICATE_FIX = "merge or remove one of the duplicate tests"
+DUPLICATE_TEST_FIX = "merge or remove one of the duplicate tests"
 
 
 @dataclass(frozen=True)
@@ -167,13 +167,13 @@ def duplicate_findings(
         if fingerprint in seen:
             path = selector.split("::", 1)[0]
             message = f"{selector} duplicates the call path and assertions of {seen[fingerprint]}"
-            found.append(Finding(DUPLICATE, path, message, DUPLICATE_FIX))
+            found.append(Finding(DUPLICATE, path, message, DUPLICATE_TEST_FIX))
         else:
             seen[fingerprint] = selector
     return found
 
 
-def collection_findings(head: Snapshot, changed: set[str]) -> list[Finding]:
+def uncollectable_findings(head: Snapshot, changed: set[str]) -> list[Finding]:
     return [
         Finding(
             GROWTH, path, f"cannot collect tests statically: {error}", BEHAVIOUR_FIX
@@ -202,7 +202,7 @@ def check(repo: Path, config: dict[str, Any], diff: DiffRange) -> list[Finding]:
     cache: dict[str, CollectedFile | ValueError] = {}
     base = snapshot(repo, test_blobs(repo, diff.base, config), collect, cache)
     head = snapshot(repo, test_blobs(repo, diff.head, config), collect, cache)
-    found = collection_findings(head, changed_paths)
+    found = uncollectable_findings(head, changed_paths)
     found.extend(growth_findings(base, head))
     found.extend(duplicate_findings(base.fingerprints, head.fingerprints))
     return found

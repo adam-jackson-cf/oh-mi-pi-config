@@ -17,8 +17,8 @@ import pytest
 from test_agentrails_fixture import fixture
 from test_cli import CONTRACT_SUBCOMMANDS, ROOT, CliCase
 
-from guardrails.context.config import adapter_declarations, repo_config
-from guardrails.toolkit import dispatch
+from guardrails.context.config import adapter_declarations, validator
+from guardrails.subcommand import dispatch
 
 pytestmark = pytest.mark.seam
 
@@ -115,7 +115,7 @@ class ConfigCliTests(CliCase):
             for line in out.splitlines()
             if not line.startswith("remediation ") and line.count(": ") >= 2
         }
-        assert reported <= repo_config.code_check_rules(), reported
+        assert reported <= validator.code_check_rules(), reported
         off = copy.deepcopy(config)
         off["gates"]["rules"] = dict.fromkeys(sorted(reported), False)
         self.write_config(off)

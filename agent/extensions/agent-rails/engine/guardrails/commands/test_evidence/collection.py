@@ -1,86 +1,27 @@
 from __future__ import annotations
 
 from collections import Counter
-from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import Any
 
+from guardrails.context.config.reader import tests_settings
 from guardrails.context.config.section_schema import exempt_tiers
+from guardrails.context.config.suite_files import test_patterns
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
-    approved_targets,
     as_list,
     matches_any,
     name_matches,
     repo_paths,
-    tests_settings,
 )
-from guardrails.toolkit.test_report.junit import Report, UsageError, evidence_settings
+from guardrails.test_report.collect_list import read_ids
+from guardrails.test_report.junit import UsageError, evidence_settings
 
 PROPAGATION = "TEST.failure-propagation"
-EVASION = "TEST.no-evasion"
 SELECTORS = "TEST.tier-selectors"
-SKIP_FIX = (
-    "make the test run and pass, or ask the owner for a skip approval (approvals kind "
-    "skip, target the test id or an fnmatch pattern) with their reason"
-)
-RETRY_FIX = "fix the flake's cause so it passes on the first run; never rely on retries"
-DUPLICATE_FIX = "give every test a unique ID so each result maps to one test"
+DUPLICATE_ID_FIX = "give every test a unique ID so each result maps to one test"
 EMPTY_FIX = "check the tier selector and command; an empty collection never passes"
-
-
-def approved(test_id: str, config: dict[str, Any]) -> bool:
-    return any(
-        fnmatchcase(test_id, pattern) for pattern in approved_targets(config, "skip")
-    )
-
-
-def report_findings(report: Report, config: dict[str, Any]) -> list[Finding]:
-    if not report.cases:
-        return [
-            Finding(
-                PROPAGATION, report.source, "run report holds no test cases", EMPTY_FIX
-            )
-        ]
-    found = []
-    by_id: dict[str, list[Any]] = {}
-    for case in report.cases:
-        by_id.setdefault(case.id, []).append(case)
-    for test_id, cases in by_id.items():
-        path = cases[-1].file or report.source
-        final = cases[-1]
-        earlier_failed = any(case.outcome in {"failed", "error"} for case in cases[:-1])
-        if final.outcome == "passed" and (final.retries > 0 or earlier_failed):
-            attempts = final.retries + len(cases) - 1
-            found.append(
-                Finding(
-                    EVASION,
-                    path,
-                    f"{test_id} passed only after {attempts} retries",
-                    RETRY_FIX,
-                )
-            )
-        elif len(cases) > 1:
-            found.append(
-                Finding(
-                    PROPAGATION,
-                    path,
-                    f"{test_id} is reported {len(cases)} times",
-                    DUPLICATE_FIX,
-                )
-            )
-        if final.outcome in {"skipped", "xfail"} and not approved(test_id, config):
-            reason = f" ({final.reason})" if final.reason else ""
-            found.append(
-                Finding(
-                    EVASION,
-                    path,
-                    f"{test_id} is {final.outcome} without approval{reason}",
-                    SKIP_FIX,
-                )
-            )
-    return found
 
 
 def tier_arguments(argv: list[str]) -> dict[str, list[str]]:
@@ -99,15 +40,6 @@ def tier_arguments(argv: list[str]) -> dict[str, list[str]]:
             lists.setdefault(tier, []).append(path)
         index += 1
     return lists
-
-
-def read_ids(path: Path) -> list[str] | None:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return None
-    lines = (line.strip() for line in text.splitlines())
-    return [line for line in lines if line and not line.startswith("#")]
 
 
 def joined_ids(repo: Path, paths: list[str]) -> list[str] | None:
@@ -208,7 +140,7 @@ def tier_list_findings(
             SELECTORS,
             id_file(test_id),
             f"{test_id} is collected {count} times in tier {tier}",
-            DUPLICATE_FIX,
+            DUPLICATE_ID_FIX,
         )
         for test_id, count in sorted(Counter(ids).items())
         if count > 1
@@ -217,10 +149,7 @@ def tier_list_findings(
 
 
 def repository_test_files(repo: Path, config: dict[str, Any]) -> list[str]:
-    layout = tests_settings(config, "layout")
-    patterns = (
-        as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
-    )
+    patterns = test_patterns(config)
     exempt = as_list(evidence_settings(config).get("unselected_exempt"))
     return [
         path

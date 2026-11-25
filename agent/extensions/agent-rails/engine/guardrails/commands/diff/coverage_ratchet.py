@@ -16,14 +16,9 @@ from guardrails.context.changes import (
     parse_range,
     range_finding,
 )
+from guardrails.context.config.reader import approved_targets, checker_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import (
-    approved_targets,
-    as_list,
-    matches,
-    name_matches,
-    settings,
-)
+from guardrails.foundation.inventory import as_list, matches, name_matches
 
 RULE = "TEST.coverage-ratchet"
 CHECKER = "coverage_ratchet"
@@ -263,7 +258,7 @@ def is_config(path: str, patterns: list[str]) -> bool:
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
-    options = settings(config, CHECKER)
+    options = checker_settings(config, CHECKER)
     try:
         diff = parse_range(argv)
         changes = changed_files(repo, diff)

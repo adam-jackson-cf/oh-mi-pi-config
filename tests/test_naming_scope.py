@@ -21,7 +21,7 @@ from test_agentrails_fixture import config, write_config
 
 from guardrails.commands.structure_naming import layout
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit import dispatch
+from guardrails.subcommand import dispatch
 
 pytestmark = pytest.mark.seam
 

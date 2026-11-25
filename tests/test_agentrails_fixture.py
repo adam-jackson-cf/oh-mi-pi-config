@@ -13,7 +13,7 @@ from typing import Any
 
 import pytest
 
-from guardrails.context.config import repo_config
+from guardrails.context.config import validator
 from guardrails.host.process import run_text
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,11 +109,11 @@ def write_config(repo: Path, values: dict[str, Any]) -> Path:
 
 @pytest.mark.fast
 def test_builders_make_configs_the_validator_accepts() -> None:
-    assert repo_config.validate(config(), origin=SLUG) == []
+    assert validator.validate(config(), origin=SLUG) == []
     exempted = config(
         tests={"tiers": {"t3": {"none": True}}},
         approvals=[*fixture()["approvals"], approval("exemption", "tiers.t3", "none")],
         exceptions=[exception("NAME.conventions", "src/**", "generated names")],
     )
     exempted["tests"]["adapters"][0]["tiers"].pop("t3")
-    assert repo_config.validate(exempted, origin=SLUG) == []
+    assert validator.validate(exempted, origin=SLUG) == []

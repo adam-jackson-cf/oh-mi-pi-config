@@ -7,20 +7,16 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from guardrails.context.config.reader import checker_settings, tests_settings
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import CONFIG_LABEL, Finding, config_label
-from guardrails.foundation.inventory import (
-    as_list,
-    matches_any,
-    settings,
-    tests_settings,
-)
+from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.host.process import run_attached
 
 USER_DATA = "TEST.user-data-guard"
 ISOLATION = "TEST.fast-tier-isolation"
 PROPAGATION = "TEST.failure-propagation"
-CHECKER = "guarded_run"
+CHECKER = "guard_run"
 XDG_DIRS = {
     "XDG_CONFIG_HOME": "config",
     "XDG_DATA_HOME": "data",
@@ -139,7 +135,7 @@ def user_data_finding(changed: list[str]) -> Finding:
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
-    opts = settings(config, CHECKER)
+    opts = checker_settings(config, CHECKER)
     options, command = parse(argv)
     try:
         command = resolve_command(options, command, config)
@@ -158,13 +154,13 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
             Finding(
                 USER_DATA,
                 config_label("checkers"),
-                "checkers.guarded_run.watch names no real-home paths to protect",
+                "checkers.guard_run.watch names no real-home paths to protect",
                 "list the user-data paths the product and its tools write, relative to home",
             )
         ]
     ignore = as_list(opts.get("ignore"))
     real_home = Path.home()
-    with tempfile.TemporaryDirectory(prefix="omp-guard-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="agent-rails-guard-") as scratch:
         env, home = guarded_env(Path(scratch))
         if options.network_none:
             prefix = network_prefix(opts, home)
@@ -173,7 +169,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                     Finding(
                         ISOLATION,
                         config_label("checkers"),
-                        "--network-none needs checkers.guarded_run.network_none_command",
+                        "--network-none needs checkers.guard_run.network_none_command",
                         "set it in .agentrails/config.json to the container or sandbox prefix that "
                         "denies network access",
                     )

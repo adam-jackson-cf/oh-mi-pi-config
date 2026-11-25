@@ -6,7 +6,7 @@ import shlex
 import shutil
 from typing import Any
 
-from guardrails.foundation.inventory import settings
+from guardrails.context.config.reader import checker_settings
 
 NAME = "go"
 SETTINGS = "adapter_go"
@@ -16,8 +16,13 @@ class ToolchainError(ValueError):
     pass
 
 
+def options(config: dict[str, Any]) -> dict[str, Any]:
+    """checkers.adapter_go: the Go adapter's settings."""
+    return checker_settings(config, SETTINGS)
+
+
 def command(config: dict[str, Any]) -> list[str]:
-    configured = settings(config, SETTINGS).get("command")
+    configured = options(config).get("command")
     if configured is not None:
         if (
             not isinstance(configured, list)

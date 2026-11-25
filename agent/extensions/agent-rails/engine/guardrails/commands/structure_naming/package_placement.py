@@ -5,9 +5,10 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from guardrails.context.config.adapter_declarations import tier_locations
+from guardrails.context.config.reader import tests_settings
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches_any, tests_settings
+from guardrails.foundation.inventory import as_list, matches_any
 
 RUNTIME_DATA = "STRUCT.runtime-data-placement"
 ENTRY_POINT = "STRUCT.entry-point-placement"

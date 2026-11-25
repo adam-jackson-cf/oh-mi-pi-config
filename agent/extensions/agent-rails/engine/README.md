@@ -43,14 +43,17 @@ container).
 
 ## Layers
 
-The package has four layers. A module imports only its own layer or a lower
+The package has seven layers. A module imports only its own layer or a lower
 one, and two parts of one layer never import each other.
 
 | Layer | Holds |
 | --- | --- |
+| `host` | process execution |
 | `foundation` | findings, repository path matching, child-process environments, language packs |
 | `context` | the repo config, Git diff ranges and path selection |
-| `toolkit` | test reports, growth snapshots, affected T2 tests, Python path rules and dispatch |
+| `test_report` | JUnit run reports and collect-only test ID lists |
+| `checker` | shared checker parts: test growth, affected T2 tests, Python path rules |
+| `subcommand` | the subcommand registry and dispatch |
 | `commands` | the CLI, `check`, `init`, every checker and the test-framework adapters |
 
 `tests/test_structure.py` checks these layers with the
@@ -170,7 +173,7 @@ Per-repository values live in the repo config's setup sections: `commands`,
 `checkers` (one object per checker), `structure`, `houseStyle` and `tests`.
 Owner exceptions and approvals live in its `exceptions` and `approvals`
 sections. `guardrails config-check` validates the file
-([repo_config.py](guardrails/context/config/repo_config.py) is the validator); the
+([validator.py](guardrails/context/config/validator.py) is the validator); the
 section template is [config-template.json](guardrails/data/config-template.json).
 The [config contract](../docs/config.md) defines every section, its writer and its rules.
 

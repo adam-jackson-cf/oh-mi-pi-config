@@ -46,7 +46,7 @@ CONTRACT_SUBCOMMANDS = {
     "python-quality",
     "python-fanout",
     "python-scalability",
-    "python-test-hygiene",
+    "python-subprocess-timeouts",
     "toolchain-parity",
     "report-check",
     "budget-check",

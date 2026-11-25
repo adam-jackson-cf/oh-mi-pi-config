@@ -19,7 +19,7 @@ from guardrails.commands.adapters.contract import GUARDS, USER_DATA
 from guardrails.commands.adapters.pytest import guards
 from guardrails.commands.adapters.pytest.dialect import SUBTEST_PROPERTIES
 from guardrails.host.process import run_text
-from guardrails.toolkit.test_report.junit import (
+from guardrails.test_report.junit import (
     EXIT_CODE_PROPERTY,
     GUARDS_PROPERTY,
     REVISION_PROPERTY,

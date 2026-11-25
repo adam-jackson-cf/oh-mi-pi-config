@@ -28,8 +28,9 @@ from guardrails.commands.adapters.go.syntax import (
 )
 from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.context.config.house_style import apply_exceptions
+from guardrails.context.config.reader import tests_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import normalized_path, repo_paths, tests_settings
+from guardrails.foundation.inventory import normalized_path, repo_paths
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode

@@ -22,10 +22,10 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.catalogue import versions
+from guardrails.commands.toolchain import versions
 from guardrails.context.config import adapter_declarations
 from guardrails.foundation import child_env
-from guardrails.toolkit import dispatch
+from guardrails.subcommand import dispatch
 
 pytestmark = pytest.mark.fast
 
@@ -47,8 +47,8 @@ ENGINE_TESTS = (
     "test_go_adapter.py",
     "test_go_adapter_seams.py",
     "test_go_evidence.py",
-    "test_guarded_run.py",
-    "test_guarded_run_seams.py",
+    "test_guard_run.py",
+    "test_guard_run_seams.py",
     "test_init.py",
     "test_init_language_servers.py",
     "test_kind_candidates.py",
@@ -66,11 +66,11 @@ ENGINE_TESTS = (
     "test_rename_residue_seams.py",
     "test_responsibility_overlap.py",
     "test_rule_catalogue.py",
-    "test_rule_catalogue_seams.py",
     "test_structure.py",
     "test_structure_seams.py",
     "test_test_evidence.py",
     "test_test_evidence_seams.py",
+    "test_toolchain_parity_seams.py",
     "test_verification_surface.py",
     "test_verification_surface_seams.py",
     "test_vitest_adapter.py",

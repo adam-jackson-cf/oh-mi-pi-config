@@ -88,7 +88,7 @@ def check_run(
         guard_evidence,
         junit_arguments,
     )
-    from guardrails.toolkit.test_report.junit import ReportError, parse_report
+    from guardrails.test_report.junit import ReportError, parse_report
 
     tier = "t2" if case["id"].startswith("user-data-") else "t1"
     report = project.root / "evidence" / "report.xml"
@@ -136,7 +136,7 @@ def check_collection(
     project: conformance.Project, case: dict[str, Any], command: list[str]
 ) -> conformance.Verdict:
     from guardrails.commands.adapters.bun_test.tiers import list_tiers
-    from guardrails.toolkit.test_report.collection import read_ids
+    from guardrails.test_report.collect_list import read_ids
 
     project.config["checkers"] = {"adapter_bun_test": {"command": command}}
     out = project.root / "collections"

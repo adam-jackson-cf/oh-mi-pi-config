@@ -21,7 +21,7 @@ from guardrails.commands import cli
 from guardrails.commands.adapters.conformance import load_cases
 from guardrails.commands.adapters.go.conformance import run_conformance
 from guardrails.host.process import run_text
-from guardrails.toolkit.test_report.collection import read_ids
+from guardrails.test_report.collect_list import read_ids
 
 pytestmark = pytest.mark.seam
 

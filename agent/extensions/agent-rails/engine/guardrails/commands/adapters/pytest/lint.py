@@ -11,9 +11,9 @@ from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
 from guardrails.context.config.house_style import apply_exceptions
+from guardrails.context.config.reader import tests_settings
 from guardrails.context.config.suite_files import Suite, adapter_suite, in_suite
 from guardrails.foundation.findings import Finding, Remediation, remediation
-from guardrails.foundation.inventory import tests_settings
 
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode

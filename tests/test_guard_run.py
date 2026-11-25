@@ -16,7 +16,7 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.environment import guarded_run
+from guardrails.commands.guard_run import command
 
 pytestmark = pytest.mark.fast
 
@@ -29,7 +29,7 @@ def python(code: str) -> list[str]:
     return [sys.executable, "-c", code]
 
 
-class GuardedRunCase(unittest.TestCase):
+class GuardRunCase(unittest.TestCase):
     def setUp(self) -> None:
         scratch = tempfile.TemporaryDirectory(prefix="omp-environment-")
         self.addCleanup(scratch.cleanup)
@@ -45,17 +45,17 @@ class GuardedRunCase(unittest.TestCase):
         patcher = unittest.mock.patch.dict(os.environ, {"HOME": str(self.real_home)})
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.profile = {"checkers": {"guarded_run": {"watch": [".config/app"]}}}
+        self.profile = {"checkers": {"guard_run": {"watch": [".config/app"]}}}
 
     def guard(
         self, argv: list[str], profile: dict[str, Any] | None = None
     ) -> list[Any]:
-        return guarded_run.run(
+        return command.run(
             self.repo, self.profile if profile is None else profile, argv
         )
 
 
-class GuardedRunTests(GuardedRunCase):
+class GuardRunTests(GuardRunCase):
     def test_missing_watch_list_is_a_finding(self) -> None:
         findings = self.guard(["--", *python("pass")], {})
         assert [finding.rule_id for finding in findings] == ["TEST.user-data-guard"]

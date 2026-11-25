@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from guardrails.context.config.repo_config import ConfigError, load_config
 from guardrails.context.config.section_schema import ConfigValueError
+from guardrails.context.config.validator import ConfigError, load_config
 from guardrails.foundation import decision_store
 from guardrails.foundation.findings import (
     Finding,
@@ -14,7 +14,7 @@ from guardrails.foundation.findings import (
     exit_code,
     format_findings,
 )
-from guardrails.toolkit.dispatch import (
+from guardrails.subcommand.dispatch import (
     SUBCOMMANDS,
     adapter_module,
     checker_module,
@@ -107,8 +107,6 @@ def resolve_target(argv: list[str], needs_config: bool) -> tuple[Target, list[st
 
 
 DECISION_LOG_OPTION = "--log-decisions"
-# The line prefix a checker prints when it cannot log; the harness reports it without changing a verdict.
-STORE_ERROR = "decision store: "
 DECISION_TRIGGERS = ("commit", "prove", "pr", "manual")
 
 
@@ -186,7 +184,7 @@ def log_decisions(
     try:
         decision_store.record_decisions(check_rows(name, rules, findings, context))
     except decision_store.StoreError as error:
-        print(f"{STORE_ERROR}{error}", file=sys.stderr)
+        print(f"{decision_store.STORE_ERROR}{error}", file=sys.stderr)
 
 
 def run_subcommand(name: str, target: Target, argv: list[str]) -> list[Finding]:
@@ -214,7 +212,7 @@ TARGETLESS = frozenset({"shadow-review", "config-check"})
 
 
 def early_exit(args: list[str]) -> int | None:
-    """Usage, an unknown subcommand, shadow-review (no repository target) and subcommand help."""
+    """Usage, an unknown subcommand, the TARGETLESS subcommands (no repository target) and help."""
     if not args or args[0] in {"-h", "--help", "help"}:
         print(usage())
         return 0 if args else 2

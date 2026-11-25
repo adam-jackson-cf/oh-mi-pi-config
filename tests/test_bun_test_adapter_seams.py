@@ -28,8 +28,8 @@ from guardrails.commands.adapters.bun_test.dialect import (
 )
 from guardrails.commands.adapters.conformance import load_cases
 from guardrails.commands.test_evidence import propagation
-from guardrails.toolkit.test_report.collection import read_ids
-from guardrails.toolkit.test_report.junit import parse_report
+from guardrails.test_report.collect_list import read_ids
+from guardrails.test_report.junit import parse_report
 
 pytestmark = pytest.mark.seam
 

@@ -14,10 +14,10 @@ sys.path.insert(
 
 import pytest
 
+from guardrails.checker.growth import Snapshot, duplicate_findings, growth_findings
 from guardrails.commands.adapters.javascript import cases, lint
 from guardrails.commands.adapters.vitest.lint import VITEST
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.growth import Snapshot, duplicate_findings, growth_findings
 
 pytestmark = pytest.mark.fast
 

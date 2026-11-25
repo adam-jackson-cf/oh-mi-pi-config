@@ -31,6 +31,8 @@ BUSY_TIMEOUT_SECONDS = 5.0
 # One pass in PASS_SAMPLE keeps its payload, chosen by hash so the choice is stable.
 PASS_SAMPLE = 10
 TRIGGERS = ("commit", "prove", "pr", "manual")
+# The line prefix a checker prints when it cannot log; the harness reports it without changing a verdict.
+STORE_ERROR = "decision store: "
 OUTCOME_NAMES = {"yes": "flag", "no": "pass", "escalate": "escalate"}
 DECISION_COLUMNS = (
     "id",

@@ -8,6 +8,7 @@ from typing import Any
 
 from guardrails.context import scope
 from guardrails.context.config import house_style
+from guardrails.context.config.reader import checker_settings
 from guardrails.context.config.suite_files import test_patterns
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
@@ -18,7 +19,6 @@ from guardrails.foundation.inventory import (
     name_matches,
     normalized_path,
     path_prefixes,
-    settings,
 )
 
 CONVENTIONS = "NAME.conventions"
@@ -239,7 +239,7 @@ def path_findings(
     *,
     existing_paths: set[str] | None = None,
 ) -> list[Finding]:
-    options = settings(config, "naming")
+    options = checker_settings(config, "naming")
     if conventions.ignored_path(path) or matches_any(
         path, as_list(options.get("skip"))
     ):

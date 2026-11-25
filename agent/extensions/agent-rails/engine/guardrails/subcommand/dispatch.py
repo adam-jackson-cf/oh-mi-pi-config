@@ -7,14 +7,10 @@ from types import ModuleType
 from typing import Any
 
 from guardrails.context.config import adapter_declarations
+from guardrails.context.config.reader import checker_settings, config_section
 from guardrails.context.config.section_schema import ConfigValueError
 from guardrails.foundation.findings import CONFIG_LABEL, Finding, config_label
-from guardrails.foundation.inventory import (
-    as_list,
-    config_section,
-    matches_any,
-    settings,
-)
+from guardrails.foundation.inventory import as_list, matches_any
 
 
 @dataclass(frozen=True)
@@ -92,13 +88,13 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "PYS scalability rules",
         honours_exclusions=True,
     ),
-    "python-test-hygiene": Subcommand(
+    "python-subprocess-timeouts": Subcommand(
         ("guardrails.commands.python_policy.subprocess_timeouts",),
         "TEST.subprocess-timeouts: bounded process calls in Python tests",
         honours_exclusions=True,
     ),
     "toolchain-parity": Subcommand(
-        ("guardrails.commands.catalogue.toolchain_parity",), "PARITY.* toolchain parity"
+        ("guardrails.commands.toolchain.parity",), "PARITY.* toolchain parity"
     ),
     "report-check": Subcommand(
         ("guardrails.commands.test_evidence.propagation",),
@@ -109,16 +105,16 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "TEST.budget.* over the fast-tier duration report (local commit gate only)",
     ),
     "collection-check": Subcommand(
-        ("guardrails.toolkit.test_report.collection",),
+        ("guardrails.commands.test_evidence.collection",),
         "TEST.tier-selectors over tier collections",
     ),
     "diff-check": Subcommand(
         (
-            "guardrails.commands.diffs.coverage_ratchet",
-            "guardrails.commands.diffs.golden_record",
-            "guardrails.commands.diffs.identity_artefacts",
-            "guardrails.commands.diffs.timeouts",
-            "guardrails.commands.diffs.growth",
+            "guardrails.commands.diff.coverage_ratchet",
+            "guardrails.commands.diff.golden_record",
+            "guardrails.commands.diff.identity_artefacts",
+            "guardrails.commands.diff.timeout_increases",
+            "guardrails.commands.diff.growth",
             "guardrails.commands.check.integrity",
         ),
         "TEST.coverage-ratchet, TEST.golden-change-record, TEST.identity-artefacts, "
@@ -134,7 +130,7 @@ SUBCOMMANDS: dict[str, Subcommand] = {
         "TEST.mutation-sensitivity over a normalised mutation report and the diff (T3)",
     ),
     "guard-run": Subcommand(
-        ("guardrails.commands.environment.guarded_run",),
+        ("guardrails.commands.guard_run.command",),
         "TEST.user-data-guard and TEST.fast-tier-isolation around a test command",
     ),
     "surface-lint": Subcommand(
@@ -176,7 +172,7 @@ EXCLUDED_ADAPTER_ACTIONS = frozenset({"lint"})
 def outside_exclusions(
     findings: list[Finding], config: dict[str, Any]
 ) -> list[Finding]:
-    patterns = as_list(settings(config, "check").get("exclude"))
+    patterns = as_list(checker_settings(config, "check").get("exclude"))
     return [
         finding
         for finding in findings

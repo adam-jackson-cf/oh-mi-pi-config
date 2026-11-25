@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from guardrails.toolkit.test_report.junit import Dialect, Report, as_int
+from guardrails.test_report.junit import Dialect, Report, as_int
 
 SUBTEST_PROPERTIES = {
     "tests": "guardrails.subtests.tests",

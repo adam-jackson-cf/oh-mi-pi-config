@@ -11,9 +11,9 @@ from importlib import resources
 from pathlib import Path
 from typing import Any
 
+from guardrails.checker.growth import CollectedFile, Snapshot, growth_findings
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.growth import CollectedFile, Snapshot, growth_findings
-from guardrails.toolkit.test_report.junit import FAILING, Case
+from guardrails.test_report.junit import FAILING, Case
 
 CASES_FILE = "conformance-cases.json"
 CASE_TIMEOUT_S = 300

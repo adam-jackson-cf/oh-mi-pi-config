@@ -90,7 +90,7 @@
     "onboarding.questionnaireVersion: is 2 but the extension's questionnaire is version 1; ask the owner to run /agentrails configure"
   ],
   "unknown-check-step.json": [
-    "checkers.check.run: names unknown steps ['lint-everything']; choose from ['python-quality', 'python-fanout', 'python-scalability', 'surface-lint', 'adapter lint', 'python-test-hygiene']"
+    "checkers.check.run: names unknown steps ['lint-everything']; choose from ['python-quality', 'python-fanout', 'python-scalability', 'surface-lint', 'adapter lint', 'python-subprocess-timeouts']"
   ],
   "unknown-checker-section.json": [
     "checkers.exceptions: is not a config key; remove it or fix its spelling"

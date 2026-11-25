@@ -173,7 +173,7 @@ def checkout(repo: Path, scope: Scope) -> Generator[Path, None, None]:
     if scope.tree is None:
         yield repo
         return
-    with tempfile.TemporaryDirectory(prefix="omp-path-snapshot-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="agent-rails-path-snapshot-") as scratch:
         root = Path(scratch)
         entries = git(repo, "ls-tree", "-r", "-z", scope.tree).split(b"\0")
         files = []

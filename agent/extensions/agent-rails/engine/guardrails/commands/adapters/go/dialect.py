@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from guardrails.toolkit.test_report.junit import Dialect
+from guardrails.test_report.junit import Dialect
 
 XFAIL_TYPE = "go.xfail"
 SKIP_TYPE = "go.skip"

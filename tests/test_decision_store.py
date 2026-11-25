@@ -384,7 +384,9 @@ class CheckLogTests(StoreCase):
     def test_a_store_failure_is_printed_and_never_raised(self) -> None:
         (self.dir / "agent").write_text("not a directory")
         printed = self.log([])
-        assert printed.startswith(f"{cli.STORE_ERROR}cannot open the decision store")
+        assert printed.startswith(
+            f"{decision_store.STORE_ERROR}cannot open the decision store"
+        )
 
     def test_the_cli_takes_a_leading_log_decisions_trigger(self) -> None:
         assert cli.split_decision_log(["--log-decisions", "prove", "--base", "b"]) == (

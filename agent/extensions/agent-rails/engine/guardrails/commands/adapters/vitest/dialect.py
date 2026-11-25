@@ -5,7 +5,7 @@ from pathlib import Path
 
 from guardrails.commands.adapters import contract
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.test_report.junit import Dialect
+from guardrails.test_report.junit import Dialect
 
 DIALECT = Dialect(name="vitest", source_suffix=".ts")
 RERUN = "rerun Vitest with the adapter's junit arguments"

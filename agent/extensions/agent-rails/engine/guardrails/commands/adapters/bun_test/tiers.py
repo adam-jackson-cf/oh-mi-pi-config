@@ -15,9 +15,10 @@ from guardrails.commands.adapters.bun_test.dialect import (
 )
 from guardrails.commands.adapters.contract import PROPAGATION, collect_timeout
 from guardrails.context.config.adapter_declarations import adapter_tiers
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, settings
+from guardrails.foundation.inventory import as_list
 from guardrails.host.process import run_text
 
 NAME = "bun_test"
@@ -29,7 +30,7 @@ def selector_arguments(selector: str) -> list[str]:
 
 
 def command(config: dict[str, Any]) -> list[str]:
-    configured = settings(config, SETTINGS).get("command")
+    configured = checker_settings(config, SETTINGS).get("command")
     if configured is not None:
         if (
             not isinstance(configured, list)

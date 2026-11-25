@@ -4,15 +4,7 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from guardrails.commands.python_policy.call_names import (
-    PROCESS_CALLS,
-    import_names,
-    qualified_name,
-)
-from guardrails.context.config import house_style
-from guardrails.foundation.findings import Finding, config_label
-from guardrails.foundation.inventory import InventoryError
-from guardrails.toolkit.python_rules.scope import (
+from guardrails.checker.python_rules.settings import (
     PythonSettings,
     finding,
     in_roots,
@@ -22,6 +14,14 @@ from guardrails.toolkit.python_rules.scope import (
     python_files,
     read_source,
 )
+from guardrails.commands.python_policy.call_names import (
+    PROCESS_CALLS,
+    import_names,
+    qualified_name,
+)
+from guardrails.context.config import house_style
+from guardrails.foundation.findings import Finding, config_label
+from guardrails.foundation.inventory import InventoryError
 
 DEFAULT_MAX_LOOP_DEPTH = 2
 FILESYSTEM_METHODS = frozenset({"read_bytes", "read_text", "write_bytes", "write_text"})

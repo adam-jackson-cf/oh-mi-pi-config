@@ -1,14 +1,11 @@
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Any
 
 from guardrails.context.config import adapter_declarations
-from guardrails.foundation.inventory import (
-    as_list,
-    matches_any,
-    name_matches,
-    tests_settings,
-)
+from guardrails.context.config.reader import tests_settings
+from guardrails.foundation.inventory import as_list, matches_any, name_matches
 
 # One adapter's test files: its tier locations and the configured test file patterns.
 Suite = tuple[list[str], list[str]]
@@ -24,6 +21,15 @@ def test_patterns(config: dict[str, Any]) -> list[str]:
 
 def is_test_file(path: str, config: dict[str, Any]) -> bool:
     return any(name_matches(path, pattern) for pattern in test_patterns(config))
+
+
+def is_test_source(path: str, config: dict[str, Any]) -> bool:
+    """A conftest.py, a configured test file or a file under an adapter's tier locations."""
+    if PurePosixPath(path).name == "conftest.py":
+        return True
+    return is_test_file(path, config) or matches_any(
+        path, adapter_declarations.locations(config)
+    )
 
 
 def adapter_suite(config: dict[str, Any], name: str) -> Suite:

@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from guardrails.checker.affected import TierCommand, print_affected
 from guardrails.commands.adapters.contract import PROPAGATION, collect_timeout
 from guardrails.commands.adapters.go.packages import build_arguments, list_packages
 from guardrails.commands.adapters.go.syntax import TEST_NAME, TEST_SUFFIX
@@ -22,7 +23,6 @@ from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list
 from guardrails.host.process import run_text
-from guardrails.toolkit.affected import TierCommand, print_affected
 
 
 def flag_value(arguments: list[str], flag: str) -> str | None:

@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
 
-from guardrails.foundation.inventory import matches_any, tests_settings
+from guardrails.context.config.reader import tests_settings
+from guardrails.foundation.inventory import matches_any
 
 PACKAGE = "guardrails.commands.adapters"
 TIER_KEYS = ("t1", "t2", "t3")

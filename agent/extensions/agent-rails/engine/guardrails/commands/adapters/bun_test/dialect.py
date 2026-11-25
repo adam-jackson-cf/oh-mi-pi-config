@@ -10,7 +10,7 @@ from typing import Any
 
 from guardrails.commands.adapters import contract
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.test_report.junit import (
+from guardrails.test_report.junit import (
     GUARDS_PROPERTY,
     REVISION_PROPERTY,
     RUNTIME_PROPERTY,

@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
+from guardrails.checker.python_rules import path_names, settings as python_settings
+from guardrails.context.config.reader import config_section
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import config_section, path_prefixes
-from guardrails.toolkit.python_rules import path_names, scope as python_scope
+from guardrails.foundation.inventory import path_prefixes
 
 
 def python_path_findings(
@@ -13,8 +14,8 @@ def python_path_findings(
 ) -> list[Finding]:
     if "python" not in config_section(config, "checkers"):
         return []
-    options = python_scope.load_settings(config)
-    if python_scope.is_excluded(path, options):
+    options = python_settings.load_settings(config)
+    if python_settings.is_excluded(path, options):
         return []
     segments = path_prefixes(existing_paths)
     if path.endswith(".py"):

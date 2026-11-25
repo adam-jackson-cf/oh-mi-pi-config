@@ -138,7 +138,15 @@ class HouseStyleVerdictTests(unittest.TestCase):
 ENGINE_SOURCE_ROOT = "agent/extensions/agent-rails/engine/guardrails"
 ENGINE_LAYERS = {
     "structure": {
-        "tiers": ["host", "foundation", "context", "toolkit", "commands"],
+        "tiers": [
+            "host",
+            "foundation",
+            "context",
+            "test_report",
+            "checker",
+            "subcommand",
+            "commands",
+        ],
         "import_direction": {
             "package": "guardrails",
             "source_root": ENGINE_SOURCE_ROOT,

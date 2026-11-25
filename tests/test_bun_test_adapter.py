@@ -19,7 +19,7 @@ from guardrails.commands.adapters import bun_test
 from guardrails.commands.adapters.bun_test import tiers
 from guardrails.commands.adapters.bun_test.dialect import DIALECT
 from guardrails.context.config.section_schema import CHECKER_SECTIONS
-from guardrails.toolkit.test_report.junit import ReportError, parse_report
+from guardrails.test_report.junit import ReportError, parse_report
 
 pytestmark = pytest.mark.fast
 

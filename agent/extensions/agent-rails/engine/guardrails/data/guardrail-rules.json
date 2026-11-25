@@ -470,7 +470,7 @@
       "implementation": [
         {
           "subcommand": "diff-check",
-          "module": "guardrails.commands.diffs.growth"
+          "module": "guardrails.commands.diff.growth"
         },
         {
           "subcommand": "check",
@@ -498,7 +498,7 @@
       "implementation": [
         {
           "subcommand": "diff-check",
-          "module": "guardrails.commands.diffs.growth"
+          "module": "guardrails.commands.diff.growth"
         },
         {
           "subcommand": "check",
@@ -536,7 +536,7 @@
       "implementation": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.commands.catalogue.toolchain_parity"
+          "module": "guardrails.commands.toolchain.parity"
         }
       ]
     },
@@ -758,7 +758,7 @@
       "implementation": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.commands.catalogue.toolchain_parity"
+          "module": "guardrails.commands.toolchain.parity"
         }
       ]
     },
@@ -775,7 +775,7 @@
       "implementation": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.commands.catalogue.toolchain_parity"
+          "module": "guardrails.commands.toolchain.parity"
         }
       ]
     },
@@ -795,7 +795,7 @@
       "implementation": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.commands.catalogue.toolchain_parity"
+          "module": "guardrails.commands.toolchain.parity"
         }
       ]
     },
@@ -2006,7 +2006,7 @@
         },
         {
           "subcommand": "collection-check",
-          "module": "guardrails.toolkit.test_report.collection"
+          "module": "guardrails.commands.test_evidence.collection"
         }
       ]
     },
@@ -2028,7 +2028,7 @@
       },
       "implementation": [
         {
-          "subcommand": "python-test-hygiene",
+          "subcommand": "python-subprocess-timeouts",
           "module": "guardrails.commands.python_policy.subprocess_timeouts"
         }
       ]
@@ -2135,7 +2135,7 @@
         },
         {
           "subcommand": "diff-check",
-          "module": "guardrails.commands.diffs.timeouts"
+          "module": "guardrails.commands.diff.timeout_increases"
         }
       ]
     },
@@ -2160,7 +2160,7 @@
       "implementation": [
         {
           "subcommand": "guard-run",
-          "module": "guardrails.commands.environment.guarded_run"
+          "module": "guardrails.commands.guard_run.command"
         },
         {
           "subcommand": "adapter",
@@ -2186,7 +2186,7 @@
       "implementation": [
         {
           "subcommand": "guard-run",
-          "module": "guardrails.commands.environment.guarded_run"
+          "module": "guardrails.commands.guard_run.command"
         }
       ]
     },
@@ -2210,7 +2210,7 @@
       "implementation": [
         {
           "subcommand": "collection-check",
-          "module": "guardrails.toolkit.test_report.collection"
+          "module": "guardrails.commands.test_evidence.collection"
         }
       ]
     },
@@ -2233,7 +2233,7 @@
       "implementation": [
         {
           "subcommand": "diff-check",
-          "module": "guardrails.commands.diffs.coverage_ratchet"
+          "module": "guardrails.commands.diff.coverage_ratchet"
         },
         {
           "subcommand": "check",
@@ -2258,7 +2258,7 @@
       "implementation": [
         {
           "subcommand": "diff-check",
-          "module": "guardrails.commands.diffs.golden_record"
+          "module": "guardrails.commands.diff.golden_record"
         },
         {
           "subcommand": "check",
@@ -2285,7 +2285,7 @@
       "implementation": [
         {
           "subcommand": "diff-check",
-          "module": "guardrails.commands.diffs.identity_artefacts"
+          "module": "guardrails.commands.diff.identity_artefacts"
         },
         {
           "subcommand": "check",
@@ -3227,7 +3227,7 @@
       "implementation": [
         {
           "subcommand": "toolchain-parity",
-          "module": "guardrails.commands.catalogue.toolchain_parity"
+          "module": "guardrails.commands.toolchain.parity"
         }
       ]
     },

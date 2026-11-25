@@ -111,7 +111,7 @@ def check_run(
 ) -> conformance.Verdict:
     from guardrails.commands.adapters.go.evidence import guard_evidence, load_report
     from guardrails.commands.adapters.go.run import run_tier
-    from guardrails.toolkit.test_report.junit import ReportError
+    from guardrails.test_report.junit import ReportError
 
     tier = RUN_TIERS.get(case["id"], "t1")
     config = project.config
@@ -143,7 +143,7 @@ def check_collection(
     project: conformance.Project, case: dict[str, Any]
 ) -> conformance.Verdict:
     from guardrails.commands.adapters.go.tiers import list_tiers
-    from guardrails.toolkit.test_report.collection import read_ids
+    from guardrails.test_report.collect_list import read_ids
 
     out = project.root / "collections"
     reported = list_tiers(project.path, project.config, ["t1"], out)

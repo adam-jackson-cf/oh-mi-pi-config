@@ -11,12 +11,12 @@ sys.path.insert(
 
 
 import pytest
-from test_guarded_run import GuardedRunCase, python
+from test_guard_run import GuardRunCase, python
 
 pytestmark = pytest.mark.seam
 
 
-class GuardedRunTests(GuardedRunCase):
+class GuardRunTests(GuardRunCase):
     def test_command_writing_only_to_redirected_home_passes(self) -> None:
         code = (
             "import os, pathlib\n"
@@ -42,7 +42,7 @@ class GuardedRunTests(GuardedRunCase):
         code = f"open({str(added)!r}, 'w').write('x'); open({str(noisy)!r}, 'w').write('x')"
         profile = {
             "checkers": {
-                "guarded_run": {
+                "guard_run": {
                     "watch": [".config/app"],
                     "ignore": [".config/app/*.log"],
                 }
@@ -79,7 +79,7 @@ class GuardedRunTests(GuardedRunCase):
     def test_network_none_runs_behind_the_configured_prefix(self) -> None:
         profile = {
             "checkers": {
-                "guarded_run": {
+                "guard_run": {
                     "watch": [".config/app"],
                     "network_none_command": "env OMP_GUARD_PREFIX_HOME={home}",
                 }

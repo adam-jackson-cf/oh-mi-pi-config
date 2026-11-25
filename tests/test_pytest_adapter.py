@@ -29,7 +29,7 @@ from guardrails.commands.adapters.pytest.dialect import DIALECT
 from guardrails.commands.test_evidence import propagation
 from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_text
-from guardrails.toolkit.test_report.junit import dialect_for, parse_report, parse_text
+from guardrails.test_report.junit import dialect_for, parse_report, parse_text
 
 pytestmark = pytest.mark.fast
 

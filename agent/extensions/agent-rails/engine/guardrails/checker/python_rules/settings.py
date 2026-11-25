@@ -7,6 +7,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     GLOB_CHARACTERS,
@@ -15,7 +16,6 @@ from guardrails.foundation.inventory import (
     matches_any,
     normalized_path,
     repo_paths,
-    settings,
 )
 
 CHECKER = "python"
@@ -62,7 +62,7 @@ class PythonSettings:
 
 
 def load_settings(config: dict[str, Any]) -> PythonSettings:
-    return PythonSettings(settings(config, CHECKER))
+    return PythonSettings(checker_settings(config, CHECKER))
 
 
 def segments(path: str) -> tuple[str, ...]:

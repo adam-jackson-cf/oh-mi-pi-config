@@ -12,9 +12,10 @@ from typing import Any
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.invocation import PLUGIN
 from guardrails.context.config.adapter_declarations import adapter_tiers
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding, config_label
-from guardrails.foundation.inventory import as_list, settings
+from guardrails.foundation.inventory import as_list
 from guardrails.host.process import run_text
 
 ENGINE_ROOT = Path(__file__).resolve().parents[4]
@@ -71,7 +72,7 @@ def collect_tier(
             )
         ]
     locations = as_list(spec.get("location"))
-    timeout = settings(config, SETTINGS).get("collect_timeout_s")
+    timeout = checker_settings(config, SETTINGS).get("collect_timeout_s")
     with tempfile.TemporaryDirectory(prefix="guardrails-collect-") as scratch:
         listing = Path(scratch) / "ids.json"
         command = collect_command(locations, spec["selector"], listing)

@@ -16,18 +16,18 @@ from guardrails.commands.init import (
     commands_draft,
     discovery,
     lsp,
-    native_config,
     native_languages,
+    native_python,
     sections_draft,
 )
-from guardrails.context.config.repo_config import (
+from guardrails.context.config.section_schema import ConfigValueError
+from guardrails.context.config.validator import (
     ConfigError,
     load_config,
     main_checkout,
 )
-from guardrails.context.config.section_schema import ConfigValueError
 from guardrails.foundation.findings import Finding, config_label
-from guardrails.toolkit.dispatch import SUBCOMMANDS
+from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 USAGE_RULE = "CONFIG.complete"
 
@@ -116,7 +116,7 @@ def native_proposals(repo: Path, structure: object) -> list[str]:
     """Native tool configs the repo lacks, printed for the agent to apply as a fix."""
     planned, report = native_languages.planned_configs(repo)
     if (repo / "pyproject.toml").is_file():
-        python, lines = native_config.planned_configs(repo, {"structure": structure})
+        python, lines = native_python.planned_configs(repo, {"structure": structure})
         planned.update(python)
         report = lines + report
     for name, text in planned.items():

@@ -404,7 +404,7 @@ class CliTests(unittest.TestCase):
                 assert "src/shop/utils.py: PYQ104:" in out.getvalue()
 
 
-HYGIENE_PROFILE = {"tests": {"layout": {"test_file_patterns": ["test_*.py"]}}}
+TIMEOUTS_PROFILE = {"tests": {"layout": {"test_file_patterns": ["test_*.py"]}}}
 
 
 class SubprocessTimeoutTests(unittest.TestCase):
@@ -420,7 +420,7 @@ class SubprocessTimeoutTests(unittest.TestCase):
         return path
 
     def check(
-        self, files: dict[str, str], profile: dict[str, Any] = HYGIENE_PROFILE
+        self, files: dict[str, str], profile: dict[str, Any] = TIMEOUTS_PROFILE
     ) -> list[Any]:
         return subprocess_timeouts.run(self.repo(files), profile, [])
 
@@ -474,8 +474,8 @@ class SubprocessTimeoutTests(unittest.TestCase):
         path = self.repo({
             "tests/unit/test_proc.py": "import subprocess\nsubprocess.call(['x'])\n"
         })
-        write_config(path, config(**HYGIENE_PROFILE))
-        argv = ["python-test-hygiene", "--repo", str(path)]
+        write_config(path, config(**TIMEOUTS_PROFILE))
+        argv = ["python-subprocess-timeouts", "--repo", str(path)]
         with contextlib.redirect_stdout(io.StringIO()) as out:
             assert cli.main(argv) == 1
         assert (
@@ -512,7 +512,12 @@ class StandaloneExclusionTests(unittest.TestCase):
         (path / "tests/unit/test_proc.py").write_text(
             "import subprocess\n\n\ndef test_sync():\n    subprocess.check_output(['true'])\n"
         )
-        assert self.exit_codes("python-test-hygiene", path, HYGIENE_PROFILE) == [1, 0]
+        assert self.exit_codes(
+            "python-subprocess-timeouts", path, TIMEOUTS_PROFILE
+        ) == [
+            1,
+            0,
+        ]
 
 
 def test_engine_modules_stay_within_the_default_fanout_limit() -> None:

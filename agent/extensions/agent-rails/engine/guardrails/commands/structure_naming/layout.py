@@ -9,13 +9,13 @@ from guardrails.commands.structure_naming.import_direction import native_finding
 from guardrails.commands.structure_naming.import_graph import import_graph_findings
 from guardrails.context import scope
 from guardrails.context.config.house_style import apply_exceptions
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
     matches,
     matches_any,
-    settings,
 )
 
 PLACEMENT = "STRUCT.folder-placement"
@@ -236,7 +236,7 @@ def skipped(path: str, options: dict[str, Any]) -> bool:
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
-    options = settings(config, "layout")
+    options = checker_settings(config, "layout")
     try:
         selected = scope.select(repo, argv)
         paths = [path for path in selected.paths if not skipped(path, options)]

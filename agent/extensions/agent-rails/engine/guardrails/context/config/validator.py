@@ -12,10 +12,10 @@ from pathlib import Path
 from typing import Any, cast
 
 from guardrails.context.config import section_schema
+from guardrails.context.config.reader import config_section
 from guardrails.foundation.child_env import clean_environment
 from guardrails.foundation.decision_store import shadow_capable
 from guardrails.foundation.findings import catalogue_rules
-from guardrails.foundation.inventory import config_section
 from guardrails.host.process import run_text
 
 CONFIG_DIR = ".agentrails"
@@ -70,7 +70,7 @@ CHECK_STEPS = (
     "python-scalability",
     "surface-lint",
     "adapter lint",
-    "python-test-hygiene",
+    "python-subprocess-timeouts",
 )
 CODE_RULE_KINDS = frozenset({"tool", "bespoke"})
 TEST_KEYS = (

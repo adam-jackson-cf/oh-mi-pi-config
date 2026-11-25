@@ -57,7 +57,7 @@ RULE_FACTS = {
         ("test-only flags", "environment variables", "production inputs"),
     ),
     "TEST.subprocess-timeouts": (
-        ("python-test-hygiene",),
+        ("python-subprocess-timeouts",),
         (
             "synchronous subprocess",
             "communicate",

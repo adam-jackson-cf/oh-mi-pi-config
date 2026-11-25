@@ -6,9 +6,9 @@ import math
 from pathlib import Path
 from typing import Any
 
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import settings
-from guardrails.toolkit.test_report.junit import (
+from guardrails.test_report.junit import (
     GUARDS_PROPERTY,
     TIER_PROPERTY,
     Dialect,
@@ -83,7 +83,7 @@ def guard_evidence(
 
 def collect_timeout(config: dict[str, Any], section: str) -> float:
     """checkers.<section>.collect_timeout_s: seconds a tier collection may take, 120 by default."""
-    timeout = settings(config, section).get("collect_timeout_s", 120)
+    timeout = checker_settings(config, section).get("collect_timeout_s", 120)
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))

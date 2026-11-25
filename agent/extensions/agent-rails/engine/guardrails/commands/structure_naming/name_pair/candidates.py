@@ -19,9 +19,10 @@ from guardrails.commands.structure_naming.scan_scope import (
 )
 from guardrails.context.changes import DiffError, changed_paths, git, read_blobs
 from guardrails.context.config.house_style import apply_exceptions
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches_any, settings
-from guardrails.toolkit.dispatch import SUBCOMMANDS
+from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.name-pairs"
 EXCEPTION_RULE = "structure-naming/same_thing"
@@ -246,8 +247,8 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
     args = parser.parse_args(argv)
-    excluded = as_list(settings(config, "check").get("exclude")) + as_list(
-        settings(config, "python").get("excluded_paths")
+    excluded = as_list(checker_settings(config, "check").get("exclude")) + as_list(
+        checker_settings(config, "python").get("excluded_paths")
     )
     try:
         tree = head_tree(repo, args.head, excluded)

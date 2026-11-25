@@ -10,12 +10,13 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.catalogue.versions import (
+from guardrails.commands.toolchain.versions import (
     Requirement,
     VersionError,
     canonical_name,
     parse_requirement,
 )
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
@@ -23,7 +24,6 @@ from guardrails.foundation.inventory import (
     as_list,
     matches_any,
     repo_paths,
-    settings,
 )
 from guardrails.host.process import run_text
 
@@ -602,7 +602,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 "run it without arguments; it reads the config's toolchain_parity settings",
             )
         ]
-    options = settings(config, "toolchain_parity")
+    options = checker_settings(config, "toolchain_parity")
     configured = ("python_pins", "uv", "prettier", "node_pins", "package_manager", "go")
     if not any(options.get(key) for key in configured):
         return [

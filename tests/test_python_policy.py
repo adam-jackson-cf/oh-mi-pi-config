@@ -12,15 +12,15 @@ sys.path.insert(
 
 import pytest
 
+from guardrails.checker.python_rules import settings
 from guardrails.commands.python_policy import quality
-from guardrails.toolkit.python_rules import scope
 
 pytestmark = pytest.mark.fast
 
 
 class FailClosedDefaultTests(unittest.TestCase):
     def test_unset_class_limits_use_the_catalogue_contract(self) -> None:
-        assert quality.class_limits(scope.load_settings({})) == {
+        assert quality.class_limits(settings.load_settings({})) == {
             "max_lines": 700,
             "max_public_methods": None,
             "max_init_args": 8,

@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.context.config.house_style import load_house_style
-from guardrails.context.config.repo_config import validate_section
 from guardrails.context.config.section_schema import PLACEHOLDER, ConfigValueError
+from guardrails.context.config.validator import validate_section
 
 SETUP_SECTIONS = ("commands", "checkers", "structure", "houseStyle", "tests")
 TEMPLATE = "config-template.json"

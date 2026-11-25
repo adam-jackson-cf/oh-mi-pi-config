@@ -22,9 +22,9 @@ import pytest
 from test_agentrails_fixture import approval, config, write_config
 
 from guardrails.commands import cli
-from guardrails.commands.test_evidence import budgets, mutation, propagation
+from guardrails.commands.test_evidence import budgets, collection, mutation, propagation
 from guardrails.host.process import run_text
-from guardrails.toolkit.test_report import collection, junit
+from guardrails.test_report import junit
 
 pytestmark = pytest.mark.fast
 

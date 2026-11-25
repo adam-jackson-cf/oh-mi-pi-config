@@ -33,14 +33,15 @@ from guardrails.commands.adapters.go.toolchain import (
     SETTINGS,
     ToolchainError,
     command,
+    options,
     package_patterns,
     selector_arguments,
 )
 from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.foundation.child_env import clean_environment, repo_environment
-from guardrails.foundation.inventory import as_list, settings
+from guardrails.foundation.inventory import as_list
 from guardrails.host.process import run_text
-from guardrails.toolkit.test_report.junit import (
+from guardrails.test_report.junit import (
     EXIT_CODE_PROPERTY,
     GUARDS_PROPERTY,
     REVISION_PROPERTY,
@@ -59,7 +60,7 @@ XDG_FOLDERS = {
 
 
 def run_timeout(config: dict[str, Any]) -> float:
-    timeout = settings(config, SETTINGS).get("run_timeout_s", 1800)
+    timeout = options(config).get("run_timeout_s", 1800)
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))

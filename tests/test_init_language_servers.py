@@ -77,8 +77,10 @@ class CanaryTests(InitCase):
     def test_canary_uses_a_canary_module_when_the_repo_has_no_source(self) -> None:
         code, output = self.init()
         assert code == 0, output
-        assert "canary ok: references in a canary module omp_lsp_canary" in output
-        assert not list(self.repo.glob("omp_lsp_*"))
+        assert (
+            "canary ok: references in a canary module agent_rails_lsp_canary" in output
+        )
+        assert not list(self.repo.glob("agent_rails_lsp_*"))
 
     def test_server_that_exits_fails_even_when_missing_servers_are_allowed(
         self,

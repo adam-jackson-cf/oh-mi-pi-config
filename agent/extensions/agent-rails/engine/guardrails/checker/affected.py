@@ -17,16 +17,15 @@ from guardrails.context.changes import (
     range_finding,
 )
 from guardrails.context.config import adapter_declarations
+from guardrails.context.config.reader import config_section, structure_settings
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
-    config_section,
     matches,
     matches_any,
     repo_paths,
-    structure_settings,
 )
 
 RULE = "TEST.tier-selectors"

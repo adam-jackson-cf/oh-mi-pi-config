@@ -4,11 +4,7 @@ from collections.abc import Set
 from fnmatch import fnmatchcase
 from pathlib import Path, PurePosixPath
 
-from guardrails.context.config import house_style
-from guardrails.foundation import conventions
-from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import GLOB_CHARACTERS, as_list
-from guardrails.toolkit.python_rules.scope import (
+from guardrails.checker.python_rules.settings import (
     PythonSettings,
     finding,
     in_roots,
@@ -16,6 +12,10 @@ from guardrails.toolkit.python_rules.scope import (
     root_depth,
     segments,
 )
+from guardrails.context.config import house_style
+from guardrails.foundation import conventions
+from guardrails.foundation.findings import Finding
+from guardrails.foundation.inventory import GLOB_CHARACTERS, as_list
 
 
 def is_label(prefix: str, config: PythonSettings) -> bool:

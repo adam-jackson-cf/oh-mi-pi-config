@@ -7,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.context.config.house_style import apply_exceptions
+from guardrails.context.config.reader import structure_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
@@ -14,7 +15,6 @@ from guardrails.foundation.inventory import (
     matches,
     matches_any,
     repo_paths,
-    structure_settings,
 )
 
 TIER = "STRUCT.tier-readership"

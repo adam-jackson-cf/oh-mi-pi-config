@@ -5,14 +5,11 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.context.config.adapter_declarations import tier_locations
+from guardrails.context.config.reader import config_section, structure_settings
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import (
-    config_section,
-    matches_any,
-    structure_settings,
-)
+from guardrails.foundation.inventory import matches_any
 
 UNPLACED_FUNCTIONS = (
     "test functions live outside every tier location",

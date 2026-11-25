@@ -9,7 +9,7 @@ from typing import Any
 
 from guardrails.commands.adapters.go.syntax import SOURCE_SUFFIX
 from guardrails.commands.adapters.go.toolchain import ToolchainError
-from guardrails.foundation.inventory import tests_settings
+from guardrails.context.config.reader import tests_settings
 
 MODULE_LINE = re.compile(r"^module\s+(\S+)", re.M)
 
