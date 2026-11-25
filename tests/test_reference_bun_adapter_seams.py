@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import io
-import json
 import shutil
 import sys
 import tempfile
@@ -12,11 +11,12 @@ from pathlib import Path
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 
 import pytest
+from test_agentrails_fixture import config, write_config
 from test_reference_bun_adapter import PROFILE
 
 from guardrails.commands import cli
@@ -163,13 +163,10 @@ class BunRunTests(unittest.TestCase):
                 "describe('cart'",
             )
             repo = bun_repository(Path(scratch), {"tests/cart.test.ts": source})
-            record = Path(scratch, "record")
-            record.mkdir()
-            (record / "profile.md").write_text(
-                f"---\n{json.dumps(PROFILE)}\n---\n", encoding="utf-8"
-            )
+            run_text(["git", "init", "-q", str(repo)], check=True, timeout=60)
+            write_config(repo, config(**PROFILE))
             out_dir = Path(scratch, "collections")
-            location = ["--repo", str(repo), "--record", str(record)]
+            location = ["--repo", str(repo)]
             with (
                 contextlib.redirect_stdout(io.StringIO()),
                 contextlib.redirect_stderr(io.StringIO()),

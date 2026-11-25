@@ -10,7 +10,7 @@ import pytest
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-JUDGMENT = ROOT / "agent/extensions/dynaflows/judgments/in-scope"
+JUDGMENT = ROOT / "agent/extensions/agent-rails/judgments/in-scope"
 RULES = {"Y1": 1, "Y2": 1, "Y3": 1, "N1": 0, "N2": 0, "N3": 0, "N4": 0}
 SECRET = re.compile(
     r"sk-[A-Za-z0-9_-]{10,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|xox[abp]-|AKIA[0-9A-Z]{16}"

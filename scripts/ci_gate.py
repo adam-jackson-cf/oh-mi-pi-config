@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Run allowlisted exact-revision CI gates in rootless Podman on the NUC.
 
-The gate policy (checks.ci and ci.requiredContext) comes from the repo's personal per-repo record,
-<harness root>/repos/<owner>/<name>/gate.json beside this checkout, never from the repo tree.
-The device rollout copies records to every device.
+The gate policy comes from the repo's agent-rails config, never from the checked-out tree: a
+NUC-local copy at <XDG_DATA_HOME or ~/.local/share>/ci-gate/configs/<owner>/<name>/config.json.
+The engine's repo_config validates it. Only a config with ci.enabled true and ci.runner "ci-gate"
+runs here: commands.ci is the offline gate, ci.requiredContext the status context, and
+commands.audit runs online after the devcontainer setup when gates.audit is true.
+
+`ci_gate.py config-import <file>` installs a config made by `/agentrails export`: it validates
+the file, checks its repo.slug is allowlisted in ci-gate-repos.json and writes it atomically.
 """
 
 import argparse
@@ -28,20 +33,20 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import FrameType
-from typing import IO, Any, NoReturn, TextIO
+from typing import IO, Any, NoReturn, TextIO, cast
 
-# The harness's record resolver, located from this file.
+# The agent-rails engine's config validator, located from this file.
 sys.path.insert(
     0,
     str(
         Path(__file__).resolve().parents[1]
         / "agent"
         / "extensions"
-        / "dynaflows"
-        / "lib"
+        / "agent-rails"
+        / "engine"
     ),
 )
-import repo_record
+from guardrails.context.config import repo_config
 
 SELF = Path(__file__).resolve()
 
@@ -96,49 +101,94 @@ def load(path: Path) -> Any:
     return json.loads(path.read_text())
 
 
-def record_gate(repo: str) -> dict[str, Any]:
-    """Return the gate.json object of the allowlisted repo's per-repo record, validated strictly."""
-    record = repo_record.record_dir(repo, SELF.parents[1])
-    if not (record / repo_record.GATE_FILE).is_file():
+def config_file(repo: str) -> Path:
+    """The NUC-local agent-rails config of an allowlisted owner/name (lowercase path)."""
+    owner, name = repo.lower().split("/")
+    return root("DATA") / "configs" / owner / name / repo_config.CONFIG_FILE
+
+
+def checked_config(config: object, slug: str, where: Path) -> dict[str, Any]:
+    """The config when repo_config accepts it for slug; else RuntimeError naming its problems."""
+    problems = repo_config.validate(config, origin=slug)
+    if problems:
         raise RuntimeError(
-            f"No per-repo record for {repo}; run scripts/device_rollout.py to copy records "
-            "to this device (no ci.requiredContext)"
+            f"Invalid agent-rails config {where}: {'; '.join(problems)}"
+            " (no ci.requiredContext)"
         )
+    return cast(dict[str, Any], config)
+
+
+def repo_settings(repo: str) -> dict[str, Any]:
+    """The allowlisted repo's agent-rails config, validated, that routes its CI to ci-gate."""
+    path = config_file(repo)
     try:
-        return repo_record.load_gate(record)
-    except repo_record.RecordError as exc:
+        config = repo_config.read_config(path)
+    except repo_config.ConfigError as error:
+        if error.kind == "missing":
+            raise RuntimeError(
+                f"No agent-rails config for {repo} at {path}; run ci_gate.py config-import "
+                "with a file made by /agentrails export (no ci.requiredContext)"
+            ) from None
         raise RuntimeError(
-            f"Invalid record gate.json for {repo}: {exc} (no ci.requiredContext)"
+            f"Invalid agent-rails config {path}: {error} (no ci.requiredContext)"
         ) from None
+    settings = checked_config(config, repo.lower(), path)
+    ci = settings["ci"]
+    if not ci["enabled"] or ci["runner"] != "ci-gate":
+        raise RuntimeError(f"config for {repo} does not route CI to ci-gate")
+    return settings
 
 
-def check_argv(policy: object, name: str) -> list[str]:
-    checks = (
-        policy.get("checks")
-        if isinstance(policy, dict) and policy.get("schemaVersion") == 2
-        else None
-    )
-    argv = checks.get(name) if isinstance(checks, dict) else None
-    if (
-        not isinstance(argv, list)
-        or not argv
-        or any(not isinstance(arg, str) or not arg.strip() for arg in argv)
-    ):
-        raise RuntimeError(f"Invalid gate.json checks.{name} argv")
+def required_context(settings: dict[str, Any]) -> str:
+    """The commit status context: ci.requiredContext."""
+    context: str = settings["ci"]["requiredContext"]
+    return context
+
+
+def gate_argv(settings: dict[str, Any]) -> list[str]:
+    """The offline gate: commands.ci, which the validator requires for the ci-gate runner."""
+    argv: list[str] = settings["commands"]["ci"]
     return argv
 
 
-def required_context(policy: object) -> str:
-    """Return the commit status context from record gate.json schema version 2: ci.requiredContext."""
-    ci = (
-        policy.get("ci")
-        if isinstance(policy, dict) and policy.get("schemaVersion") == 2
-        else None
-    )
-    context = ci.get("requiredContext") if isinstance(ci, dict) else None
-    if not isinstance(context, str) or not context.strip():
-        raise RuntimeError("Invalid gate.json ci.requiredContext")
-    return context
+def audit_argv(settings: dict[str, Any]) -> list[str] | None:
+    """commands.audit when gates.audit is on, else None (the validator ties the two)."""
+    if not settings["gates"]["audit"]:
+        return None
+    argv: list[str] = settings["commands"]["audit"]
+    return argv
+
+
+def config_import(source: Path) -> int:
+    """Validate an exported config, check its slug is allowlisted and install it atomically."""
+    try:
+        config = repo_config.read_config(source)
+    except repo_config.ConfigError as error:
+        raise RuntimeError(f"Cannot import {source}: {error}") from None
+    repo = config.get("repo") if isinstance(config, dict) else None
+    slug = repo.get("slug") if isinstance(repo, dict) else None
+    if not isinstance(slug, str) or slug not in {
+        name.lower() for name in repositories()
+    }:
+        raise RuntimeError(
+            f"Cannot import {source}: repo.slug {slug!r} is not allowlisted in ci-gate-repos.json"
+        )
+    checked_config(config, slug, source)
+    target = config_file(slug)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    handle, temporary = tempfile.mkstemp(dir=target.parent, prefix=".config.")
+    try:
+        with os.fdopen(handle, "w") as stream:
+            json.dump(config, stream, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+    print(f"Imported the agent-rails config for {slug} to {target}")
+    return 0
 
 
 @contextmanager
@@ -210,7 +260,8 @@ def publish(job: Path, state: str, description: str) -> None:
         raise RuntimeError(f"Missing GitHub token environment variable: {name}")
     if not metadata.get("context"):
         raise RuntimeError(
-            "No ci.requiredContext recorded for this job; check the repo's record gate.json"
+            "No ci.requiredContext recorded for this job; check the repo's agent-rails config "
+            "(ci_gate.py config-import)"
         )
     body = json.dumps({
         "context": metadata["context"],
@@ -357,7 +408,7 @@ def checkout(job: Path, repo: str, sha: str, log: TextIO) -> None:
         git + ["-C", str(job / "src"), "checkout", "--detach", sha], log, check=True
     )
     try:
-        context = required_context(record_gate(repo))
+        context = required_context(repo_settings(repo))
         save(job / "job.json", {"repo": repo, "sha": sha, "context": context})
     except (OSError, RuntimeError) as error:
         # run() records the same failure as an error result.
@@ -365,7 +416,7 @@ def checkout(job: Path, repo: str, sha: str, log: TextIO) -> None:
             (
                 str(error)
                 if isinstance(error, RuntimeError)
-                else "Unreadable record gate.json"
+                else "Unreadable agent-rails config"
             )
             + "\n"
         )
@@ -655,11 +706,13 @@ def remove_older_images(podman: str, image: str, log: TextIO) -> None:
             raise RuntimeError("Older image removal failed")
 
 
-def bootstrap_command(post: str, audit: list[str]) -> str:
+def bootstrap_command(post: str, audit: list[str] | None) -> str:
+    """The online phase: the devcontainer setup, then the dependency audit when one is set."""
     return ((post + "\n") if post else "") + (
         "bootstrap_status=$?\n"
         'if (( bootstrap_status )); then exit "$bootstrap_status"; fi\n'
-        ": > /ci-gate-state/bootstrapped && exec " + shlex.join(audit)
+        ": > /ci-gate-state/bootstrapped"
+        + (" && exec " + shlex.join(audit) if audit is not None else "")
     )
 
 
@@ -707,13 +760,13 @@ def user_mapping(podman: str, image: str, log: TextIO) -> list[str]:
 
 
 def run_gate(attempt: Attempt, podman: str, container: str, log: TextIO) -> None:
-    """Resolve the record's gate, prepare the image and run the gate, recording each step on ``attempt``."""
+    """Resolve the repo's config, prepare the image and run the gate, recording each step on ``attempt``."""
     src = attempt.job / "src"
-    policy = record_gate(attempt.metadata["repo"])
-    attempt.metadata = {**attempt.metadata, "context": required_context(policy)}
+    settings = repo_settings(attempt.metadata["repo"])
+    attempt.metadata = {**attempt.metadata, "context": required_context(settings)}
     save(attempt.job / "job.json", attempt.metadata)
-    audit = check_argv(policy, "audit")
-    gate = check_argv(policy, "ci")
+    audit = audit_argv(settings)
+    gate = gate_argv(settings)
     config = load(checkout_file(src, ".devcontainer/devcontainer.json"))
     post = post_create(config)
     with lock(repo_lock(attempt.metadata["repo"])):
@@ -843,6 +896,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("job", type=Path)
     command.add_argument("state")
     command.add_argument("description")
+    commands.add_parser("config-import").add_argument("file", type=Path)
     return parser
 
 
@@ -884,6 +938,8 @@ def main() -> int:
         return submit(args.repo, args.sha)
     if args.command == "run":
         return run(args.job)
+    if args.command == "config-import":
+        return config_import(args.file)
     if args.command == "fetch":
         fetch(args.job)
     elif args.command == "publish":

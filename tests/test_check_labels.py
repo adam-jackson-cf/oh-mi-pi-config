@@ -10,7 +10,7 @@ pytestmark = pytest.mark.fast
 
 MODULE = (
     Path(__file__).resolve().parents[1]
-    / "agent/skills/jev-actions/scripts/check_labels.py"
+    / "agent/extensions/agent-rails/skills/jev-actions/scripts/check_labels.py"
 )
 spec = importlib.util.spec_from_file_location("check_labels", MODULE)
 assert spec is not None

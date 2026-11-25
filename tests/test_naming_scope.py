@@ -13,10 +13,11 @@ from typing import Any
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
+from test_agentrails_fixture import config, write_config
 
 from guardrails.commands.structure import layout
 from guardrails.foundation.findings import Finding
@@ -47,10 +48,10 @@ class NamingScopeCase(unittest.TestCase):
         self.git("config", "user.email", "scope@example.invalid")
         self.git("config", "user.name", "Scope outcomes")
         self.profile: dict[str, Any] = {
-            "structure": {"owners": {"patterns": {"**": "catalogue"}}},
-            "guardrails": {
+            "checkers": {
                 "structure": {"root_directories": ["catalogue"], "root_files": []}
             },
+            "structure": {"owners": {"patterns": {"**": "catalogue"}}},
         }
         self.write("legacyUtils/misc.py")
         self.write("catalogue/reader.py")
@@ -199,7 +200,7 @@ class ChangedPathScopeTests(NamingScopeCase):
         for checker in ("naming", "structure", "path-check"):
             with self.subTest(checker=checker):
                 selected, findings = whole_repo.configured_steps({
-                    "guardrails": {"check": {"run": [checker]}}
+                    "checkers": {"check": {"run": [checker]}}
                 })
                 assert selected == []
                 assert any(f.rule_id == "PROFILE.complete" for f in findings)
@@ -227,7 +228,7 @@ class StructureScopeTests(NamingScopeCase):
                 assert not any(f.rule_id == "TEST.placement" for f in found), found
 
     def test_staged_structure_reads_index_contents_not_worktree_contents(self) -> None:
-        self.profile["guardrails"]["structure"]["forbidden_imports"] = [
+        self.profile["checkers"]["structure"]["forbidden_imports"] = [
             {"root": "catalogue", "modules": ["requests"]},
         ]
         self.write("catalogue/network.py", "import requests\n")
@@ -243,7 +244,7 @@ class StructureScopeTests(NamingScopeCase):
     def test_new_instance_requires_marker_but_existing_instance_is_not_rejudged(
         self,
     ) -> None:
-        self.profile["guardrails"]["structure"]["instances"] = [
+        self.profile["checkers"]["structure"]["instances"] = [
             {"root": "catalogue", "depth": 1, "marker": "manifest.json"},
         ]
         self.write("catalogue/archive/reader.py")
@@ -321,31 +322,22 @@ class ProveScopeTests(NamingScopeCase):
 
     def test_prove_blocks_new_bad_name_but_not_legacy_names_or_placement(self) -> None:
         harness = self.root / "harness"
-        engine = harness / "agent/extensions/dynaflows/engine"
+        engine = harness / "agent/extensions/agent-rails/engine"
         engine.mkdir(parents=True)
-        source_engine = ROOT / "agent/extensions/dynaflows/engine"
+        source_engine = ROOT / "agent/extensions/agent-rails/engine"
         shutil.copyfile(source_engine / "workflows.py", engine / "workflows.py")
         (engine / "guardrails").symlink_to(
             source_engine / "guardrails", target_is_directory=True
         )
-        library = harness / "agent/extensions/dynaflows/lib"
-        library.mkdir(parents=True)
-        shutil.copyfile(
-            ROOT / "agent/extensions/dynaflows/lib/repo_record.py",
-            library / "repo_record.py",
-        )
-        record = harness / "repos/scope/catalogue"
-        record.mkdir(parents=True)
-        (record / "gate.json").write_text(
-            json.dumps({
-                "schemaVersion": 2,
-                "checks": {"commit": ["true"]},
-            })
-        )
-        (record / "profile.md").write_text(
-            "---\n" + json.dumps(self.profile) + "\n---\n"
-        )
         self.git("remote", "add", "origin", "https://github.com/scope/catalogue.git")
+        write_config(
+            self.repo,
+            config(
+                **self.profile,
+                commands={"commit": ["true"]},
+                ci={"enabled": False},
+            ),
+        )
         manifest = self.root / "manifest.json"
         frozen = json.dumps({
             "schemaVersion": 1,
@@ -437,7 +429,7 @@ class ProveScopeTests(NamingScopeCase):
     def test_configured_python_path_rules_apply_at_edit_commit_and_pr_events(
         self,
     ) -> None:
-        self.profile["guardrails"]["python"] = {
+        self.profile["checkers"]["python"] = {
             "maintained_roots": ["catalogue", "legacyUtils"]
         }
         self.write("legacyUtils/writer.py")
@@ -463,7 +455,7 @@ class ProveScopeTests(NamingScopeCase):
     def test_path_check_reuses_python_path_rules_without_content_quality(self) -> None:
         from guardrails.commands.python_policy import quality
 
-        self.profile["guardrails"]["python"] = {
+        self.profile["checkers"]["python"] = {
             "maintained_roots": ["catalogue"],
             "class_limits": {"max_lines": 1},
         }
@@ -477,7 +469,7 @@ class ProveScopeTests(NamingScopeCase):
         assert any(f.rule_id == "PYQ200" for f in content)
 
     def test_non_python_skill_names_follow_the_same_new_segment_scope(self) -> None:
-        self.profile["guardrails"]["python"] = {
+        self.profile["checkers"]["python"] = {
             "maintained_roots": ["catalogue"],
             "skill_roots": ["skills"],
         }

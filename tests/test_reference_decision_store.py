@@ -202,7 +202,7 @@ class StoreCase(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory()
         self.addCleanup(scratch.cleanup)
         self.dir = Path(scratch.name)
-        self.store = self.dir / "agent/dynaflows/dynaflows.db"
+        self.store = self.dir / "agent/agent-rails/agent-rails.db"
         self.judgments = self.dir / "judgments"
         (self.judgments / "demo").mkdir(parents=True)
         (self.judgments / "demo/thresholds.json").write_text("{}")
@@ -236,16 +236,22 @@ class DecisionStoreTests(StoreCase):
             assert (
                 connection.execute("PRAGMA user_version").fetchone()[0]
                 == decision_store.schema_version()
-                == 1
+                == 2
             )
-        with decision_store.opened(self.store) as connection:
-            connection.execute("PRAGMA user_version = 2")
-        for opener in (decision_store.connect, decision_store.connect_read_only):
-            with (
-                self.subTest(opener=opener.__name__),
-                pytest.raises(decision_store.StoreError, match="schema version 2"),
-            ):
-                opener(self.store)
+        for version in (1, 3):
+            with closing(
+                sqlite3.connect(self.store, isolation_level=None)
+            ) as connection:
+                connection.execute(f"PRAGMA user_version = {version}")
+            for opener in (decision_store.connect, decision_store.connect_read_only):
+                with (
+                    self.subTest(opener=opener.__name__, version=version),
+                    pytest.raises(
+                        decision_store.StoreError,
+                        match=f"schema version {version}; this harness reads version 2 only",
+                    ),
+                ):
+                    opener(self.store)
 
     def test_the_leak_guard_finds_a_connection_left_open(self) -> None:
         assert unclosed_connections(lambda: sqlite3.connect(":memory:")) != []
@@ -285,7 +291,7 @@ class DecisionStoreTests(StoreCase):
         with pytest.raises(
             decision_store.StoreError, match="cannot open the decision store"
         ):
-            decision_store.record_decisions([], None, blocked / "dynaflows.db")
+            decision_store.record_decisions([], None, blocked / "agent-rails.db")
 
     def test_a_decision_context_takes_only_the_known_triggers(self) -> None:
         assert (
@@ -320,7 +326,7 @@ class DecisionStoreTests(StoreCase):
 
 class CheckLogTests(StoreCase):
     def log(self, findings: list[Finding]) -> str:
-        target = cli.Target(self.dir / "repo", self.dir / "config/repos/owner/repo")
+        target = cli.Target(self.dir / "repo", {"repo": {"slug": "owner/repo"}})
         err = StringIO()
         with (
             patch.dict("os.environ", {"PI_CODING_AGENT_DIR": str(self.dir / "agent")}),
@@ -746,7 +752,7 @@ class MachineTests(StoreCase):
         assert argv[:4] == ["ssh", "-o", "BatchMode=yes", "codex-omarchy-nuc"]
         assert "mode=ro" in argv[4]
         assert "serialize()" in argv[4]
-        assert "~/.omp/agent/dynaflows/dynaflows.db" in argv[4]
+        assert "~/.omp/agent/agent-rails/agent-rails.db" in argv[4]
         assert destination.read_bytes().startswith(b"SQLite format 3")
 
 

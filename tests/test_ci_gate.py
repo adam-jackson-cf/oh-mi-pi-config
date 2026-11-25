@@ -15,41 +15,43 @@ import unittest
 from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from test_agentrails_fixture import config as fixture_config
 
 from guardrails.host.process import run_text, start_logged
 
 pytestmark = pytest.mark.seam
 
-SOURCE = Path(__file__).resolve().parents[1]
-# ci_gate.py finds records beside its own checkout, so tests run a copy inside a temp harness root.
-HARNESS_FILES = (
-    "scripts/ci_gate.py",
-    "scripts/ci-gate-repos.json",
-    "agent/extensions/dynaflows/lib/repo_record.py",
-)
-HARNESS: Path
-SCRIPT: Path
+SCRIPT = Path(__file__).resolve().parents[1] / "scripts/ci_gate.py"
 PROCESS_TIMEOUT = 60
 REPO = "adam-jackson-cf/oh-mi-pi-config"
 TOKEN_ENV = "NUC_GATE_GITHUB_TOKEN_ADAM_JACKSON_CF"
-# A context other than 'gate' proves the status context comes from the record's gate.json.
+# A context other than 'gate' proves the status context comes from the config's ci.requiredContext.
 CONTEXT = "exact-head-gate"
+GATES = {
+    "commitChecks": True,
+    "pathCheck": True,
+    "prove": True,
+    "structureReview": True,
+    "audit": True,
+    "rules": {},
+}
 
 
-def setUpModule() -> None:
-    global HARNESS, SCRIPT
-    HARNESS = Path(tempfile.mkdtemp(prefix="ci-gate-harness-")).resolve()
-    for name in HARNESS_FILES:
-        (HARNESS / name).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(SOURCE / name, HARNESS / name)
-    SCRIPT = HARNESS / "scripts/ci_gate.py"
-
-
-def tearDownModule() -> None:
-    shutil.rmtree(HARNESS, ignore_errors=True)
+def settings(
+    commands: dict[str, list[str]] | None = None, **sections: Any
+) -> dict[str, Any]:
+    """A valid agent-rails config routing REPO's CI to ci-gate; `sections` replace whole sections."""
+    values: dict[str, Any] = {
+        "repo": {"slug": REPO, "defaultBranch": "main"},
+        "ci": {"enabled": True, "runner": "ci-gate", "requiredContext": CONTEXT},
+        "commands": commands or {"commit": ["true"], "audit": ["true"], "ci": ["true"]},
+        "gates": GATES,
+        **sections,
+    }
+    return fixture_config(**values)
 
 
 def mentions(call: list[str], text: str) -> bool:
@@ -136,17 +138,13 @@ class GateFixture(unittest.TestCase):
         self.git("config", "user.name", "Gate Test")
         self.git("config", "user.email", "gate@example.invalid")
         (self.source / ".devcontainer").mkdir()
-        self.record = HARNESS / "repos" / REPO
-        shutil.rmtree(self.record, ignore_errors=True)
-        self.addCleanup(shutil.rmtree, self.record, True)
-        self.write_gate(
-            self.gate(
-                checks={
-                    "commit": ["bash", "commit only.sh"],
-                    "audit": ["bash", "audit script.sh"],
-                    "ci": ["bash", "gate script.sh", "a'b"],
-                }
-            )
+        self.config = self.root / "data/ci-gate/configs" / REPO / "config.json"
+        self.write_config(
+            settings({
+                "commit": ["bash", "commit only.sh"],
+                "audit": ["bash", "audit script.sh"],
+                "ci": ["bash", "gate script.sh", "a'b"],
+            })
         )
         (self.source / ".devcontainer/devcontainer.json").write_text(
             json.dumps({
@@ -230,20 +228,10 @@ class GateFixture(unittest.TestCase):
             ["git", "-C", str(self.source), *args], timeout=PROCESS_TIMEOUT, check=True
         ).stdout.strip()
 
-    @staticmethod
-    def gate(**fields: object) -> dict[str, Any]:
-        """A complete record gate.json; `fields` replace its defaults, None removes one."""
-        gate: dict[str, Any] = {
-            "schemaVersion": 2,
-            "checks": {"commit": ["true"], "audit": ["true"], "ci": ["true"]},
-            "ci": {"requiredContext": CONTEXT, "runner": "ci-gate"},
-        }
-        gate.update(fields)
-        return {key: value for key, value in gate.items() if value is not None}
-
-    def write_gate(self, gate: dict[str, Any] | None) -> None:
-        self.record.mkdir(parents=True, exist_ok=True)
-        (self.record / "gate.json").write_text(json.dumps(gate))
+    def write_config(self, values: dict[str, Any]) -> None:
+        """Place a config where config-import installs it, bypassing the import checks."""
+        self.config.parent.mkdir(parents=True, exist_ok=True)
+        self.config.write_text(json.dumps(values))
 
     def commit(self) -> str:
         self.git("add", ".")
@@ -474,14 +462,14 @@ class CiGateTests(GateFixture):
             json.loads(self.cli("status", REPO, self.sha).stdout)["state"] == "running"
         )
 
-    def test_missing_record_is_an_error_naming_the_rollout(self) -> None:
-        shutil.rmtree(self.record)
+    def test_missing_config_is_an_error_naming_config_import(self) -> None:
+        self.config.unlink()
         self.submit()
         self.cli("run", self.job(), expected=1)
         result = json.loads(self.cli("wait", REPO, self.sha, expected=1).stdout)
         assert result["state"] == "error"
-        assert "No per-repo record for " + REPO in result["error"]
-        assert "device_rollout.py" in (self.job() / "log").read_text()
+        assert "No agent-rails config for " + REPO in result["error"]
+        assert "config-import" in (self.job() / "log").read_text()
         assert self.requests == [], "no status may go to a guessed context"
 
     def test_nonzero_gate_is_failure(self) -> None:
@@ -596,8 +584,6 @@ class CiGateTests(GateFixture):
 
     def test_infrastructure_failures_are_errors(self) -> None:
         for failure in (
-            "missing-ci",
-            "missing-audit",
             "build",
             "podman",
             "bootstrap-string",
@@ -605,23 +591,13 @@ class CiGateTests(GateFixture):
             "named-user",
         ):
             with self.subTest(failure=failure):
-                gate = self.gate(
-                    checks={
-                        "missing-ci": {"commit": ["true"], "audit": ["true"]},
-                        "missing-audit": {"commit": ["true"], "ci": ["true"]},
-                    }.get(
-                        failure,
-                        {
-                            "commit": ["true"],
-                            "audit": ["true"],
-                            "ci": ["true", failure],
-                        },
-                    )
+                self.write_config(
+                    settings({
+                        "commit": ["true"],
+                        "audit": ["true"],
+                        "ci": ["true", failure],
+                    })
                 )
-                if failure == "missing-gate":
-                    (self.record / "gate.json").unlink()
-                else:
-                    self.write_gate(gate)
                 sha = self.commit()
                 if failure.startswith("bootstrap-"):
                     post = (
@@ -651,35 +627,53 @@ class CiGateTests(GateFixture):
                 assert self.requests[-1]["body"]["context"] == CONTEXT
                 if failure.startswith("bootstrap-"):
                     assert "Container bootstrap failed" in result["error"]
-                if failure.startswith("missing-"):
-                    assert (
-                        "checks." + failure.removeprefix("missing-") in result["error"]
-                    )
                 if failure == "named-user":
                     assert result["error"] == "Container image user bun must be numeric"
                 assert list(self.job(sha).glob("execute-*")) == []
 
-    def test_gate_without_required_context_is_an_unpublished_error(self) -> None:
-        for failure in (
-            "missing-gate",
-            "missing-context",
-            "unknown-schema",
-            "unknownField",
-            "checks",
-            "ownerOnlyPaths",
-        ):
+    def test_config_without_a_ci_gate_route_is_an_unpublished_error(self) -> None:
+        github = {
+            "enabled": True,
+            "runner": "github-actions",
+            "requiredContext": "gate",
+        }
+        cases: dict[str, tuple[object, str]] = {
+            "missing-config": (None, "No agent-rails config for " + REPO),
+            "malformed-json": ("{", "is not valid JSON"),
+            "ci-disabled": (
+                settings(ci={"enabled": False}),
+                f"config for {REPO} does not route CI to ci-gate",
+            ),
+            "github-actions": (
+                settings(ci=github),
+                f"config for {REPO} does not route CI to ci-gate",
+            ),
+            "other-repo": (
+                settings(repo={"slug": "other/repo", "defaultBranch": "main"}),
+                "but the origin remote names " + repr(REPO),
+            ),
+            "missing-ci-command": (
+                settings({"commit": ["true"], "audit": ["true"]}),
+                "commands.ci: is missing",
+            ),
+            "audit-gate-without-command": (
+                settings({"commit": ["true"], "ci": ["true"]}),
+                "gates.audit: must be true exactly when commands.audit is present",
+            ),
+            "unknown-key": (
+                {**settings(), "colour": "blue"},
+                "colour",
+            ),
+            "wrong-schema": ({**settings(), "schemaVersion": 2}, "schemaVersion"),
+        }
+        for failure, (values, named) in cases.items():
             with self.subTest(failure=failure):
-                gate = {
-                    "missing-context": self.gate(ci=None),
-                    "unknown-schema": {"schemaVersion": 3},
-                    "unknownField": self.gate(unknownField=3),
-                    "ownerOnlyPaths": self.gate(ownerOnlyPaths=[]),
-                    "checks": self.gate(checks={"ci": ["true"]}),
-                }.get(failure)
-                if failure == "missing-gate":
-                    (self.record / "gate.json").unlink(missing_ok=True)
+                if values is None:
+                    self.config.unlink(missing_ok=True)
+                elif isinstance(values, str):
+                    self.config.write_text(values)
                 else:
-                    self.write_gate(gate)
+                    self.write_config(cast(dict[str, Any], values))
                 sha = self.commit()
                 before = len(self.requests)
                 self.submit(sha)
@@ -691,11 +685,8 @@ class CiGateTests(GateFixture):
                 result = json.loads(waited.stdout)
                 assert result["state"] == "error"
                 assert "ci.requiredContext" in result["publicationError"]
-                if failure in ("unknownField", "checks", "ownerOnlyPaths"):
-                    # The run's error names the field the strict record schema rejected.
-                    assert (
-                        "checks.commit" if failure == "checks" else failure
-                    ) in result["error"]
+                # The run's error names what the config check refused.
+                assert named in result["error"], result["error"]
                 assert "ci.requiredContext" in waited.stderr
                 assert len(self.requests) == before, (
                     "no status may go to a guessed context"
@@ -895,6 +886,82 @@ class CiGateTests(GateFixture):
         assert (result["state"], result["error"]) == ("error", "timeout")
         assert self.requests[-1]["body"]["state"] == "error"
         assert any(a[:2] == ["rm", "--force"] for a in self.calls("podman"))
+
+
+class AuditGateTests(GateFixture):
+    def test_gates_audit_off_runs_setup_without_the_audit(self) -> None:
+        self.write_config(
+            settings(
+                {"commit": ["true"], "ci": ["bash", "gate script.sh"]},
+                gates={**GATES, "audit": False},
+            )
+        )
+        self.env["AUDIT_EXIT"] = "3"
+        self.submit()
+        self.cli("run", self.job())
+        result = json.loads(self.cli("wait", REPO, self.sha).stdout)
+        assert (result["state"], result["context"]) == ("success", CONTEXT)
+        setup, gate = [argv for argv in self.calls("podman") if argv[0] == "run"]
+        assert "echo 'setup words'" in setup[-1]
+        assert setup[-1].endswith(": > /ci-gate-state/bootstrapped")
+        assert "audit script.sh" not in setup[-1]
+        assert "--network=none" in gate
+        assert gate[-1] == "exec bash 'gate script.sh'"
+
+
+class ConfigImportTests(GateFixture):
+    def test_import_installs_a_valid_allowlisted_config_atomically(self) -> None:
+        self.config.unlink()
+        exported = self.root / "export.json"
+        values = settings(
+            ci={"enabled": True, "runner": "ci-gate", "requiredContext": "imported"}
+        )
+        exported.write_text(json.dumps(values, indent=1))
+        imported = self.cli("config-import", exported)
+        assert str(self.config) in imported.stdout
+        assert json.loads(self.config.read_text()) == values
+        assert sorted(path.name for path in self.config.parent.iterdir()) == [
+            "config.json"
+        ], "no temporary file is left behind"
+        values["ci"]["requiredContext"] = "replaced"
+        exported.write_text(json.dumps(values))
+        self.cli("config-import", exported)
+        assert (
+            json.loads(self.config.read_text())["ci"]["requiredContext"] == "replaced"
+        )
+        self.submit()
+        self.cli("run", self.job())
+        assert [r["body"]["context"] for r in self.requests] == ["replaced"] * 2
+
+    def test_import_refuses_unlisted_invalid_and_unreadable_files(self) -> None:
+        before = self.config.read_text()
+        exported = self.root / "export.json"
+        cases: dict[str, tuple[str | None, str]] = {
+            "unlisted": (
+                json.dumps(
+                    settings(repo={"slug": "other/repo", "defaultBranch": "main"})
+                ),
+                "repo.slug 'other/repo' is not allowlisted in ci-gate-repos.json",
+            ),
+            "invalid": (
+                json.dumps(settings({"commit": ["true"], "ci": ["true"]})),
+                "gates.audit: must be true exactly when commands.audit is present",
+            ),
+            "malformed": ("{", "is not valid JSON"),
+            "missing": (None, "does not exist"),
+        }
+        for case, (text, named) in cases.items():
+            with self.subTest(case=case):
+                if text is None:
+                    exported.unlink(missing_ok=True)
+                else:
+                    exported.write_text(text)
+                refused = self.cli("config-import", exported, expected=1)
+                assert named in refused.stderr, refused.stderr
+                assert self.config.read_text() == before
+                assert sorted(p.name for p in self.config.parent.iterdir()) == [
+                    "config.json"
+                ]
 
 
 class ImageCleanupTests(GateFixture):

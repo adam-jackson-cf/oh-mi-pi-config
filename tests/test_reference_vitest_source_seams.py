@@ -13,9 +13,11 @@ from guardrails.host.process import run_text
 pytestmark = pytest.mark.seam
 
 PROFILE: dict[str, Any] = {
-    "public_entry_points": {"shop/core.ts": ["checkout"]},
-    "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
-    "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
+    "tests": {
+        "public_entry_points": {"shop/core.ts": ["checkout"]},
+        "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
+        "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
+    }
 }
 
 
@@ -38,15 +40,15 @@ class VitestInventoryTests(unittest.TestCase):
             assert [item.rule_id for item in found] == ["TEST.no-self-mocking"]
             profile = {
                 **PROFILE,
-                "guardrails": {
-                    "exceptions": [
-                        {
-                            "rule": "TEST.no-self-mocking",
-                            "path": "tests/*",
-                            "reason": "Owner-approved boundary replacement",
-                        }
-                    ]
-                },
+                "exceptions": [
+                    {
+                        "rule": "TEST.no-self-mocking",
+                        "path": "tests/*",
+                        "reason": "Owner-approved boundary replacement",
+                        "approvedBy": "example-owner",
+                        "approvedAt": "2026-11-24T09:00:00Z",
+                    }
+                ],
             }
             assert lint.lint(repo, profile, []) == []
             assert before == {path: (repo / path).read_bytes() for path in paths}
@@ -83,7 +85,10 @@ class VitestInventoryTests(unittest.TestCase):
                 destination.write_text(source)
             profile = {
                 **PROFILE,
-                "public_entry_points": {"@shop/core": {".": "./src/index.ts"}},
+                "tests": {
+                    **PROFILE.get("tests", {}),
+                    "public_entry_points": {"@shop/core": {".": "./src/index.ts"}},
+                },
             }
             found = lint.lint(repo, profile, [])
             assert sum(item.rule_id == "TEST.no-self-mocking" for item in found) == 2

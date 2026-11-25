@@ -1,0 +1,213 @@
+{
+  "version_key": "e862dc962231328aa2765f7477523d193579caa808b4ff11957f59afd696e073",
+  "question_version": "extension-impact@2",
+  "model": "typesafe/jev-1.14.0",
+  "model_reported": "typesafe/jev-1.14.0",
+  "score_space": "raw",
+  "framing": {
+    "decision": "Before relying on an agent-rails change, flag each governed repository whose config or agent interaction it reaches, so the change is reviewed or addressed for that repository first",
+    "unit_of_judgment": "one oh-mi-pi-config revision range crossed with one repository's agent-rails config (its rail sections)",
+    "action": "a flag keeps the restart review task and refuses Git writes until it is acknowledged",
+    "costs": "a miss (an impacting change relied on unreviewed) costs more than a false flag (an extra review)",
+    "wiring": "lib/session-rails.ts restart review, enforced from the start: yes keeps the review task and its Git-write gate; no stores the revision and notifies the owner; a judge failure keeps the review task"
+  },
+  "scoring": {
+    "command": "infisical run --projectId <dev project> --env dev -- bun <scorer> (omp 19.0.1 library judge)",
+    "overlay": {
+      "modelRoles": {
+        "judge": "typesafe/jev-1.14.0"
+      },
+      "retry": {
+        "fallbackChains": {
+          "judge": []
+        }
+      }
+    },
+    "batch_status": {
+      "total": 53,
+      "done": 53,
+      "failed": 0,
+      "model": "typesafe/jev-1.14.0"
+    },
+    "cost_usd": null,
+    "cost_per_100_cases_usd": "unknown: judge() reports no usage",
+    "runs": "omp 19.0.1 library judge (Settings overlay modelRoles.judge typesafe/jev-1.14.0, retry.fallbackChains.judge []; TYPESAFE_API_KEY from Infisical dev via infisical run), one judge() call per case, retries 2, concurrency 8, 2026-11-21; every answer reported model typesafe/jev-1.14.0; re-scored after the owner's T2 ruling"
+  },
+  "decisions": {
+    "impact": {
+      "version_key": "e89dd4faf9256a52dcf724810721de5c4e6a250f8155758cb8909e443b7faf5e",
+      "measured_on": {
+        "note": "every threshold, band, result and the label_set summary below were measured on this earlier question version; extension-impact@2 is not re-measured yet (see shortfalls and council_queue)",
+        "question_version": "impact@7c545a2005ae4b60778306a8e3d4055d51a6a337156b19be304940fe82918151",
+        "judgment_version_key": "11939d20114a89841c17ca37def7785fb66d98a8ebce693485f6330499471858",
+        "questions": "extension-impact@1",
+        "state": "{mode, record: {repo, gate, profile_summary}, change}",
+        "scores": "scores.csv rows carry this question_version"
+      },
+      "approach": "Gate",
+      "overlays": ["Face-value"],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "review_queue",
+      "policy_area": "harness",
+      "mode": "enforced",
+      "tuned_threshold": 0.47,
+      "threshold": 0.28,
+      "rule": "P(impact) >= threshold flags the repository for review",
+      "measured_band": {
+        "note": "measurement record only: without a fallback judge a band cannot decide",
+        "no_at_most": 0.28,
+        "yes_at_least": 0.48,
+        "between": "escalate: the owner or a reviewing agent decides",
+        "fallback": "owner or reviewing agent; not run on the cases, so cascade figures assume the fallback is right",
+        "chosen_on": "dev only: the narrowest band with no dev positive at or below no_at_most and no dev negative at or above yes_at_least",
+        "dev": {
+          "cases": 38,
+          "auto_no": 9,
+          "auto_no_positives": 0,
+          "auto_yes": 20,
+          "auto_yes_negatives": 0,
+          "escalated": 9,
+          "escalated_positives": 2,
+          "escalation_rate": 0.237
+        },
+        "test": {
+          "cases": 15,
+          "auto_no": 4,
+          "auto_no_positives": 1,
+          "auto_yes": 8,
+          "auto_yes_negatives": 0,
+          "escalated": 3,
+          "escalated_positives": 1,
+          "escalation_rate": 0.2
+        },
+        "test_misses": ["EI082"],
+        "accuracy_loss": "not agreed with the owner"
+      },
+      "minimums": {
+        "precision": 0.8,
+        "recall": 0.9,
+        "assumed": true,
+        "reason": "framing defaults; recall raised to 0.9 because a miss costs more"
+      },
+      "metric": {
+        "name": "F-beta",
+        "beta": 2
+      },
+      "label_set": {
+        "cases": 53,
+        "positives": 32,
+        "negatives": 21,
+        "dev": {
+          "cases": 38,
+          "positives": 22,
+          "units": 20
+        },
+        "test": {
+          "cases": 15,
+          "positives": 10,
+          "units": 8
+        },
+        "split": "by unit (extension commit): the 8 units with the lowest sha256(head) are test",
+        "strata": {
+          "structured": 53
+        },
+        "synthetic": 0,
+        "provenance": "agent_reviewed: innovation-council first pass (blind to scores; innovation-challenger and experiment-peer labelled independently, the council reconciled), claude as final arbiter agreeing on all 84; owner may override",
+        "rebuild": "2026-11-21: the 31 minimal-stratum cases were dropped (the rail judges structured repositories only) and each record gate was rebuilt in the current schema: dynaflows removed; the oh-mi-pi-config record holds the nuc-config mergePolicies entry the cutover adds. Labels unchanged.",
+        "owner_rulings": "2026-11-21: tie-break T2 'judge as if applied today' confirmed. EI049 carries provenance 'owner ruling 2026-11-21: T2' (label 0 unchanged, rule T2). EI050 and EI051, the minimal-mode pair T2 would turn 1 -> 0, left the set with the minimal stratum; no other case in the set turns on T2",
+        "strata_note": "'structured' is the record's mode at the 2026-11-21 snapshot; the rekeyed config has every gate on, as structured mode ran",
+        "rekey": "2026-11-25 (plan step S7a): each case's state became {config, change}: the snapshot gate.json converted to the config schema by the one-off cutover conversion (with its oh-mi-pi-config path rewrite), cut to the rail sections judged-rails.ts impactConfig sends (autonomy, ci, gates, judgments, mergePolicies, afterMerge, commands); mode and profile_summary dropped; change, provenance, split and unit unchanged. labels.jsonl rows gained question_id and question_version under the new key (the question's meaning is unchanged), blind true from the recorded council provenance except EI001 and EI004, whose arbiter saw their scores, and EI049's owner ruling moved from provenance to owner_ruling (the council's agreed label counts; an owner label never does)"
+      },
+      "results": {
+        "default_0_5": {
+          "dev_heldout": {
+            "precision": 1.0,
+            "recall": 0.818
+          },
+          "test": {
+            "precision": 1.0,
+            "recall": 0.8
+          }
+        },
+        "tuned": {
+          "dev_heldout": {
+            "precision": 0.731,
+            "recall": 0.831
+          },
+          "folds_below_minimums": "11 of 25",
+          "fold_threshold_range": [0.285, 0.475],
+          "test": {
+            "precision": 1.0,
+            "recall": 0.8
+          }
+        },
+        "test_strata": {
+          "structured": {
+            "n": 15,
+            "precision": 1.0,
+            "recall": 0.8
+          }
+        },
+        "calibration": "Not recomputed after the 2026-11-21 re-score; gates read raw scores; probabilities are not shown as confidence."
+      },
+      "tuning": "python3 -B agent/extensions/agent-rails/skills/jev-actions/scripts/tune_threshold.py scores.csv --min-precision 0.8 --min-recall 0.9 --beta 2 --repeats 5 --errors --json"
+    }
+  },
+  "error_analysis": {
+    "dev_errors_at_threshold": {
+      "false_negatives": ["EI055", "EI057"],
+      "false_positives": []
+    },
+    "test_misses": {
+      "EI082": "auto-no below the band; not re-analysed after the re-score"
+    },
+    "next_fix": "T2 is owner-confirmed and EI049 relabelled; EI055 and EI057 (a worktree-placement guard that today's mode.runs already lists) stay 1 under Y2, which T2's clarification keeps; grow the structured set before tuning again"
+  },
+  "shortfalls": [
+    "extension-impact@2 (config state, no mode) is not re-measured: the threshold 0.28 and every result are from extension-impact@1 (decisions.impact.measured_on); the rail stays enforced at 0.28, the safe side, until the council_queue run and re-score",
+    "the config state drops the profile's languages and test adapters; 9 labels decided from them await evidence review (council_queue.evidence_review)",
+    "test recall 0.8 is below the 0.9 minimum at the tuned threshold 0.47; the rail therefore notifies the owner on every no and stores the revision instead of skipping silently",
+    "the dev-chosen escalation band misses 1 of 10 test positives",
+    "minimums are assumed, not owner-confirmed",
+    "owner review covers the T2 ruling only; no per-case owner review of the other labels",
+    "the minimal stratum was dropped: about 20 dev cases per label remain; grow to 50+ per label at the next retune",
+    "band removed: no fallback judge; threshold is the former no_at_most pending retune",
+    "safe side: yes keeps the review task; retune pending"
+  ],
+  "label_guide": {
+    "labelled_version": "b38b04aab5d74a264cd52a0fc59770953f3df57a951170a5dfbd7bc5eed58352",
+    "current_version": "f535b9956b909375d75f2b7968182271b422c6787b60fe2f1c73be028dc6ff28",
+    "change": "2026-11-25 (S7a): rewritten for one mode before any relabel: inputs are config and change; Y2 lists the fixed guards; Y3 and N3 read config gates, ci and judgments instead of the mode; Y4 covers config settings and autonomy asks; Y5 lists the bundled skills (git-tool, test-guidance, setup-repo-proofs); T2 replays commits against the config converted from the 2026-11-21 record snapshot. Every label was made under labelled_version; council_queue lists the cases the rewrite affects. 2026-11-25 (S7b): T2 names the record's merge permission instead of its retired field name; wording only, no rule changed"
+  },
+  "wired": true,
+  "council_queue": {
+    "status": "pending: needs the owner's go-ahead for one council run with the Claude arbiter",
+    "guide": "label-guide.md at label_guide.current_version (one-mode wording, frozen before the relabel)",
+    "relabel": {
+      "cases": ["EI007", "EI009", "EI025", "EI049", "EI052", "EI054"],
+      "reason": "their labels cite Y5 as it read before one mode (structured-workflow and structured-mode agent roles, both gone) or, for EI049, a mode-based N3/T2 ruling; each needs a fresh blind council label under the current guide"
+    },
+    "no_blind_label": {
+      "cases": ["EI001", "EI004"],
+      "reason": "the arbiter saw their Jev scores, so their labels count as agent and the cases have no counting label"
+    },
+    "evidence_review": {
+      "cases": [
+        "EI022",
+        "EI024",
+        "EI037",
+        "EI038",
+        "EI040",
+        "EI073",
+        "EI075",
+        "EI076",
+        "EI077"
+      ],
+      "reason": "labels decided from the repository's language or test adapters in profile_summary, which the config state no longer carries; labellers confirm the label from config.commands and the change, or abstain"
+    },
+    "same_run": "structure-naming consumer_placement and technical_kind_grouping shadow-exit flags (10 labelled flags each), exported with guardrails shadow-review from the live decision store",
+    "then": "score extension-impact@2 once over every case with the registry's judge (Infisical dev secrets), write scores.csv, tune with tune_threshold.py --min-precision 0.75 held out by repository, and update this file; below 0.75 held-out precision, stop and ask the owner"
+  }
+}

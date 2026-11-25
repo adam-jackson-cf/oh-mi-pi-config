@@ -1,0 +1,360 @@
+{
+  "schemaVersion": 1,
+  "repo": {
+    "slug": "example-owner/agent-config",
+    "defaultBranch": "main"
+  },
+  "onboarding": {
+    "completedAt": "2026-11-24T09:00:00Z",
+    "questionnaireVersion": 1,
+    "skills": {
+      "setup-repo-proofs": {
+        "version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ranAt": "2026-11-24T09:00:00Z",
+        "scope": {
+          "kind": "whole"
+        }
+      },
+      "test-guidance": {
+        "version": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "ranAt": "2026-11-24T09:00:00Z",
+        "scope": {
+          "kind": "paths",
+          "paths": [
+            "tests"
+          ]
+        }
+      }
+    }
+  },
+  "autonomy": {
+    "branch": "allowed",
+    "pr": "allowed",
+    "merge": "allowed"
+  },
+  "ci": {
+    "enabled": true,
+    "runner": "ci-gate",
+    "requiredContext": "gate"
+  },
+  "gates": {
+    "commitChecks": true,
+    "pathCheck": true,
+    "prove": true,
+    "structureReview": true,
+    "audit": true,
+    "rules": {}
+  },
+  "judgments": {},
+  "mergePolicies": [
+    {
+      "base": "nuc-config",
+      "headPrefix": "agent/nuc-sync-",
+      "method": "merge",
+      "proof": false
+    }
+  ],
+  "commands": {
+    "commit": [
+      "bash",
+      "scripts/run-ci-quality-gates.sh",
+      "--tier",
+      "commit"
+    ],
+    "ci": [
+      "bash",
+      "scripts/run-ci-quality-gates.sh"
+    ],
+    "audit": [
+      "bash",
+      "scripts/audit-dependencies.sh"
+    ],
+    "format": [
+      "bash",
+      "scripts/run-ci-quality-gates.sh",
+      "--fix"
+    ]
+  },
+  "checkers": {
+    "check": {
+      "run": [
+        "python-quality",
+        "python-fanout",
+        "python-scalability",
+        "surface-lint",
+        "adapter lint",
+        "python-test-hygiene"
+      ],
+      "exclude": [
+        "tests/fixtures/**"
+      ]
+    },
+    "coverage_ratchet": {
+      "floor_keys": [
+        "fail_under",
+        "line_floor"
+      ]
+    },
+    "structure": {
+      "root_directories": [
+        "agent",
+        "scripts",
+        "tests"
+      ],
+      "root_files": [
+        "package.json",
+        "pyproject.toml"
+      ]
+    },
+    "paths": {
+      "skip": [
+        "tests/fixtures/**"
+      ]
+    },
+    "naming": {
+      "skip": [
+        "tests/fixtures/**"
+      ]
+    },
+    "python": {
+      "maintained_roots": [
+        "scripts",
+        "tests"
+      ],
+      "source_roots": [
+        "scripts",
+        "tests"
+      ]
+    },
+    "toolchain_parity": {
+      "python_pins": [
+        ".python-version"
+      ]
+    },
+    "guarded_run": {
+      "watch": [
+        ".omp",
+        ".ssh",
+        ".config"
+      ]
+    },
+    "test_evidence": {
+      "fast_tier": "t1",
+      "unselected_exempt": []
+    }
+  },
+  "structure": {
+    "owners": {
+      "files": {
+        "scripts/ci_gate.py": "ci-runner",
+        "readme.md": "repository-documentation"
+      },
+      "patterns": {
+        "agent/extensions/rails/**": "agent-rails",
+        "tests/fixtures/**": "repository-proofs"
+      }
+    },
+    "tiers": [
+      "host",
+      "foundation",
+      "context",
+      "toolkit",
+      "commands"
+    ],
+    "import_direction": {
+      "package": "guardrails",
+      "source_root": "agent/extensions/rails/engine/guardrails"
+    },
+    "ownership_areas": {
+      "map": {
+        "tests/test_workflows_seams.py": "agent-rails"
+      },
+      "affected_t2_selection": "scripts/run-ci-quality-gates.sh --tier commit selects each framework T2 by staged paths"
+    }
+  },
+  "houseStyle": {
+    "version": 1
+  },
+  "tests": {
+    "tiers": {
+      "t1": {
+        "command": "bash scripts/run-test-tier.sh t1"
+      },
+      "t2": {
+        "command": "bash scripts/run-test-tier.sh t2"
+      },
+      "t3": {
+        "none": true
+      }
+    },
+    "adapters": [
+      {
+        "name": "bun_test",
+        "tiers": {
+          "t1": {
+            "selector": "--test-name-pattern=.",
+            "location": [
+              "tests/extension.test.ts"
+            ]
+          },
+          "t2": {
+            "selector": "--test-name-pattern=.",
+            "location": [
+              "tests/extension-seams.test.ts"
+            ]
+          }
+        }
+      },
+      {
+        "name": "pytest",
+        "tiers": {
+          "t1": {
+            "selector": "fast",
+            "location": "tests"
+          },
+          "t2": {
+            "selector": "seam",
+            "location": "tests"
+          }
+        }
+      }
+    ],
+    "public_entry_points": {
+      "ledger": "ledger.cli:main"
+    },
+    "run_events": {
+      "commit": "bash scripts/run-ci-quality-gates.sh --tier commit",
+      "ci": "bash scripts/run-ci-quality-gates.sh",
+      "nightly_scheduler": {
+        "none": true
+      },
+      "nightly_branches": "No nightly run: the nightly scheduler is exempt"
+    },
+    "fast_tier_budget": {
+      "duration_report_command": "bash scripts/run-test-tier.sh t1 with junit reports, then guardrails budget-check",
+      "machines": [
+        {
+          "id": "m-a1565ce7fd61",
+          "platform": "Darwin arm64",
+          "runtime": "bun 1.4.4",
+          "wall_limit_s": 2,
+          "per_test_limit_s": 1
+        },
+        {
+          "id": "m-b411bed4a2ea",
+          "platform": "Darwin arm64",
+          "runtime": "python 3.14.10",
+          "wall_limit_s": 2,
+          "per_test_limit_s": 1
+        }
+      ]
+    },
+    "coverage": {
+      "scope": [
+        "src/ledger"
+      ],
+      "line_floor": 85,
+      "branch_floor": 75,
+      "where": "pyproject.toml"
+    },
+    "guards": {
+      "process": "tests/unit/conftest.py",
+      "network": "tests/unit/conftest.py",
+      "user_data": "guardrails guard-run"
+    },
+    "environments": {
+      "required": [
+        "postgres"
+      ],
+      "require_flag": "--require-env",
+      "readiness_probe": "make doctor"
+    },
+    "verification_surface": {
+      "none": true
+    },
+    "identity_artefacts": {
+      "agent/extensions/rails/judgments/**": "calibrated judgment data; change only through a recalibration"
+    },
+    "layout": {
+      "support_dir": "tests/support",
+      "fixtures_dir": "tests/fixtures",
+      "test_file_patterns": [
+        "test_*.py"
+      ]
+    },
+    "command_notes": {
+      "working_directory": "repository root after uv sync",
+      "interpretation": "exit 0 passes; exit 1 lists findings"
+    }
+  },
+  "exceptions": [
+    {
+      "rule": "NAME.conventions",
+      "path": "docs/adr/**",
+      "check": "child-repeats-parent",
+      "reason": "ADR file names follow the ADR numbering convention",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    }
+  ],
+  "approvals": [
+    {
+      "kind": "exemption",
+      "target": "tiers.t3",
+      "reason": "none: no T3 suites; approval: owner chat 2026-11-19 (D1)",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    },
+    {
+      "kind": "exemption",
+      "target": "run_events.nightly_scheduler",
+      "reason": "none: no nightly scheduler; approval: owner chat 2026-11-19",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    },
+    {
+      "kind": "exemption",
+      "target": "verification_surface",
+      "reason": "none: no runnable app; approval: owner chat 2026-11-19",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    },
+    {
+      "kind": "budget",
+      "target": "m-a1565ce7fd61",
+      "reason": "owner chat 2026-11-19: approved fast-tier budget 2.0 s (D5)",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    },
+    {
+      "kind": "budget",
+      "target": "m-b411bed4a2ea",
+      "reason": "owner chat 2026-11-19: approved fast-tier budget 2.0 s (D5)",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    },
+    {
+      "kind": "ratchet",
+      "target": "pyproject.toml",
+      "reason": "owner chat 2026-11-20: fixture-tree coverage exclusions approved",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    },
+    {
+      "kind": "skip",
+      "target": "tests/test_slow.py::test_container_*",
+      "reason": "needs a container runtime (owner chat 2026-11-20)",
+      "approvedBy": "example-owner",
+      "approvedAt": "2026-11-24T09:00:00Z"
+    }
+  ],
+  "afterMerge": {
+    "argv": [
+      "bash",
+      "scripts/sync.sh"
+    ],
+    "paths": [
+      "agent/**"
+    ]
+  }
+}

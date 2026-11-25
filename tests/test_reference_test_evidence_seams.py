@@ -11,7 +11,7 @@ from typing import Any
 from guardrails.host.process import run_attached, run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 
@@ -30,8 +30,8 @@ pytestmark = pytest.mark.seam
 
 def bun_profile() -> dict[str, Any]:
     base = profile()
-    base["layout"]["test_file_patterns"] = ["test_*.py", "*.test.ts"]
-    base["adapters"].append({
+    base["tests"]["layout"]["test_file_patterns"] = ["test_*.py", "*.test.ts"]
+    base["tests"]["adapters"].append({
         "name": "bun_test",
         "tiers": {"t1": {"selector": "-t unit", "location": "tests/unit"}},
     })
@@ -189,6 +189,39 @@ class CollectionTests(RepoTestCase):
         code, out, _ = self.cli("collection-check", *self.lists(**self.clean()))
         assert code == 1
         assert "tests/unit/test_orphan.py: TEST.tier-selectors" in out
+
+
+class BudgetCliTests(RepoTestCase):
+    def test_report_check_never_reads_test_timing(self) -> None:
+        self.write_profile(
+            profile(dialect={"source_suffix": ".py", "xfail_markers": ["pytest.xfail"]})
+        )
+        report = self.copy_fixture("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
+        code, out, err = self.cli(
+            "report-check", "--junit", report, "--revision", "stale"
+        )
+        assert (code, out.strip(), err) == (0, "report-check: ok", "")
+
+    def test_each_check_blocks_a_missing_report_with_its_own_rule(self) -> None:
+        self.write_profile(profile())
+        for subcommand, rule in (
+            ("report-check", "TEST.failure-propagation"),
+            ("budget-check", "TEST.budget.fast-tier-time"),
+        ):
+            with self.subTest(subcommand=subcommand):
+                code, out, _ = self.cli(subcommand, "--junit", "reports/absent.xml")
+                assert code == 1
+                assert rule in out
+                assert (
+                    "TEST.failure-propagation"
+                    if rule != "TEST.failure-propagation"
+                    else "TEST.budget"
+                ) not in out
+
+    def test_budgets_skip_reports_of_slower_tiers(self) -> None:
+        report = self.copy_fixture("pytest-clean.xml", 'value="t1"', 'value="t2"')
+        argv = ["--junit", report, "--revision", "stale"]
+        assert budgets.run(self.repo, profile(), argv) == []
 
 
 if __name__ == "__main__":

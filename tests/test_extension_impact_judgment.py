@@ -11,18 +11,37 @@ import pytest
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-JUDGMENT = ROOT / "agent/extensions/dynaflows/judgments/extension-impact"
-TUNER = ROOT / "agent/skills/jev-actions/scripts/tune_threshold.py"
+JUDGMENT = ROOT / "agent/extensions/agent-rails/judgments/extension-impact"
+TUNER = (
+    ROOT / "agent/extensions/agent-rails/skills/jev-actions/scripts/tune_threshold.py"
+)
+LABEL_CHECK = (
+    ROOT / "agent/extensions/agent-rails/skills/jev-actions/scripts/check_labels.py"
+)
+# The config sections the rails send extension-impact (judged-rails.ts IMPACT_SECTIONS).
+IMPACT_SECTIONS = {
+    "autonomy",
+    "ci",
+    "gates",
+    "judgments",
+    "mergePolicies",
+    "afterMerge",
+    "commands",
+}
 
 
-def load_tuner() -> Any:
-    spec = importlib.util.spec_from_file_location("extension_impact_tuner", TUNER)
+def load_script(name: str, path: Path) -> Any:
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None
     assert spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
+
+
+def load_tuner() -> Any:
+    return load_script("extension_impact_tuner", TUNER)
 
 
 def digest(value: object) -> str:
@@ -67,11 +86,14 @@ def test_version_keys_hash_the_questions_state_and_model() -> None:
     })
 
 
-def test_every_case_has_one_arbitrated_council_label() -> None:
+def test_every_case_has_one_arbitrated_council_label_under_the_current_key() -> None:
     cases = read_jsonl("cases.jsonl")
     labels = read_jsonl("labels.jsonl")
-    versions = thresholds()["label_guide"]
+    saved = thresholds()
+    versions = saved["label_guide"]
     guide = versions["labelled_version"]
+    key = saved["decisions"]["impact"]["version_key"]
+    unblind = set(saved["council_queue"]["no_blind_label"]["cases"])
     assert (
         versions["current_version"]
         == hashlib.sha256((JUDGMENT / "label-guide.md").read_bytes()).hexdigest()
@@ -82,19 +104,79 @@ def test_every_case_has_one_arbitrated_council_label() -> None:
     for label in labels:
         assert label["label"] in (0, 1)
         assert (label["labeller"], label["arbiter"]) == ("innovation-council", "claude")
-        assert label["provenance"] in {"agent_reviewed", "owner ruling 2026-11-21: T2"}
+        assert (label["question_id"], label["question_version"]) == ("impact", key)
+        assert label["provenance"] == "agent_reviewed"
+        assert label["blind"] is (label["case_id"] not in unblind)
         assert label["guide_version"] == guide
         assert label["rule"][:1] in ("Y", "N", "T")
+    assert {label["case_id"] for label in labels if "owner_ruling" in label} == {
+        "EI049"
+    }
 
 
-def test_cases_hold_the_declared_state_and_split_by_unit() -> None:
+def test_labels_pass_the_label_check_under_the_current_key(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    checker = load_script("extension_impact_label_check", LABEL_CHECK)
+    key = thresholds()["decisions"]["impact"]["version_key"]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "check_labels.py",
+            "--cases",
+            str(JUDGMENT / "cases.jsonl"),
+            "--labels",
+            str(JUDGMENT / "labels.jsonl"),
+            "--version-key",
+            f"impact={key}",
+            "--json",
+        ],
+    )
+    with pytest.raises(SystemExit) as exit_:
+        checker.main()
+    assert exit_.value.code == 0
+    assert json.loads(capsys.readouterr().out)["passes"] is True
+
+
+def test_council_queue_names_labelled_cases_the_one_mode_guide_affects() -> None:
+    queue = thresholds()["council_queue"]
+    labels = {label["case_id"]: label for label in read_jsonl("labels.jsonl")}
+    queued = [
+        case
+        for part in ("relabel", "no_blind_label", "evidence_review")
+        for case in queue[part]["cases"]
+    ]
+    assert len(queued) == len(set(queued))
+    assert set(queued) <= set(labels)
+    assert {
+        case for case, label in labels.items() if label["rule"] in ("Y5", "T2")
+    } == set(queue["relabel"]["cases"])
+    assert {case for case, label in labels.items() if not label["blind"]} == set(
+        queue["no_blind_label"]["cases"]
+    )
+    assert all(
+        labels[case]["rule"] in ("Y3", "N4")
+        for case in queue["evidence_review"]["cases"]
+    )
+
+
+def test_cases_hold_the_config_state_the_rails_send_and_split_by_unit() -> None:
     cases = read_jsonl("cases.jsonl")
     shape = set(questions()["state"])
+    assert shape == {"config", "change"}
     splits: dict[str, set[str]] = {}
     for case in cases:
+        config = case["state"]["config"]
         assert set(case["state"]) == shape
-        assert case["stratum"] == case["state"]["mode"]["name"] == "structured"
-        assert "dynaflows" not in case["state"]["record"]["gate"]
+        assert case["stratum"] == "structured"
+        assert case["builder"].startswith("rekey 2026-11-25")
+        assert IMPACT_SECTIONS - {"afterMerge"} <= set(config) <= IMPACT_SECTIONS
+        assert set(config["autonomy"]) == {"branch", "pr", "merge"}
+        assert set(config["autonomy"].values()) <= {"allowed", "ask"}
+        assert isinstance(config["ci"]["enabled"], bool)
+        assert all(config["gates"][gate] for gate in ("commitChecks", "prove"))
+        assert config["gates"]["audit"] == ("audit" in config["commands"])
         assert case["unit"] == case["state"]["change"]["head"][:12]
         splits.setdefault(case["unit"], set()).add(case["split"])
     assert all(len(split) == 1 for split in splits.values())
@@ -105,7 +187,9 @@ def test_scores_match_the_cases_labels_and_pinned_model() -> None:
     cases = {case["case_id"]: case for case in read_jsonl("cases.jsonl")}
     labels = {label["case_id"]: label["label"] for label in read_jsonl("labels.jsonl")}
     saved = thresholds()
-    version = "impact@" + saved["decisions"]["impact"]["version_key"]
+    measured = saved["decisions"]["impact"]["measured_on"]
+    version = measured["question_version"]
+    assert version != "impact@" + saved["decisions"]["impact"]["version_key"]
     rows = scores()
     assert sorted(row["case_id"] for row in rows) == sorted(cases)
     for row in rows:

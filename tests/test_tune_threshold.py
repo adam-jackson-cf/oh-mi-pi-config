@@ -11,7 +11,7 @@ pytestmark = pytest.mark.fast
 
 MODULE = (
     Path(__file__).resolve().parents[1]
-    / "agent/skills/jev-actions/scripts/tune_threshold.py"
+    / "agent/extensions/agent-rails/skills/jev-actions/scripts/tune_threshold.py"
 )
 spec = importlib.util.spec_from_file_location("tune_threshold", MODULE)
 assert spec is not None

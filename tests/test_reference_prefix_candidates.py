@@ -14,17 +14,18 @@ from typing import Any
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
+from test_agentrails_fixture import config, write_config
 
 from guardrails.commands.structure import prefix_candidates
 
 pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 
 class PrefixCandidateTests(unittest.TestCase):
@@ -32,18 +33,14 @@ class PrefixCandidateTests(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="omp-prefix-candidates-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name) / "repo"
-        self.record = Path(scratch.name) / "record"
         self.repo.mkdir()
-        self.record.mkdir()
         self.profile: dict[str, Any] = {
             "structure": {
                 "import_direction": {"source_root": "src/shop", "package": "shop"}
             }
         }
-        (self.record / "profile.md").write_text(
-            "---\n" + json.dumps(self.profile) + "\n---\n"
-        )
         self.git("init", "-q")
+        write_config(self.repo, config(**getattr(self, "profile", {})))
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
 
@@ -207,7 +204,7 @@ class PrefixCandidateTests(unittest.TestCase):
         ]
 
     def test_documented_non_owned_sources_are_excluded(self) -> None:
-        self.profile["guardrails"] = {"check": {"exclude": ["vendor"]}}
+        self.profile["checkers"] = {"check": {"exclude": ["vendor"]}}
         base = self.commit("Empty base")
         self.write("vendor/coverage_store.py")
         self.write("vendor/coverage_offline.py")
@@ -226,15 +223,13 @@ class PrefixCandidateTests(unittest.TestCase):
             "prefix",
         ]
 
-    def test_standalone_main_accepts_repo_record_and_range(self) -> None:
+    def test_standalone_main_accepts_repo_and_range(self) -> None:
         base = self.commit("Empty base")
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             status = prefix_candidates.main([
                 "--repo",
                 str(self.repo),
-                "--record",
-                str(self.record),
                 "--base",
                 base,
                 "--head",

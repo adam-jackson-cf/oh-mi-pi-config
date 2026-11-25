@@ -2,10 +2,6 @@
 # Add an explicit exception when taking ownership of a new file or directory.
 *
 
-# Per-repo records (repos/<owner>/<name>/) are personal and never committed: they mean nothing
-# to anyone else who takes this config. The device rollout copies them between devices.
-/repos/
-
 !.gitignore
 !readme.md
 !package.json
@@ -45,7 +41,6 @@ scripts/*
 # ci-runners.json is machine config written by device_rollout.py; it stays untracked.
 !scripts/device_rollout.py
 !scripts/device-rollout-hosts.json
-!scripts/migrate_judgment_calls.py
 
 !tools/
 tools/*
@@ -66,8 +61,6 @@ agent/*
 agent/skills/*
 !agent/skills/omp-config-optimise/
 !agent/skills/omp-config-optimise/**
-!agent/skills/jev-actions/
-!agent/skills/jev-actions/**
 
 # instruct-eval is a standalone project, not an OMP-managed skill.
 agent/skills/instruct-eval/
@@ -91,23 +84,23 @@ agent/extensions/*
 !agent/extensions/agent-autocomplete.ts
 !agent/extensions/quota-gate.ts
 !agent/extensions/extension-health.ts
-!agent/extensions/dynaflows/
-!agent/extensions/dynaflows/**
+!agent/extensions/agent-rails/
+!agent/extensions/agent-rails/**
 
 !tests/
 tests/*
+!tests/test_agentrails_fixture.py
 !tests/quota-gate.test.ts
 !tests/agent-autocomplete.test.ts
-!tests/dynaflows-guards-seams.test.ts
-!tests/dynaflows-extension-seams.test.ts
-!tests/dynaflows-agent-loop-seams.test.ts
-!tests/dynaflows-session-seams.test.ts
-!tests/dynaflows-judged-rails-seams.test.ts
-!tests/dynaflows-judgment-calls-seams.test.ts
-!tests/dynaflows-bypass-seams.test.ts
-!tests/repo-record-seams.test.ts
-!tests/dynaflows-extension.test.ts
-!tests/dynaflows-ledger-report.test.ts
+!tests/agent-rails-guards-seams.test.ts
+!tests/agent-rails-extension-seams.test.ts
+!tests/agent-rails-agent-loop-seams.test.ts
+!tests/agent-rails-session-seams.test.ts
+!tests/agent-rails-judged-rails-seams.test.ts
+!tests/agent-rails-judgment-calls-seams.test.ts
+!tests/agent-rails-bypass-seams.test.ts
+!tests/agent-rails-extension.test.ts
+!tests/agent-rails-ledger-report.test.ts
 !tests/analyse.test.ts
 !tests/extension-health.test.ts
 !tests/orca-terminal-themes.test.ts
@@ -134,9 +127,15 @@ tests/*
 tests/fixtures/*
 !tests/fixtures/reference/
 !tests/fixtures/reference/**
+!tests/fixtures/agentrails/
+!tests/fixtures/agentrails/**
 !tests/test_device_rollout.py
-!tests/test_repo_record.py
-!tests/repo-record.test.ts
+!tests/test_repo_config.py
+!tests/test_repo_config_seams.py
+!tests/repo-config.test.ts
+!tests/repo-config-seams.test.ts
+!tests/agent-rails-onboarding-seams.test.ts
+!tests/agent-rails-owner-approvals-seams.test.ts
 !tests/test_skill_references.py
 !tests/test_test_enforcement.py
 !tests/test_delivery_policy.py
@@ -146,11 +145,9 @@ tests/fixtures/*
 !tests/test_orca_install_seams.py
 !tests/test_workflows_seams.py
 !tests/test_device_rollout_seams.py
-!tests/test_repo_record_seams.py
 !tests/test_skill_references_seams.py
 !tests/test_in_scope_judgment.py
 !tests/test_judgment_*.py
-!tests/test_migrate_judgment_calls.py
 
 !.omp/
 .omp/*
@@ -179,6 +176,6 @@ orca-plugins/chat-section-style/terminal-palette
 **/.pytest_cache/
 **/.ruff_cache/
 **/*.egg-info/
-agent/extensions/dynaflows/engine/build/
+agent/extensions/agent-rails/engine/build/
 **/node_modules/
 orca-plugins/terminal-sections/terminal/

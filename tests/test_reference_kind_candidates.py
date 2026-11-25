@@ -16,15 +16,16 @@ from unittest.mock import patch
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
+from test_agentrails_fixture import config, write_config
 
 from guardrails.commands.structure import kind_candidates
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 FIXTURE = json.loads(
     (ROOT / "tests/fixtures/reference/structure/kind-candidates.json").read_text()
 )
@@ -36,7 +37,7 @@ class KindCandidateTests(unittest.TestCase):
         for case in FIXTURE["cases"]:
             with self.subTest(case=case["name"]):
                 found = kind_candidates.kind_candidates(
-                    FIXTURE["tree"], set(case["changed"]), case.get("profile", {})
+                    FIXTURE["tree"], set(case["changed"]), case.get("config", {})
                 )
                 assert [item["path"] for item in found] == case["candidates"]
 
@@ -133,6 +134,7 @@ class KindCandidatesCommandTests(unittest.TestCase):
         self.repo = Path(scratch.name) / "repo"
         self.repo.mkdir()
         self.git("init", "-q")
+        write_config(self.repo, config(**getattr(self, "profile", {})))
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         tree = FIXTURE["tree"]

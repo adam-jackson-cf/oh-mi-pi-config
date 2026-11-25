@@ -17,7 +17,7 @@ from typing import Any
 from unittest import mock
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
@@ -31,7 +31,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 # Tool rules whose values tests/test_reference_init.py NativeConfigTests and
 # LanguageNativeConfigTests check against the data init writes.
@@ -187,14 +187,14 @@ class PackagedCatalogueTests(unittest.TestCase):
                 assert isinstance(rule["summary"], str)
                 assert rule["summary"]
 
-    def test_path_check_contract_is_a_harness_subcommand_over_record_settings(
+    def test_path_check_contract_is_a_harness_subcommand_over_config_settings(
         self,
     ) -> None:
         rule = next(
             rule for rule in self.catalogue["rules"] if rule["id"] == "GATE.path-check"
         )
         contract = rule["contract"]
-        assert contract["configuration"] == "record:profile.md"
+        assert contract["configuration"] == ".agentrails/config.json#checkers"
         assert contract["harness_subcommand"] == "guardrails path-check"
         assert "required_command_field" not in contract
         assert contract["changed_paths_appended_as_arguments"]
@@ -210,8 +210,14 @@ class PackagedCatalogueTests(unittest.TestCase):
         assert "legacy parent" in rules["NAME.conventions"]["segment_scope"]
         assert "full scans" in rules["NAME.test-files"]["event_scope"]
         exceptions = rules["PROFILE.complete"]["guardrail_exceptions"]
-        assert exceptions["field"] == "guardrails.exceptions"
-        assert exceptions["required_fields"] == ["rule", "path", "reason"]
+        assert exceptions["field"] == "exceptions"
+        assert exceptions["required_fields"] == [
+            "rule",
+            "path",
+            "reason",
+            "approvedBy",
+            "approvedAt",
+        ]
         assert exceptions["optional_fields"] == ["check"]
         assert exceptions["unknown_fields_rejected"]
 

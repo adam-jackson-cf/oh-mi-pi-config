@@ -1,6 +1,7 @@
 """Check that core skill references resolve within this repository."""
 
 import re
+import tomllib
 import unittest
 from collections import defaultdict
 from collections.abc import Mapping
@@ -12,21 +13,31 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-SKILLS = ROOT / "agent/skills"
-
-PACKAGE = ROOT / "agent/extensions/dynaflows"
+PACKAGE = ROOT / "agent/extensions/agent-rails"
 
 PACKAGE_SKILLS = PACKAGE / "skills"
 
-WORKFLOW = PACKAGE_SKILLS / "structured-workflow"
+# Plain docs the refusal texts cite by path: no skill owns them.
+PACKAGE_REFERENCES = (
+    *sorted((PACKAGE / "references").glob("*.md")),
+    PACKAGE / "engine/guardrails/commands/adapters/README.md",
+)
 
 CORE_SKILLS = (
-    "structured-workflow",
     "test-guidance",
     "setup-repo-proofs",
     "jev-actions",
-    "codify-omp-workflow-corrections",
     "git-tool",
+)
+
+# Skills copied verbatim from their upstream repository. Only their frontmatter differs; the
+# quality gates and the reference width cap leave their text as upstream wrote it.
+IMPORTED_SKILLS = frozenset({"setup-repo-proofs", "test-guidance"})
+
+# The engine's own rule catalogue is the only rule authority for the rails. The imported
+# setup-repo-proofs catalogue (assets/guardrail-rules.json) is the target repository's.
+SKILL_ASSETS_READ = re.compile(
+    r"setup-repo-proofs[\"']?\s*[,/]\s*[\"']?assets", re.IGNORECASE
 )
 
 REFERENCE = re.compile(
@@ -44,7 +55,7 @@ def heading_anchors(target: Path) -> set[str]:
 
 
 def skill_directory(name: str) -> Path:
-    return SKILLS / name if name == "jev-actions" else PACKAGE_SKILLS / name
+    return PACKAGE_SKILLS / name
 
 
 def citing_sources(
@@ -67,7 +78,7 @@ def unresolved_links(source: Path) -> list[str]:
             continue
         relative, _, anchor = target.partition("#")
         linked = source.parent / relative
-        if not linked.is_file() or (
+        if not (linked.is_file() or (relative.endswith("/") and linked.is_dir())) or (
             anchor and linked.suffix == ".md" and anchor not in heading_anchors(linked)
         ):
             unresolved.append(
@@ -78,15 +89,46 @@ def unresolved_links(source: Path) -> list[str]:
 
 
 class SkillReferenceTests(unittest.TestCase):
-    def test_repository_setup_is_independent_of_the_assistant(self) -> None:
-        directory = PACKAGE_SKILLS / "setup-repo-proofs"
-        forbidden = re.compile(r"\b(?:omp|dynaflows|harness|freeze)\b", re.IGNORECASE)
-        for source in sorted(directory.rglob("*.md")):
-            with self.subTest(source=source.relative_to(ROOT)):
-                assert forbidden.search(source.read_text(encoding="utf-8")) is None
-        entry = (directory / "SKILL.md").read_text(encoding="utf-8")
-        assert "hide: true" in entry
-        assert "disable-model-invocation: true" in entry
+    def test_imported_skills_are_independent_of_the_assistant(self) -> None:
+        forbidden = re.compile(
+            r"\b(?:omp|agent-rails|agentrails|harness)\b", re.IGNORECASE
+        )
+        for name in sorted(IMPORTED_SKILLS):
+            directory = skill_directory(name)
+            for source in sorted(directory.rglob("*.md")):
+                with self.subTest(source=source.relative_to(ROOT)):
+                    assert forbidden.search(source.read_text(encoding="utf-8")) is None
+            entry = (directory / "SKILL.md").read_text(encoding="utf-8")
+            assert "hide: true" in entry
+            assert "disable-model-invocation: true" in entry
+
+    def test_rails_never_read_the_imported_setup_catalogue(self) -> None:
+        sources = [
+            PACKAGE / "index.ts",
+            *(PACKAGE / "engine").rglob("*.py"),
+            *(PACKAGE / "lib").rglob("*.ts"),
+        ]
+        readers = [
+            str(source.relative_to(ROOT))
+            for source in sorted(sources)
+            if SKILL_ASSETS_READ.search(source.read_text(encoding="utf-8"))
+        ]
+        assert readers == []
+        assert SKILL_ASSETS_READ.search('join(skills, "setup-repo-proofs", "assets")')
+        assert SKILL_ASSETS_READ.search("skills / 'setup-repo-proofs' / 'assets'")
+
+    def test_quality_gates_leave_imported_skills_verbatim(self) -> None:
+        tool = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+            "tool"
+        ]
+        gates = (ROOT / "scripts/run-ci-quality-gates.sh").read_text(encoding="utf-8")
+        for name in sorted(IMPORTED_SKILLS):
+            with self.subTest(skill=name):
+                path = skill_directory(name).relative_to(ROOT).as_posix()
+                assert path in tool["ruff"]["extend-exclude"]
+                assert f"^{path}/" in tool["mypy"]["exclude"]
+                assert f"{path}/*" in tool["coverage"]["run"]["omit"]
+                assert f"':(exclude,glob){path}/**'" in gates
 
     def test_core_skill_references_resolve_locally(self) -> None:
         sources = {
@@ -94,6 +136,7 @@ class SkillReferenceTests(unittest.TestCase):
             PACKAGE / "index.ts",
             PACKAGE / "AGENTS.md",
             PACKAGE / "engine/workflows.py",
+            *PACKAGE_REFERENCES,
             *(ROOT / "agent/agents").glob("*.md"),
             *(ROOT / "agent/rules").glob("*.md"),
             *(PACKAGE / "rules").glob("*.md"),
@@ -146,6 +189,21 @@ class SkillReferenceTests(unittest.TestCase):
         for name in CORE_SKILLS:
             for source in sorted(skill_directory(name).rglob("*.md")):
                 unresolved.extend(unresolved_links(source))
+        if unresolved:
+            self.fail("\n".join(unresolved))
+
+    def test_package_reference_links_resolve_locally(self) -> None:
+        assert {path.name for path in PACKAGE_REFERENCES} == {
+            "judgments.md",
+            "proofs-and-merge.md",
+            "structure-and-naming.md",
+            "README.md",
+        }
+        unresolved = [
+            failure
+            for source in PACKAGE_REFERENCES
+            for failure in unresolved_links(source)
+        ]
         if unresolved:
             self.fail("\n".join(unresolved))
 

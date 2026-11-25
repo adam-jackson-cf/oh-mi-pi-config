@@ -1,0 +1,224 @@
+{
+  "judgment": "structure-naming",
+  "model": "typesafe/jev-1.14.0",
+  "version_key": "2053a5cc4f7b88928bed75e3f3d7de2ee2368511bdad4b06abda4859bd343242",
+  "score_space": "raw",
+  "question_version": "structure-naming-candidates@7",
+  "model_reported": "typesafe/jev-1.14.0",
+  "scoring": {
+    "date": "2026-11-24",
+    "route": "omp eval judge_batch with modelRoles.judge typesafe/jev-1.14.0 (direct TypeSafe); per-question scoring runs are recorded in each decision's measured block",
+    "note": "same_thing scored 2026-11-23 (k3), consumer_placement 2026-11-23 (k3) and 2026-11-24 (k5 full history), technical_kind_grouping 2026-11-23 (k4) and 2026-11-24 (full history)"
+  },
+  "scores_sha256": "59fe1d32d02d5a22de9f2530209cbb6ac8e4115da013b7dc3a1a15f9eec6af81",
+  "rekey": "2026-11-25 (plan step S7a): questions.json lost the unused state.unit_state, which fed every version key. The questions are unchanged, and the registry sends the judge only the questions with states the guardrails proposers build, never the state description, so the judge input is byte-identical: labels.jsonl, scores.csv and the questions/ files moved to the new keys with their labels and scores unchanged, and scores_sha256 pins the rekeyed scores.csv",
+  "minimums": {
+    "precision": 0.75,
+    "assumed": true,
+    "reason": "jev-actions usefulness floor; technical_kind_grouping and consumer_placement run in shadow because precision cannot be measured yet"
+  },
+  "label_set": {
+    "counting": "innovation council labels per question, with the Claude arbiter's label for split votes it decided; files: cases.jsonl, labels.jsonl, scores.csv (real cases only)",
+    "questions": {
+      "technical_kind_grouping": "49 labelled real files (26 history-point, 23 full-history), 0 violations; 40 synthetic",
+      "same_thing": "160 labelled real pairs, 20 violations; 40 synthetic",
+      "consumer_placement": "30 labelled real files (15 history-point, 15 full-history), 2 violations; 40 synthetic"
+    }
+  },
+  "shortfalls": [
+    "probabilities are raw, not calibrated confidence",
+    "technical_kind_grouping and consumer_placement rest on few or no real violations; see each decision's shortfalls"
+  ],
+  "decisions": {
+    "technical_kind_grouping": {
+      "version_key": "6449411edeeb941f1dd2cdbe0d16204f85a82b349f55d51be43549747b58f079",
+      "approach": "Eval judge",
+      "overlays": [],
+      "primitive": "noul",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "log",
+      "policy_area": "structure",
+      "mode": "shadow",
+      "shadow_exit": {
+        "labelled_flags": 10
+      },
+      "threshold": 0.8,
+      "asked_as": "own_capability",
+      "score": "P(true) of the own_capability question for one code-proposed file in a technical-kind folder",
+      "state": "{file: {path, docstring, symbols}, folder, importers: up to 3 {path, import}}, built by guardrails kind-candidates",
+      "unit_rule": "one candidate file; real cases group by repository",
+      "shadow": {
+        "by": "owner",
+        "decided_on": "2026-11-24",
+        "reason": "No real violation among the 26 candidates at 4 history points nor among 44 more from full first-parent history, so precision cannot be measured. At 0.8 it flags 2 of 26 real clean files and catches 7 of 20 planted synthetic violations, with 1 of 20 planted clean cases flagged."
+      },
+      "measured": {
+        "history_points": {
+          "candidates": 26,
+          "repositories": 8,
+          "violations": 0,
+          "flagged_at_threshold": "2 of 26 clean files"
+        },
+        "full_history": {
+          "candidates": 44,
+          "labelled": 23,
+          "violations": 0,
+          "flagged_at_threshold": "3 of 23 labelled clean files"
+        },
+        "synthetic": {
+          "violations_caught": "7/20",
+          "clean_flagged": "1/20"
+        },
+        "labels": "innovation council labels (k4 for the 26 history-point and 40 synthetic files, k5 for 23 full-history files)"
+      },
+      "replaces": "the unit-level v3 technical_kind_grouping question",
+      "shortfalls": [
+        "no real violation is labelled yet, so precision is unmeasured; shadow until 10 labelled flags",
+        "probabilities are raw, not calibrated confidence"
+      ]
+    },
+    "same_thing": {
+      "version_key": "cd4f40f4f58e59575c30685ca0682acad516afb74f9323a782fb3a8c74951c31",
+      "approach": "Eval judge",
+      "overlays": [],
+      "primitive": "noul",
+      "evidence_unit": "pair",
+      "combination": "proposer_product",
+      "action": "block",
+      "policy_area": "naming",
+      "mode": "enforced",
+      "threshold": 0.051143,
+      "judgment": "one_name_per_concept",
+      "score": "det_score * mean P(true): the same_thing answer for one code-proposed name pair asked in both orders (first and second swapped), averaged, times the proposer's det_score = 0.5 * name_sim + 0.5 * body_sim",
+      "state": "{first, second}, each {name, kind, path, definition: {signature, docstring, code: first 30 lines}, uses: up to 3 one-line use sites}, built by guardrails name-pairs",
+      "unit_rule": "repository: every pair from one repository shares a unit, so cross-validation folds leave whole repositories out",
+      "precision_target": {
+        "value": 0.75,
+        "set_by": "default",
+        "reason": "jev-actions usefulness floor: a false finding blocks a PR"
+      },
+      "starting_cutoff": "0.051143, the highest-recall cutoff with in-sample precision >= 0.75 over all 160 labelled real pairs",
+      "held_out": {
+        "method": "leave-one-repository-out over 7 repositories",
+        "precision": 0.72,
+        "flags": "13/18",
+        "recall": "13/20",
+        "bootstrap_95": [0.5, 0.89]
+      },
+      "label_set": {
+        "real_pairs": 160,
+        "repositories": 7,
+        "positives": 20,
+        "synthetic_pairs": 40,
+        "synthetic_council_agrees_with_intended": "40/40",
+        "labels": "innovation council labels, with the Claude arbiter's label for the 5 real and 1 synthetic split pairs",
+        "files": "cases.jsonl, labels.jsonl, scores.csv rows with question_id same_thing"
+      },
+      "evidence": {
+        "accepted_by": "owner",
+        "accepted_on": "2026-11-23",
+        "held_out_precision": 0.72,
+        "held_out_flags": "13/18",
+        "held_out_recall": "13/20",
+        "note": "the owner accepted 0.72 held-out precision as a pass"
+      },
+      "override": {
+        "by": "owner",
+        "timestamp": "2026-11-23",
+        "reason": "held-out precision 0.72 (13/18) is below the 0.75 usefulness floor; the owner accepted it and keeps the judgment enforced"
+      },
+      "shortfalls": [
+        "held-out precision 0.72 is below the 0.75 floor (owner override)",
+        "the 95% bootstrap interval 0.50-0.89 rests on 18 held-out flags",
+        "probabilities are raw, not calibrated confidence"
+      ]
+    },
+    "consumer_placement": {
+      "version_key": "968ef7db713cf92e666b54e937c5e5fbfec3e017726cde498dfa646f7ad7d875",
+      "approach": "Eval judge",
+      "overlays": ["Place"],
+      "primitive": "choice",
+      "evidence_unit": "item",
+      "combination": "jev_only",
+      "action": "log",
+      "policy_area": "structure",
+      "mode": "shadow",
+      "option": "finished_tool",
+      "threshold": 0.8,
+      "asked_as": "kind",
+      "score": "mean P(finished_tool) of the kind Choice question for one code-proposed candidate file, asked in two option orders (criteria as listed, then reversed)",
+      "state": "{file: {path, first_60_lines, imports}, package: {name, description: first line of the top package's __init__ docstring, omitted when empty}}, built by guardrails consumer-candidates",
+      "unit_rule": "one candidate file; real cases group by repository",
+      "measured": {
+        "real": {
+          "candidates": 30,
+          "labelled": 30,
+          "repositories": 8,
+          "violations": 2,
+          "violation_scores": {
+            "K17-0002": 0.875,
+            "K19-0001": 0.57
+          },
+          "at_threshold_before_proposer_fix": "4 flags, 1 correct (K17-0002); K17-0003, K19-0009, K19-0014 clean"
+        },
+        "proposer_fix": {
+          "date": "2026-11-24",
+          "rule": "a file the repository's own non-test code names by path or module string, or a console-script entry names, is used and is not proposed",
+          "dropped": [
+            "K17-0003",
+            "K17-0007",
+            "K19-0006",
+            "K19-0007",
+            "K19-0009",
+            "K19-0010",
+            "K19-0014",
+            "K19-0015"
+          ],
+          "kept": 22,
+          "at_threshold": "1 flag, 1 correct (K17-0002); K19-0001 (0.57) still missed"
+        },
+        "synthetic": {
+          "violations_caught": "15/20",
+          "clean_flagged": "1/20"
+        },
+        "labels": "innovation council labels for 15 history-point, 15 full-history and 40 synthetic files; the Claude arbiter ruled K19-0009 and K19-0014 as 0 (k5) and one synthetic split (k3)"
+      },
+      "shortfalls": [
+        "shadow until 10 labelled flags; precision is unmeasured (2 real violations)",
+        "K19-0001 (a real violation) scores 0.57, below the cutoff",
+        "probabilities are raw, not calibrated confidence"
+      ],
+      "shadow_exit": {
+        "labelled_flags": 10
+      },
+      "shadow": {
+        "by": "owner",
+        "decided_on": "2026-11-24",
+        "reason": "At 0.8 the 30 labelled real files gave 4 flags with 1 correct before the proposer fix: too few flags to measure precision."
+      }
+    }
+  },
+  "retired": {
+    "folder_name_coverage": {
+      "by": "owner",
+      "on": "2026-11-23",
+      "reason": "Cannot find the violations that exist: 160 labelled files across 8 of the owner's repositories hold 5 real violations. The best code score catches all 5 only by flagging 45 files at its default cutoff (5 correct), and the Jev question flags 4 files with none correct and catches 4 of 20 planted synthetic violations. Neither finds the real violations without burying them.",
+      "replacement": "Guidance only: 'A name covers everything its folder holds' in structure-and-naming.md"
+    },
+    "sibling_naming_pattern": {
+      "by": "owner",
+      "on": "2026-11-23",
+      "reason": "Cannot find the violations that exist: 10 labelled cases hold 1 real violation. The Jev question flags 8 of 10 at cutoff 0.8, all wrong, misses the real one, and catches 7 of 20 planted synthetic violations.",
+      "replacement": "Guidance only: 'A new folder follows the pattern its same-role peers under one parent share' in structure-and-naming.md"
+    }
+  },
+  "replaced": {
+    "prefix_should_be_folder": {
+      "by": "owner",
+      "on": "2026-11-23",
+      "replacement": "STRUCT.prefix-folder (guardrails prefix-folder)",
+      "reason": "Deterministic code meets the target: the cluster score reached leave-one-repository-out precision 44/55 = 0.80 (recall 44/47) on 63 labelled clusters, while the Jev question alone reached 46/60 = 0.77 against 47/63 = 0.75 for flagging every cluster, so Jev added nothing; a judgment that code can meet is deterministic only."
+    }
+  }
+}

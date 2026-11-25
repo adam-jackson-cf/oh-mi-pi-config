@@ -82,10 +82,17 @@ tracked() {
   git ls-files -z -- "$@" >"$out"
 }
 
+# Imported upstream skills are third-party content copied verbatim (agent/extensions/agent-rails/CONFIG.md);
+# their own repository lints them, so no gate here formats or lints them.
+imported_skills=(
+  ':(exclude,glob)agent/extensions/agent-rails/skills/setup-repo-proofs/**'
+  ':(exclude,glob)agent/extensions/agent-rails/skills/test-guidance/**'
+)
+
 code_files=()
 tracked "$scratch/code" "*.js" "*.jsx" "*.mjs" "*.cjs" "*.ts" "*.tsx" "*.mts" "*.cts" \
   ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
-  ':(exclude,glob)tests/fixtures/**'
+  ':(exclude,glob)tests/fixtures/**' "${imported_skills[@]}"
 while IFS= read -r -d '' file; do
   if [[ ! -L "$file" ]]; then
     code_files+=("$file")
@@ -93,13 +100,13 @@ while IFS= read -r -d '' file; do
 done <"$scratch/code"
 
 markdown_files=()
-tracked "$scratch/markdown" "*.md" "*.markdown"
+tracked "$scratch/markdown" "*.md" "*.markdown" "${imported_skills[@]}"
 while IFS= read -r -d '' file; do
   markdown_files+=("$file")
 done <"$scratch/markdown"
 
 shell_files=()
-tracked "$scratch/all" . ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**'
+tracked "$scratch/all" . ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' "${imported_skills[@]}"
 while IFS= read -r -d '' file; do
   case "${file##*/}" in
     *.sh | *.bash) shell_files+=("$file") ;;
@@ -115,7 +122,7 @@ done <"$scratch/all"
 data_files=()
 tracked "$scratch/data" "*.yml" "*.yaml" "*.json" "*.jsonc" "*.css" "*.html" \
   ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
-  ':(exclude,glob)tests/fixtures/**'
+  ':(exclude,glob)tests/fixtures/**' "${imported_skills[@]}"
 while IFS= read -r -d '' file; do
   data_files+=("$file")
 done <"$scratch/data"
@@ -123,7 +130,7 @@ done <"$scratch/data"
 toml_files=()
 tracked "$scratch/toml" "*.toml" \
   ':(exclude,glob)agent/skills/omp-config-optimise/experiments/*/fixtures/**' \
-  ':(exclude,glob)tests/fixtures/**'
+  ':(exclude,glob)tests/fixtures/**' "${imported_skills[@]}"
 while IFS= read -r -d '' file; do
   toml_files+=("$file")
 done <"$scratch/toml"
@@ -153,7 +160,7 @@ if [[ -n "${toml_files[*]-}" ]]; then
   lint_files+=("${toml_files[@]}")
 fi
 # ruff --fix may rewrite any owned Python file, so --stage tracks them all.
-tracked "$scratch/python" "*.py"
+tracked "$scratch/python" "*.py" "${imported_skills[@]}"
 while IFS= read -r -d '' file; do
   lint_files+=("$file")
 done <"$scratch/python"
@@ -208,7 +215,7 @@ fi
 bunx tsc --noEmit
 # Owned Python: ruff, ruff format and mypy check the whole repository in both tiers, with the
 # tooling pyproject.toml pins and uv.lock locks (--locked fails when the lock is stale). Their
-# settings mirror the harness catalogue; only third-party code and fixture trees are excluded.
+# settings mirror the harness catalogue; only third-party code (imported skills included) and fixture trees are excluded.
 if "$fix"; then
   uv run --locked ruff check .
   uv run --locked ruff format .

@@ -15,10 +15,11 @@ from unittest.mock import patch
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
+from test_agentrails_fixture import config, write_config
 
 from guardrails.commands.structure import prefix_folder
 from guardrails.commands.structure.rename_residue import GitError
@@ -152,7 +153,7 @@ class PrefixFolderCommandTests(unittest.TestCase):
             with self.subTest(case=case["name"]):
                 repo, base, head = self.repository(case)
                 found = prefix_folder.run(
-                    repo, case.get("profile", {}), ["--base", base, "--head", head]
+                    repo, case.get("config", {}), ["--base", base, "--head", head]
                 )
                 assert sorted((item.rule_id, item.path) for item in found) == sorted(
                     tuple(row) for row in case["findings"]
@@ -178,11 +179,9 @@ class PrefixFolderCommandTests(unittest.TestCase):
         from guardrails.commands import cli
 
         repo, base, head = self.repository(FIXTURE["cases"][0])
-        record = self.scratch / "records" / "owner" / "repo"
-        record.mkdir(parents=True)
-        (record / "profile.md").write_text("---\n{}\n---\n")
+        write_config(repo, config())
         agent = self.scratch / "agent"
-        argv = ["prefix-folder", "--repo", str(repo), "--record", str(record)]
+        argv = ["prefix-folder", "--repo", str(repo)]
         argv += ["--log-decisions", "prove", "--base", base, "--head", head]
         with (
             patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(agent)}),
@@ -190,7 +189,7 @@ class PrefixFolderCommandTests(unittest.TestCase):
         ):
             assert cli.main(argv) == 1
         with contextlib.closing(
-            sqlite3.connect(agent / "dynaflows/dynaflows.db")
+            sqlite3.connect(agent / "agent-rails/agent-rails.db")
         ) as db:
             rows = db.execute(
                 "SELECT source, judgment, question, outcome, item, trigger FROM decisions"

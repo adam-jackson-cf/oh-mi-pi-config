@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import importlib.util
 import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 from guardrails.host.process import run_bytes, run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
+from test_agentrails_fixture import approval, fixture
 from test_reference_adapter_pytest import (
+    PYTEST_ONLY,
     REFERENCE,
     UNITTEST_SHOP_TEST,
     TestOnlySymbolCase,
@@ -80,10 +84,20 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
             repo = Path(scratch)
             profile = {
                 **self.PROFILE,
-                "adapters": [
-                    {"name": "pytest", "tiers": {"t1": {"location": "tests"}}}
-                ],
-                "layout": {"test_file_patterns": ["test_*.py"]},
+                "tests": {
+                    **self.PROFILE.get("tests", {}),
+                    "adapters": [
+                        {
+                            "name": "pytest",
+                            "tiers": {
+                                "t1": {"location": "tests", "selector": "fast"},
+                                "t2": {"location": "tests", "selector": "slow"},
+                                "t3": {"location": "tests", "selector": "explore"},
+                            },
+                        }
+                    ],
+                    "layout": {"test_file_patterns": ["test_*.py"]},
+                },
             }
             write_profile(repo, profile)
             for path, text in {**self.PRODUCTION, **self.TESTS}.items():
@@ -96,24 +110,32 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
         assert "production symbol 'reset_cache_for_tests' is used only by tests" in out
 
 
-SHOP_PROFILE = {
-    "adapters": [
-        {
-            "name": "pytest",
-            "tiers": {
-                "t1": {"selector": "fast", "location": "tests"},
-                "t2": {"selector": "slow", "location": "tests"},
-            },
-        }
-    ],
-    "public_entry_points": {"shop": "shop.core:Basket"},
-    "tiers": {
-        "t1": {"command": "pytest -m fast"},
-        "t2": {"command": "pytest -m slow"},
+SHOP_PROFILE: dict[str, Any] = {
+    "tests": {
+        "adapters": [
+            {
+                "name": "pytest",
+                "tiers": {
+                    "t1": {"selector": "fast", "location": "tests"},
+                    "t2": {"selector": "slow", "location": "tests"},
+                },
+            }
+        ],
+        "public_entry_points": {"shop": "shop.core:Basket"},
+        "tiers": {
+            "t1": {"command": "pytest -m fast"},
+            "t2": {"command": "pytest -m slow"},
+            "t3": {"none": True},
+        },
+        "layout": {"test_file_patterns": ["test_*.py"]},
     },
-    "layout": {"test_file_patterns": ["test_*.py"]},
-    "house_style": {"version": 1},
-    "guardrails": {"exceptions": []},
+    "checkers": {},
+    "houseStyle": {"version": 1},
+    "exceptions": [],
+    "approvals": [
+        *fixture()["approvals"],
+        approval("exemption", "tiers.t3", "no exploratory tier"),
+    ],
 }
 
 
@@ -224,7 +246,10 @@ class ExtraTests(unittest.TestCase):
             repo = shop_repository(Path(scratch), source)
             excluded = {
                 **SHOP_PROFILE,
-                "guardrails": {"check": {"exclude": ["tests/**"]}},
+                "checkers": {
+                    **SHOP_PROFILE.get("checkers", {}),
+                    "check": {"exclude": ["tests/**"]},
+                },
             }
             write_profile(repo, excluded)
             code, out = run_cli("adapter", "--repo", str(repo), "pytest", "lint")
@@ -486,6 +511,77 @@ class ModulePrices(TestCase):
     def test_price_of_one(self):
         self.assertEqual(price(1), 2)
 """
+
+
+class ConformancePrerequisiteTests(unittest.TestCase):
+    def test_conformance_without_the_extra_names_the_missing_prerequisite(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = Path(scratch)
+            write_profile(repo, {})
+            real_find_spec = importlib.util.find_spec
+
+            def without_pytest(name: str, *args: Any) -> Any:
+                return (
+                    None
+                    if name.split(".")[0] == "pytest"
+                    else real_find_spec(name, *args)
+                )
+
+            with mock.patch.object(
+                importlib.util, "find_spec", side_effect=without_pytest
+            ):
+                code, out = run_cli(
+                    "adapter", "--repo", str(repo), "pytest", "conformance"
+                )
+        assert code == 1
+        assert out.startswith(
+            "conformance: GUARDRAILS.adapter-prerequisite: the pytest extra"
+        )
+        assert "guardrails[pytest]" in out
+
+
+class StandardLibraryCliTests(unittest.TestCase):
+    def test_cli_prints_tier_arguments_and_mutation_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = Path(scratch)
+            write_profile(repo, PYTEST_ONLY)
+            report = Path(scratch).parent / "reports/t1.xml"
+            code, out = run_cli(
+                "adapter",
+                "--repo",
+                str(repo),
+                "pytest",
+                "junit-args",
+                "--tier",
+                "t1",
+                "--out",
+                str(report),
+            )
+            assert code == 0
+            assert "--omp-guard=fast-tier,user-data" in out
+            assert "--omp-tier=t1" in out
+            assert f"--junitxml={report}" in out
+            for inside in ("reports/t1.xml", str(Path(scratch) / "t1.xml")):
+                code, out = run_cli(
+                    "adapter",
+                    "--repo",
+                    str(repo),
+                    "pytest",
+                    "junit-args",
+                    "--tier",
+                    "t1",
+                    "--out",
+                    inside,
+                )
+                assert code == 1
+                assert "GUARDRAILS.output-outside-repo" in out
+            code, out = run_cli(
+                "adapter", "--repo", str(repo), "pytest", "mutation-tool"
+            )
+            assert code == 0
+            assert out.startswith("mutmut ")
 
 
 if __name__ == "__main__":

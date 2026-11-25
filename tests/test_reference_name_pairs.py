@@ -16,15 +16,20 @@ from unittest.mock import patch
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
+from test_agentrails_fixture import (
+    config,
+    exception as agentrails_exception,
+    write_config,
+)
 
 from guardrails.commands.structure import name_pairs
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 FIXTURE = json.loads(
     (ROOT / "tests/fixtures/reference/structure/name-pairs.json").read_text()
 )
@@ -49,7 +54,7 @@ class NamePairTests(unittest.TestCase):
         for case in FIXTURE["cases"]:
             with self.subTest(case=case["name"]):
                 pairs = name_pairs.name_pairs(
-                    FIXTURE["tree"], set(case["changed"]), case.get("profile", {})
+                    FIXTURE["tree"], set(case["changed"]), case.get("config", {})
                 )
                 assert proposed(pairs) == {
                     (rule, frozenset((first, second)))
@@ -111,10 +116,9 @@ class NamePairsCommandTests(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="omp-name-pairs-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name) / "repo"
-        self.record = Path(scratch.name) / "record"
         self.repo.mkdir()
-        self.record.mkdir()
         self.git("init", "-q")
+        write_config(self.repo, config(**getattr(self, "profile", {})))
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         store = {"src/shop/store.py": FIXTURE["tree"]["src/shop/store.py"]}
@@ -167,16 +171,13 @@ class NamePairsCommandTests(unittest.TestCase):
         ]
 
     def test_a_record_exception_drops_the_pair(self) -> None:
-        exception = {
-            "rule": "structure-naming/same_thing",
-            "path": "src/shop/api.py",
-            "reason": "get_user is the public name kept for API callers",
-        }
-        profile = {"guardrails": {"exceptions": [exception]}}
-        (self.record / "profile.md").write_text(
-            "---\n" + json.dumps(profile) + "\n---\n"
+        exception = agentrails_exception(
+            "structure-naming/same_thing",
+            "src/shop/api.py",
+            "get_user is the public name kept for API callers",
         )
-        assert self.pairs("--record", str(self.record)) == []
+        write_config(self.repo, config(exceptions=[exception]))
+        assert self.pairs() == []
 
     def test_the_run_prints_pairs_from_the_head_tree(self) -> None:
         printed = io.StringIO()

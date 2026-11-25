@@ -6,7 +6,8 @@ import unittest
 from collections.abc import Mapping
 
 import pytest
-from test_reference_diffs import BASE_PROFILE, FixtureRepo, profile_text, rules
+from test_agentrails_fixture import config, write_config
+from test_reference_diffs import BASE_PROFILE, FixtureRepo, rules
 
 from guardrails.commands import cli
 from guardrails.commands.check import integrity, whole_repo
@@ -234,8 +235,8 @@ class IntegrityCodeTests(IntegrityCase):
     ) -> None:
         profile = {
             **BASE_PROFILE,
-            "guardrails": {
-                **BASE_PROFILE["guardrails"],
+            "checkers": {
+                **BASE_PROFILE["checkers"],
                 "check": {"exclude": ["frozen/**"]},
             },
         }
@@ -259,9 +260,12 @@ class IntegrityCodeTests(IntegrityCase):
     ) -> None:
         profile = {
             **BASE_PROFILE,
-            "guardrails": {"check": {"run": ["structure"], "exclude": ["**"]}},
+            "checkers": {
+                **BASE_PROFILE.get("checkers", {}),
+                "check": {"run": ["python-quality"], "exclude": ["**"]},
+            },
         }
-        (self.repo.record / "profile.md").write_text(profile_text(profile))
+        write_config(self.repo.path, config(**profile))
         (self.repo.path / "src/existing.py").write_text("# existing\nx = 1 # new\n")
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -269,8 +273,6 @@ class IntegrityCodeTests(IntegrityCase):
                 "check",
                 "--repo",
                 str(self.repo.path),
-                "--record",
-                str(self.repo.record),
             ])
         assert result == 1
         assert "CODE.no-comments" in output.getvalue()
@@ -325,8 +327,6 @@ class IntegrityCodeTests(IntegrityCase):
                 "diff-check",
                 "--repo",
                 str(self.repo.path),
-                "--record",
-                str(self.repo.record),
                 "--base",
                 self.base,
             ])
@@ -399,9 +399,9 @@ class StagedDiffCheckTests(IntegrityCase):
     def test_commit_check_command_blocks_staged_diff_findings(self) -> None:
         profile = {
             **BASE_PROFILE,
-            "guardrails": {
-                **BASE_PROFILE["guardrails"],
-                "check": {"run": ["structure"], "exclude": ["**"]},
+            "checkers": {
+                **BASE_PROFILE["checkers"],
+                "check": {"run": ["python-quality"], "exclude": ["**"]},
             },
         }
         self.repo.commit({"tests/fixtures/golden/out.txt": "old\n"}, profile)
@@ -412,8 +412,6 @@ class StagedDiffCheckTests(IntegrityCase):
                 "check",
                 "--repo",
                 str(self.repo.path),
-                "--record",
-                str(self.repo.record),
             ])
         assert result == 1
         assert "TEST.golden-change-record" in output.getvalue()

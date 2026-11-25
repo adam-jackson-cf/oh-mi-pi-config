@@ -1,5 +1,5 @@
 {
-  "about": "Code-folder and package layouts for STRUCT.runtime-data-placement and STRUCT.entry-point-placement: each case lists the head inventory, the changed paths (all of the inventory when omitted), an optional profile and the expected [rule, path] findings after record exceptions.",
+  "about": "Code-folder and package layouts for STRUCT.runtime-data-placement and STRUCT.entry-point-placement: each case lists the head inventory, the changed paths (all of the inventory when omitted), an optional profile and the expected [rule, path] findings after config exceptions.",
   "cases": [
     {
       "name": "runtime data inside a code package",
@@ -14,14 +14,8 @@
         "src/shop/render/questions.jsonl"
       ],
       "findings": [
-        [
-          "STRUCT.runtime-data-placement",
-          "src/shop/rules/policy.yaml"
-        ],
-        [
-          "STRUCT.runtime-data-placement",
-          "src/shop/rules/limits.toml"
-        ],
+        ["STRUCT.runtime-data-placement", "src/shop/rules/policy.yaml"],
+        ["STRUCT.runtime-data-placement", "src/shop/rules/limits.toml"],
         [
           "STRUCT.runtime-data-placement",
           "src/shop/render/templates/page.html.j2"
@@ -30,10 +24,7 @@
           "STRUCT.runtime-data-placement",
           "src/shop/render/templates/mail.jinja"
         ],
-        [
-          "STRUCT.runtime-data-placement",
-          "src/shop/render/questions.jsonl"
-        ]
+        ["STRUCT.runtime-data-placement", "src/shop/render/questions.jsonl"]
       ]
     },
     {
@@ -63,18 +54,9 @@
         "tools/packed/defaults.toml"
       ],
       "findings": [
-        [
-          "STRUCT.runtime-data-placement",
-          "tools/gen/templates/page.jinja"
-        ],
-        [
-          "STRUCT.runtime-data-placement",
-          "tools/gen/templates/mail.j2"
-        ],
-        [
-          "STRUCT.runtime-data-placement",
-          "scripts/report.yaml"
-        ]
+        ["STRUCT.runtime-data-placement", "tools/gen/templates/page.jinja"],
+        ["STRUCT.runtime-data-placement", "tools/gen/templates/mail.j2"],
+        ["STRUCT.runtime-data-placement", "scripts/report.yaml"]
       ]
     },
     {
@@ -93,9 +75,11 @@
         "tests/fixtures/order.json",
         "tests/__init__.py"
       ],
-      "profile": {
-        "layout": {
-          "support_dir": "src/shop/engine/harness"
+      "config": {
+        "tests": {
+          "layout": {
+            "support_dir": "src/shop/engine/harness"
+          }
         }
       },
       "findings": []
@@ -111,12 +95,7 @@
         "shared/tools/runner/runner.toml",
         "shared/settings.json"
       ],
-      "findings": [
-        [
-          "STRUCT.runtime-data-placement",
-          "shared/settings.json"
-        ]
-      ]
+      "findings": [["STRUCT.runtime-data-placement", "shared/settings.json"]]
     },
     {
       "name": "entry modules in the package folder or a folder directly under it",
@@ -142,14 +121,8 @@
         "src/shop/engine/jobs/main.py"
       ],
       "findings": [
-        [
-          "STRUCT.entry-point-placement",
-          "src/shop/engine/jobs/__main__.py"
-        ],
-        [
-          "STRUCT.entry-point-placement",
-          "src/shop/engine/jobs/runner/cli.py"
-        ]
+        ["STRUCT.entry-point-placement", "src/shop/engine/jobs/__main__.py"],
+        ["STRUCT.entry-point-placement", "src/shop/engine/jobs/runner/cli.py"]
       ]
     },
     {
@@ -174,22 +147,19 @@
         "src/shop/scoring/export/cli.py",
         "src/shop/scoring/snapshot_tool/limits.json"
       ],
-      "profile": {
-        "guardrails": {
-          "exceptions": [
-            {
-              "rule": "STRUCT.entry-point-placement",
-              "path": "src/shop/scoring/snapshot_tool",
-              "reason": "internal measurement tool the scorer runs in its pinned tool env"
-            }
-          ]
-        }
+      "config": {
+        "exceptions": [
+          {
+            "rule": "STRUCT.entry-point-placement",
+            "path": "src/shop/scoring/snapshot_tool",
+            "reason": "internal measurement tool the scorer runs in its pinned tool env",
+            "approvedBy": "example-owner",
+            "approvedAt": "2026-11-24T09:00:00Z"
+          }
+        ]
       },
       "findings": [
-        [
-          "STRUCT.entry-point-placement",
-          "src/shop/scoring/export/cli.py"
-        ],
+        ["STRUCT.entry-point-placement", "src/shop/scoring/export/cli.py"],
         [
           "STRUCT.runtime-data-placement",
           "src/shop/scoring/snapshot_tool/limits.json"
@@ -203,14 +173,9 @@
         "src/shop/rules/legacy.yaml",
         "src/shop/rules/added.yaml"
       ],
-      "paths": [
-        "src/shop/rules/added.yaml"
-      ],
+      "paths": ["src/shop/rules/added.yaml"],
       "findings": [
-        [
-          "STRUCT.runtime-data-placement",
-          "src/shop/rules/added.yaml"
-        ]
+        ["STRUCT.runtime-data-placement", "src/shop/rules/added.yaml"]
       ]
     }
   ]

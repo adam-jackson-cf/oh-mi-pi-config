@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 import pytest
-from test_skill_references import ROOT
+from test_skill_references import IMPORTED_SKILLS, PACKAGE, ROOT
 
 from guardrails.host.process import run_text
 
@@ -32,7 +32,7 @@ def tracked_skill_directories() -> list[Path]:
             "ls-files",
             "-z",
             "--",
-            "agent/extensions/dynaflows/skills",
+            "agent/extensions/agent-rails/skills",
             "agent/skills",
         ],
         cwd=ROOT,
@@ -168,7 +168,8 @@ def skill_shape_failures(directory: Path) -> list[str]:
         )
     if route == "behaviour-guidance" and (directory / "references").exists():
         failures.append(f"{entry}: behaviour-guidance ships no references")
-    failures += width_failures([ROOT / entry, *references])
+    if directory.name not in IMPORTED_SKILLS:
+        failures += width_failures([ROOT / entry, *references])
     failures += reference_failures(directory, text, references)
     if route in {"multi-step-workflow", "simple-task:runbook-index"}:
         failures += latitude_failures(entry, body)
@@ -180,12 +181,30 @@ def skill_shape_failures(directory: Path) -> list[str]:
 class SkillShapeTests(unittest.TestCase):
     def test_tracked_skills_follow_the_route_size_and_link_rules(self) -> None:
         directories = tracked_skill_directories()
-        assert {"structured-workflow", "git-tool"} <= {
+        assert {"git-tool", "jev-actions"} <= {
             directory.name for directory in directories
         }
         for directory in directories:
             with self.subTest(skill=directory.name):
                 assert skill_shape_failures(directory) == []
+
+
+class PackageReferenceTests(unittest.TestCase):
+    def test_package_references_keep_the_reference_caps(self) -> None:
+        references = sorted((PACKAGE / "references").glob("*.md"))
+        assert references
+        failures = width_failures(references)
+        for source in references:
+            content = source.read_text(encoding="utf-8")
+            if (
+                len(content.splitlines()) > REFERENCE_LINES
+                or len(content.encode("utf-8")) > REFERENCE_CHARS
+            ):
+                failures.append(
+                    f"{source.relative_to(ROOT)}: caps are {REFERENCE_LINES} lines "
+                    f"and {REFERENCE_CHARS} characters"
+                )
+        assert failures == []
 
 
 if __name__ == "__main__":

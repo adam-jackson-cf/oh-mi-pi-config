@@ -10,7 +10,7 @@ import itertools
 import json
 import os
 import re
-import runpy
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -45,7 +45,7 @@ def isolated_decision_store(
 
 MODULE = (
     Path(__file__).resolve().parents[1]
-    / "agent/extensions/dynaflows/engine/workflows.py"
+    / "agent/extensions/agent-rails/engine/workflows.py"
 )
 
 spec = importlib.util.spec_from_file_location("workflows", MODULE)
@@ -81,9 +81,9 @@ def stored(
     agent: Path, sql: str = "SELECT * FROM decisions ORDER BY rowid"
 ) -> list[dict[str, Any]]:
     """Rows of the decision store under `agent`; none before anything is logged."""
-    if not (agent / "dynaflows/dynaflows.db").exists():
+    if not (agent / "agent-rails/agent-rails.db").exists():
         return []
-    with closing(sqlite3.connect(agent / "dynaflows/dynaflows.db")) as store:
+    with closing(sqlite3.connect(agent / "agent-rails/agent-rails.db")) as store:
         store.row_factory = sqlite3.Row
         return [dict(row) for row in store.execute(sql)]
 
@@ -198,26 +198,14 @@ class SchemaTests(unittest.TestCase):
         ):
             assert self.load(self.data) == self.data
 
-    def test_gate_policy_uses_the_harness_gate_validation(self) -> None:
-        # repo_record.gate_reason owns the schema (tests/test_repo_record.py); gate_policy accepts
-        # exactly what it accepts and returns the fields freeze() and prove() consume.
-        gate = {
-            "schemaVersion": 2,
-            "checks": {"commit": ["c"], "format": ["ruff", "format"]},
-            "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-        }
-        assert workflow.gate_policy(gate) == {
-            "format": ["ruff", "format"],
-            "ci": {"requiredContext": "gate", "runner": "ci-gate"},
-        }
-        for invalid in (
-            {k: v for k, v in gate.items() if k != "checks"},
-            {**gate, "checks": {"ci": ["c"]}},
-            {**gate, "unknownField": 3},
-            {**gate, "ownerOnlyPaths": []},
-        ):
-            with self.subTest(gate=invalid):
-                assert workflow.gate_policy(invalid) is None
+    def test_gate_policy_reads_the_validated_repo_config(self) -> None:
+        # repo_config.validate owns the schema (tests/test_repo_config.py); gate_policy returns
+        # the fields freeze() and prove() consume from a config it accepted.
+        ci = {"enabled": True, "runner": "ci-gate", "requiredContext": "gate"}
+        config = {"commands": {"commit": ["c"], "format": ["ruff", "format"]}, "ci": ci}
+        assert workflow.gate_policy(config) == {"format": ["ruff", "format"], "ci": ci}
+        off = {"commands": {"commit": ["c"]}, "ci": {"enabled": False}}
+        assert workflow.gate_policy(off) == {"format": None, "ci": {"enabled": False}}
 
     def test_journey_flag_must_be_boolean(self) -> None:
         for value in (True, False):
@@ -331,7 +319,7 @@ class LabelTests(unittest.TestCase):
 
 
 CATALOGUE = Path(__file__).resolve().parents[1] / (
-    "agent/extensions/dynaflows/engine/guardrails/data/guardrail-rules.json"
+    "agent/extensions/agent-rails/engine/guardrails/data/guardrail-rules.json"
 )
 
 ADVISORY = (
@@ -505,7 +493,7 @@ class HarnessCheckLogTests(unittest.TestCase):
             workflow, "run_check", side_effect=lambda *a, **k: next(outputs)
         ) as run:
             found, errors = workflow._harness_check_findings(
-                Path("/repo"), Path("/records/repos/owner/name"), "p" * 40, "h" * 40
+                Path("/repo"), "p" * 40, "h" * 40
             )
         assert found == ["src/a.py: GATE.path-check: bad name; rename it"]
         assert errors == [
@@ -583,6 +571,32 @@ class SeverityRubricTests(unittest.TestCase):
                     if blocker is not None:
                         assert "dated exception" in rated["suggested_fix"]
                         assert rated["dimensions"]["fix"]["blocked_fix"] == blocker
+
+    def test_an_off_precondition_or_reach_never_lowers_the_severity(self) -> None:
+        mild = answers(local=0.9, reached=0.1)
+        assert self.rate(mild)["severity"] == "medium"
+        config = {
+            "judgments": {
+                f"dependency-severity/{ident}": {"enabled": False}
+                for ident in (*workflow.PRECONDITIONS, "reached")
+            }
+        }
+        decisions = workflow.effective_judgment(
+            workflow.load_judgment("dependency-severity"), config
+        ).decisions
+        assert set(decisions) == {"impact"}
+        unasked = {"impact": mild["impact"]}
+        rated = workflow.rate_advisory(self.advisory, evidence(), unasked, decisions)
+        assert rated["severity"] == "critical"
+        assert rated["dimensions"]["preconditions"] == {
+            "probabilities": {},
+            "cleared": [],
+            "source": "https://osv.dev/x",
+        }
+        assert (
+            rated["dimensions"]["exposure"]["reached"],
+            rated["dimensions"]["exposure"]["unreached"],
+        ) == (None, False)
 
     def test_unclear_evidence_rounds_up(self) -> None:
         assert self.rate(answers(impact="unclear"))["severity"] == "critical"
@@ -736,11 +750,17 @@ class JudgmentRegistryTests(unittest.TestCase):
         self.root = Path(scratch.name) / "harness"
         self.agent = Path(scratch.name) / "agent"
         self.calls: list[Any] = []
+        # The repo config at the kernel's or rail's cwd; None is an unconfigured repo. Resolving a
+        # real cwd runs git, so the seam tests cover it (test_workflows_seams.JudgmentConfigTests).
+        self.repo_config: dict[str, Any] | None = None
         for patcher in (
             patch.object(workflow, "_harness_root", return_value=self.root),
             patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.agent)}),
             patch.object(
                 workflow, "_configured_judge_model", return_value="typesafe/jev-1.14.0"
+            ),
+            patch.object(
+                workflow, "judgment_config", side_effect=lambda cwd: self.repo_config
             ),
         ):
             patcher.start()
@@ -804,7 +824,9 @@ class JudgmentRegistryTests(unittest.TestCase):
         assert (kind["status"], kind["outcome"], kind["threshold"]) == ("ok", None, 0.3)
         assert json.loads(kind["choice_probabilities"]) == {"note": 0.8, "log": 0.2}
         assert self.calls[0][1] == judgment.questions
-        assert workflow._store().store_path() == self.agent / "dynaflows/dynaflows.db"
+        assert (
+            workflow._store().store_path() == self.agent / "agent-rails/agent-rails.db"
+        )
 
     def test_a_band_escalates_only_with_a_registered_fallback_judge(self) -> None:
         write_judgment(self.root, "backup")
@@ -920,7 +942,7 @@ class JudgmentRegistryTests(unittest.TestCase):
     def bridge(self, *argv: str) -> tuple[int, Any]:
         out = io.StringIO()
         with patch("sys.stdout", out):
-            code = workflow.rail_bridge(list(argv))
+            code = workflow.rail_bridge(list(argv), self.root)
         return code, json.loads(out.getvalue())
 
     def test_rail_bridge_asks_then_records_the_host_answers(self) -> None:
@@ -1010,33 +1032,6 @@ class JudgmentRegistryTests(unittest.TestCase):
         assert "direct TypeSafe endpoint" in refused["error"]
         assert len({row["call_id"] for row in self.logged()}) == 2
 
-    def test_rail_entry_runs_the_registry_of_the_shipped_judgments(self) -> None:
-        main = runpy.run_path(str(MODULE.parents[1] / "lib/decide.py"))["main"]
-        for name, question in (
-            ("extension-impact", "impact"),
-            ("in-scope", "ask_first"),
-            ("implementation-integrity", "weakens_verification"),
-            ("completion-evidence", "evidence_gap"),
-        ):
-            with self.subTest(name=name):
-                out = io.StringIO()
-                with patch("sys.stdout", out):
-                    assert main(["questions", name]) == 0
-                asked = json.loads(out.getvalue())
-                assert asked["model"] == "typesafe/jev-1.14.0"
-                assert list(asked["questions"]) == [question]
-                thresholds = json.loads(
-                    (
-                        MODULE.parents[1] / "judgments" / name / "thresholds.json"
-                    ).read_text()
-                )
-                assert thresholds["wired"] is True
-                assert "mode" not in thresholds
-                assert "status" not in thresholds
-                wiring = thresholds.get("wiring") or thresholds["framing"]["wiring"]
-                assert "enforced from the start" in wiring
-                assert "not wired" not in json.dumps(thresholds)
-
     def test_configured_judge_model_reads_omp_config(self) -> None:
         def completed(stdout: str, code: int = 0) -> Any:
             return subprocess.CompletedProcess([], code, stdout, "")
@@ -1075,7 +1070,7 @@ class JudgmentRegistryTests(unittest.TestCase):
     def test_agent_dir_defaults_to_the_omp_home(self) -> None:
         with patch.dict(os.environ, {"PI_CODING_AGENT_DIR": ""}):
             assert workflow._store().store_path() == (
-                Path.home() / ".omp/agent/dynaflows/dynaflows.db"
+                Path.home() / ".omp/agent/agent-rails/agent-rails.db"
             )
 
     def test_every_decision_carries_its_taxonomy_and_mode(self) -> None:
@@ -1194,6 +1189,110 @@ class JudgmentRegistryTests(unittest.TestCase):
             for row in progress
         ] == [("flag", 1, 1, 0)]
 
+    def overrides(self, **settings: dict[str, Any]) -> dict[str, Any]:
+        """A repo config holding only `judgments`: demo/<question> settings."""
+        return {
+            "judgments": {f"demo/{ident}": value for ident, value in settings.items()}
+        }
+
+    def test_the_effective_mode_is_the_softer_of_global_and_repo(self) -> None:
+        shadow_flag = {
+            "threshold": 0.7,
+            "mode": "shadow",
+            "shadow_exit": {"labelled_flags": 10},
+        }
+        off = {"enabled": False}
+        cases = (
+            ("enforced", None, "enforced"),
+            ("enforced", {"enabled": True, "mode": "enforced"}, "enforced"),
+            ("enforced", {"enabled": True, "mode": "shadow"}, "shadow"),
+            ("enforced", off, "off"),
+            ("shadow", None, "shadow"),
+            ("shadow", {"enabled": True, "mode": "shadow"}, "shadow"),
+            ("shadow", off, "off"),
+        )
+        for global_mode, setting, expected in cases:
+            with self.subTest(global_mode=global_mode, setting=setting):
+                shutil.rmtree(self.root, ignore_errors=True)
+                write_judgment(
+                    self.root, flag=shadow_flag if global_mode == "shadow" else None
+                )
+                judgment = workflow.load_judgment("demo")
+                config = (
+                    self.overrides()
+                    if setting is None
+                    else self.overrides(flag=setting)
+                )
+                effective = workflow.effective_judgment(judgment, config)
+                if expected == "off":
+                    assert "flag" not in effective.decisions
+                    assert "flag" not in effective.questions
+                else:
+                    assert effective.decisions["flag"]["mode"] == expected
+                    assert effective.questions["flag"] == judgment.questions["flag"]
+                assert effective.decisions["kind"] == judgment.decisions["kind"]
+                assert judgment.decisions["flag"]["mode"] == global_mode, (
+                    "the global judgment is never changed"
+                )
+        assert workflow.effective_judgment(judgment, None) is judgment, (
+            "no repo config keeps the global modes"
+        )
+        with pytest.raises(workflow.WorkflowError, match="only measurement promotes"):
+            workflow.effective_judgment(
+                judgment, self.overrides(flag={"enabled": True, "mode": "enforced"})
+            )
+
+    def test_an_off_question_is_never_asked_and_writes_no_row(self) -> None:
+        write_judgment(self.root)
+        self.repo_config = self.overrides(flag={"enabled": False})
+        decided = self.decide(0.9)
+        assert decided["outcomes"] == {}
+        assert set(decided["modes"]) == {"kind"}
+        assert list(self.calls[0][1]) == ["kind"], "the judge is asked the rest only"
+        assert {row["question"] for row in self.logged()} == {"kind"}
+        self.repo_config = self.overrides(
+            flag={"enabled": False}, kind={"enabled": False}
+        )
+        calls = len(self.calls)
+        assert self.decide(0.9) == {"judgment": "demo", "off": True}
+        assert len(self.calls) == calls, "an all-off judgment costs no judge call"
+        assert len(self.logged()) == 1, "and writes no decisions row"
+        assert self.bridge("questions", "demo") == (
+            0,
+            {"judgment": "demo", "off": True},
+        )
+        request = self.agent.parent / "off.json"
+        request.write_text(
+            json.dumps({
+                "state": {"text": "a note"},
+                "error": "transport closed",
+                "context": {"trigger": "commit"},
+            })
+        )
+        code, refused = self.bridge("error", "demo", str(request))
+        assert code == 1
+        assert "every question is off" in refused["error"]
+        assert len(self.logged()) == 1
+
+    def test_the_questions_table_keeps_the_global_mode_under_a_repo_shadow(
+        self,
+    ) -> None:
+        write_judgment(self.root)
+        self.repo_config = self.overrides(flag={"enabled": True, "mode": "shadow"})
+        decided = self.decide(0.9)
+        assert decided["outcomes"] == {"flag": "yes"}
+        assert decided["modes"] == {"flag": "shadow", "kind": "enforced"}
+        flag = next(row for row in self.logged() if row["question"] == "flag")
+        assert (flag["mode"], flag["outcome"]) == ("shadow", "flag")
+        questions = {
+            row["question"]: row["mode"]
+            for row in self.logged("SELECT * FROM questions")
+        }
+        assert questions == {"flag": "enforced", "kind": "enforced"}
+        assert self.bridge("questions", "demo")[1]["questions"] == (
+            workflow.load_judgment("demo").questions
+        ), "a shadow question is still asked"
+
 
 class ShippedJudgmentTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -1201,7 +1300,7 @@ class ShippedJudgmentTests(unittest.TestCase):
 
     def test_the_inspector_route_is_opt_in_and_loopback_only(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        overlay = root / "agent/extensions/dynaflows/inspector.env"
+        overlay = root / "agent/extensions/agent-rails/inspector.env"
         settings = [
             line
             for line in overlay.read_text().splitlines()
@@ -1241,6 +1340,20 @@ class ShippedJudgmentTests(unittest.TestCase):
                     assert row["label"] in ("0", "1")
                     assert 0 <= float(row["score"]) <= 1
 
+    def test_extension_impact_loads_on_the_rekeyed_config_state(self) -> None:
+        judgment = workflow.load_judgment("extension-impact")
+        assert judgment.model == CONFIGURED_JUDGE
+        assert set(judgment.state) == {"config", "change"}
+        decision = judgment.decisions["impact"]
+        assert decision["mode"] == "enforced"
+        directory = workflow._harness_root() / workflow.JUDGMENTS / judgment.name
+        scores = (directory / "scores.csv").read_text()
+        measured = decision["measured_on"]["question_version"]
+        assert measured != f"impact@{decision['version_key']}"
+        assert {
+            row["question_version"] for row in csv.DictReader(io.StringIO(scores))
+        } == {measured}
+
 
 class StructureProposalTests(unittest.TestCase):
     """structure_review()'s code-proposed pairs and files: scores, modes and decision store rows."""
@@ -1251,7 +1364,7 @@ class StructureProposalTests(unittest.TestCase):
         environment = patch.dict(os.environ, {"PI_CODING_AGENT_DIR": agent.name})
         environment.start()
         self.addCleanup(environment.stop)
-        self.store = Path(agent.name) / "dynaflows/dynaflows.db"
+        self.store = Path(agent.name) / "agent-rails/agent-rails.db"
         self.judgment = workflow.load_judgment("structure-naming")
         self.result: dict[str, Any] = {
             "head": "h" * 40,
@@ -1320,6 +1433,23 @@ class StructureProposalTests(unittest.TestCase):
         ]
         with self.batches(answer):
             asyncio.run(self.review().judge_pairs(pairs))
+
+    def test_an_off_question_is_never_asked_and_logs_nothing(self) -> None:
+        self.judgment = workflow.effective_judgment(
+            self.judgment,
+            {"judgments": {"structure-naming/consumer_placement": {"enabled": False}}},
+        )
+        review = self.review()
+        assert not review.asks(workflow.CONSUMER_QUESTION)
+        assert review.asks(workflow.PAIR_QUESTION)
+        candidates = [
+            {"path": "src/orders/dash.py", "state": {"file": {}, "package": {}}}
+        ]
+        with self.batches(lambda key, questions: None):
+            asyncio.run(review.judge_consumers(candidates))
+        assert self.asked == []
+        assert self.rows() == []
+        assert self.result["consumers"] == {}
 
     def test_a_pair_is_asked_in_both_orders_and_logged_with_its_combined_score(
         self,
@@ -1430,17 +1560,9 @@ class StructureProposalTests(unittest.TestCase):
             commands.append(cmd)
             return ok, output
 
-        record: tuple[Path, dict[str, Any]] = (Path("/records/owner/repo"), {})
-        return (
-            patch.multiple(
-                workflow,
-                run_check=run_check,
-                read_record=lambda repo: record,
-            ),
-            commands,
-        )
+        return patch.multiple(workflow, run_check=run_check), commands
 
-    def test_a_proposer_reads_the_record_and_returns_its_json(self) -> None:
+    def test_a_proposer_passes_the_repo_only_and_returns_its_json(self) -> None:
         found = {
             "pairs": [
                 {"id": "p", "det_score": 0.5, "state": {"first": {}, "second": {}}}
@@ -1450,8 +1572,7 @@ class StructureProposalTests(unittest.TestCase):
         with patched:
             assert workflow._name_pairs(Path("."), "b" * 40, "h" * 40) == found["pairs"]
         (command,) = commands
-        assert command[command.index("--record") + 1] == "/records/owner/repo"
-        assert command[command.index("name-pairs") + 1 : command.index("--record")] == [
+        assert command[command.index("name-pairs") + 1 : command.index("--base")] == [
             "--repo",
             ".",
         ]
@@ -1546,9 +1667,12 @@ class MaliciousPackageTests(unittest.TestCase):
         async def judge(state: object, questions: object) -> Never:
             raise AssertionError("judge() must not run for a malicious package")
 
-        found = workflow.parse_dependency_audit(MALICIOUS)
+        found = {**workflow.parse_dependency_audit(MALICIOUS), "repo": "/repo"}
         key = workflow.advisory_key(found["advisories"][0])
-        with patch.object(workflow, "judge", judge, create=True):
+        with (
+            patch.object(workflow, "judge", judge, create=True),
+            patch.object(workflow, "judgment_config", return_value=None),
+        ):
             result = asyncio.run(
                 workflow.triage_advisories(
                     found, {key: evidence(scope="dev", hits=False)}
@@ -1591,23 +1715,31 @@ def calls(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 class TriageTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.found = workflow.parse_dependency_audit(
-            "\n".join([
-                ADVISORY,
-                ADVISORY.replace(
-                    "PyYAML version=5.3.1", "black version=23.12.1"
-                ).replace("GHSA-8q59-q68h-6hv4", "PYSEC-B"),
-                "SECURITY.dependency-audit failure=auditor path=uv.lock reason=auditor exited 2",
-            ])
-        )
+        self.found = {
+            **workflow.parse_dependency_audit(
+                "\n".join([
+                    ADVISORY,
+                    ADVISORY.replace(
+                        "PyYAML version=5.3.1", "black version=23.12.1"
+                    ).replace("GHSA-8q59-q68h-6hv4", "PYSEC-B"),
+                    "SECURITY.dependency-audit failure=auditor path=uv.lock reason=auditor exited 2",
+                ])
+            ),
+            "repo": "/work/repo",
+        }
         self.keys = [workflow.advisory_key(a) for a in self.found["advisories"]]
         self.calls: list[Any] = []
+        # The config of found["repo"]; None is an unconfigured repo (resolving it runs git).
+        self.repo_config: dict[str, Any] | None = None
+        self.resolved: list[Any] = []
 
     def run_triage(self, replies: dict[str, Any], evidence_map: dict[str, Any]) -> Any:
         async def judge(state: Any, questions: dict[str, Any]) -> Any:
             # Exercise the real frozen questions at the judge() boundary, not just the rubric.
             # Contract: xd://eval/judge; TypeSafe's wire name 'noul' is not accepted here.
-            frozen = workflow.load_judgment("dependency-severity").questions
+            frozen = workflow.effective_judgment(
+                workflow.load_judgment("dependency-severity"), self.repo_config
+            ).questions
             assert questions == frozen
             for ident, question in questions.items():
                 assert question["type"] in ("choice", "bool", "score"), ident
@@ -1635,11 +1767,38 @@ class TriageTests(unittest.TestCase):
                 workflow, "_configured_judge_model", return_value=CONFIGURED_JUDGE
             ),
             patch.object(workflow, "judge", judge, create=True),
+            patch.object(workflow, "judgment_config", side_effect=self.resolve),
         ):
             try:
                 return asyncio.run(workflow.triage_advisories(self.found, evidence_map))
             finally:
                 self.logged = calls(stored(Path(agent)))
+
+    def resolve(self, cwd: object) -> dict[str, Any] | None:
+        self.resolved.append(cwd)
+        return self.repo_config
+
+    def test_the_repo_config_of_found_sets_the_severity_modes(self) -> None:
+        self.repo_config = {
+            "judgments": {"dependency-severity/local_only": {"enabled": False}}
+        }
+        result = self.run_triage(
+            {"PyYAML": answers(local=0.9), "black": answers(local=0.9)},
+            {key: evidence() for key in self.keys},
+        )
+        assert self.resolved == ["/work/repo"], "one config read, from found's repo"
+        assert all("local_only" not in questions for _, questions in self.calls)
+        assert all("local_only" not in call["outcomes"] for call in self.logged)
+        assert {item["severity"] for item in result["owner"]} == {"critical"}, (
+            "an off precondition never lowers the severity"
+        )
+        with pytest.raises(workflow.WorkflowError, match="names its repo"):
+            asyncio.run(
+                workflow.triage_advisories(
+                    {key: value for key, value in self.found.items() if key != "repo"},
+                    {},
+                )
+            )
 
     def test_high_severity_halts_with_an_owner_report_and_low_is_fixed_in_flow(
         self,

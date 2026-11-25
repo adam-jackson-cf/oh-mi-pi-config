@@ -8,7 +8,6 @@ import pytest
 from test_reference_init import FAKE_SERVER, InitCase
 
 from guardrails.commands.init import lsp
-from guardrails.context.config.profile import load_profile
 
 pytestmark = pytest.mark.seam
 
@@ -60,7 +59,7 @@ class LspTests(InitCase):
         (self.repo / "pyproject.toml").unlink()
         code, output = self.init()
         assert code == 0, output
-        assert "lsp" not in load_profile(self.record)["command_notes"]
+        assert "lsp" not in self.draft()["tests"]["command_notes"]
         assert "lsp: no pyproject.toml" in output
 
 

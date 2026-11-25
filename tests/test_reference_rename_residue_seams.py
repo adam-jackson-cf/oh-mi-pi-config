@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 import tempfile
@@ -11,11 +10,12 @@ from typing import Any
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 
 import pytest
+from test_agentrails_fixture import config, write_config
 
 pytestmark = pytest.mark.seam
 
@@ -23,7 +23,7 @@ pytestmark = pytest.mark.seam
 ROOT = Path(__file__).resolve().parents[1]
 
 
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 
 class RenameResidueCommandTests(unittest.TestCase):
@@ -31,12 +31,10 @@ class RenameResidueCommandTests(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="omp-rename-residue-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name) / "repo"
-        self.record = Path(scratch.name) / "record"
         self.repo.mkdir()
-        self.record.mkdir()
         self.profile: dict[str, Any] = {}
-        self.write_profile()
         self.git("init", "-q")
+        self.write_profile()
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
 
@@ -46,9 +44,7 @@ class RenameResidueCommandTests(unittest.TestCase):
         ).stdout.strip()
 
     def write_profile(self) -> None:
-        (self.record / "profile.md").write_text(
-            "---\n" + json.dumps(self.profile) + "\n---\n"
-        )
+        write_config(self.repo, config(**self.profile))
 
     def write(self, path: str, text: str) -> None:
         target = self.repo / path
@@ -80,8 +76,6 @@ class RenameResidueCommandTests(unittest.TestCase):
                 "rename-residue",
                 "--repo",
                 str(self.repo),
-                "--record",
-                str(self.record),
                 "--base",
                 base,
                 "--head",
@@ -195,7 +189,7 @@ class RenameResidueCommandTests(unittest.TestCase):
         assert "cannot parse" not in result.stdout
 
     def test_documented_non_owned_paths_are_excluded(self) -> None:
-        self.profile = {"guardrails": {"check": {"exclude": ["verifier/vendor"]}}}
+        self.profile = {"checkers": {"check": {"exclude": ["verifier/vendor"]}}}
         self.write_profile()
         self.write("oracle/api.py", "def run():\n    return 'owned API'\n")
         self.write("oracle/vendor/plugin.py", "class OraclePlugin:\n    pass\n")

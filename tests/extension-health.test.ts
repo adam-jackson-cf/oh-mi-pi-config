@@ -34,7 +34,7 @@ const extension = (name: string): ExtensionHealthCommand => ({ name, source: "ex
 const healthy = [
   extension("extension-health"),
   extension("extension-health-analyse"),
-  extension("extension-health-dynaflows"),
+  extension("extension-health-agent-rails"),
   extension("agent:reviewer"),
 ];
 
@@ -43,7 +43,7 @@ describe("extension-health command", () => {
     assert.deepEqual(await report(healthy), [
       {
         message:
-          "Extension health: 4/4 default extensions registered; conditional registrations: <none>; registered: agent-autocomplete, analyse, dynaflows, extension-health",
+          "Extension health: 4/4 default extensions registered; conditional registrations: <none>; registered: agent-autocomplete, agent-rails, analyse, extension-health",
         level: "info",
       },
     ]);
@@ -65,7 +65,7 @@ describe("extension-health command", () => {
     assert.deepEqual(await report(commands), [
       {
         message:
-          "Extension health mismatch: 2/4 default extensions registered; registered: analyse, extension-health; missing defaults: agent-autocomplete, dynaflows; conditional registrations: <none>; unexpected: mystery",
+          "Extension health mismatch: 2/4 default extensions registered; registered: analyse, extension-health; missing defaults: agent-autocomplete, agent-rails; conditional registrations: <none>; unexpected: mystery",
         level: "error",
       },
     ]);
@@ -81,6 +81,6 @@ describe("extension-health command", () => {
     const commands = healthy.map(command => ({ ...command, source: "prompt" }));
     const [notification] = await report(commands);
     assert.equal(notification?.level, "error");
-    assert.match(notification?.message ?? "", /0\/4 default extensions registered; registered: <none>; missing defaults: analyse, agent-autocomplete, extension-health, dynaflows;/);
+    assert.match(notification?.message ?? "", /0\/4 default extensions registered; registered: <none>; missing defaults: analyse, agent-autocomplete, extension-health, agent-rails;/);
   });
 });

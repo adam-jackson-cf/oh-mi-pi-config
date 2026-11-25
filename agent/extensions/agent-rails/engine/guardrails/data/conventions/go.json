@@ -1,0 +1,64 @@
+{
+  "name": "go",
+  "convention_sources": {
+    "extensions": {
+      ".go": "https://go.dev/ref/spec#Source_code_representation"
+    },
+    "directory": {
+      "lowercase": "https://go.dev/doc/effective_go#package-names"
+    },
+    "fixed_files": {
+      "doc.go": "https://go.dev/wiki/CodeReviewComments#package-comments",
+      "main.go": "https://go.dev/doc/modules/layout"
+    },
+    "package_files": "https://go.dev/doc/modules/layout",
+    "fixed_folders": {
+      "internal": "https://go.dev/doc/modules/layout",
+      "cmd": "https://go.dev/doc/modules/layout",
+      "testdata": "https://pkg.go.dev/cmd/go#hdr-Test_packages",
+      "vendor": "https://go.dev/ref/mod#vendoring"
+    },
+    "ignored_folders": {
+      "vendor": "https://go.dev/ref/mod#vendoring"
+    },
+    "test_patterns": {
+      "*_test.go": "https://pkg.go.dev/cmd/go#hdr-Test_packages"
+    },
+    "test_like_patterns": {
+      "test_*.go": "https://pkg.go.dev/cmd/go#hdr-Test_packages"
+    },
+    "placement": {
+      "root": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
+      "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
+      "support_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
+      "beside_code": "https://pkg.go.dev/cmd/go#hdr-Test_packages"
+    }
+  },
+  "convention_notes": [
+    "Lowercase package naming is a Go recommendation, not a filesystem restriction.",
+    "Package-named files, main.go and doc.go are supported conventional names, not required filenames.",
+    "The test-like pattern is a near-miss heuristic against the documented _test.go suffix.",
+    "The tests/fixtures/support names are harness defaults, not Go requirements; Go discovers tests beside package source."
+  ],
+  "extensions": [".go"],
+  "file": [],
+  "directory": ["lowercase"],
+  "fixed_files": ["doc.go", "main.go"],
+  "package_files": true,
+  "fixed_folders": ["internal", "cmd", "testdata", "vendor"],
+  "ignored_folders": ["vendor"],
+  "test_patterns": ["*_test.go"],
+  "test_like_patterns": ["test_*.go"],
+  "sources": [
+    "https://go.dev/doc/effective_go#package-names",
+    "https://pkg.go.dev/cmd/go#hdr-Test_packages",
+    "https://go.dev/doc/modules/layout",
+    "https://go.dev/wiki/CodeReviewComments#package-comments"
+  ],
+  "placement": {
+    "root": "tests",
+    "fixtures_dir": "fixtures",
+    "support_dir": "support",
+    "beside_code": true
+  }
+}

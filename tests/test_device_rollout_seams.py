@@ -5,9 +5,9 @@ import unittest
 from pathlib import Path
 
 import pytest
-from test_device_rollout import HOSTS, MODULE, PIN, RecordRolloutCase, rollout
+from test_device_rollout import HOSTS, MODULE, PIN, rollout
 
-from guardrails.host.process import run_bytes, run_text
+from guardrails.host.process import run_text
 
 pytestmark = pytest.mark.seam
 
@@ -162,120 +162,6 @@ class RunnerConfigTests(unittest.TestCase):
                 ],
             )
             assert failed == (0, 1, "import refused")
-
-
-class RecordRolloutTests(RecordRolloutCase):
-    def test_bundler_writer_and_lister_round_trip_on_a_real_target(self) -> None:
-        home = self.scratch / "home"
-        (home / ".omp").mkdir(parents=True)
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
-        files = sorted(self.source)
-        producer = [
-            sys.executable,
-            "-c",
-            rollout.RECORDS_BUNDLER,
-            str(self.base / "repos"),
-            *files,
-        ]
-        bundle = run_bytes(producer, check=True, timeout=PROCESS_TIMEOUT)
-        written = run_bytes(
-            [
-                sys.executable,
-                "-c",
-                rollout.RECORDS_WRITER,
-                "~/.omp",
-                json.dumps(dict.fromkeys(files)),
-            ],
-            data=bundle.stdout,
-            env=env,
-            check=False,
-            timeout=PROCESS_TIMEOUT,
-        )
-        assert written.returncode == 0, written.stderr
-        for relative in files:
-            target = home / ".omp/repos" / relative
-            assert target.read_bytes() == (self.base / "repos" / relative).read_bytes()
-            assert target.stat().st_mode & 511 == 384
-        listed = run_text(
-            [sys.executable, "-c", rollout.RECORDS_LISTER, "~/.omp"],
-            env=env,
-            check=True,
-            timeout=PROCESS_TIMEOUT,
-        )
-        listing = {
-            key: tuple(value) for key, value in json.loads(listed.stdout).items()
-        }
-        assert listing == self.source, "the copy keeps source bytes and mtimes"
-        assert rollout.record_plan(self.source, listing) == ([], [])
-        self.write(home / ".omp", "example-owner/example-repo/gate.json", "{}\n", 2_000)
-        listing = rollout.record_files(home / ".omp/repos")
-        assert rollout.record_plan(self.source, listing) == (
-            [],
-            ["example-owner/example-repo"],
-        )
-
-    def test_writer_refuses_a_target_file_edited_after_inventory(self) -> None:
-        home = self.scratch / "home"
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
-        gate, profile = (
-            "example-owner/example-repo/gate.json",
-            "example-owner/example-repo/profile.md",
-        )
-        self.write(home / ".omp", gate, '{"old": 1}\n', 500)
-        self.write(home / ".omp", profile, "old profile\n", 500)
-        target = rollout.record_files(home / ".omp/repos")
-        copy, newer = rollout.record_plan(self.source, target)
-        assert (copy, newer) == ([gate, profile], []), (
-            "the plan copies both older target files"
-        )
-        planned = json.dumps({relative: list(target[relative]) for relative in copy})
-        edited = self.write(home / ".omp", gate, '{"edited": "after inventory"}\n', 500)
-        bundle = run_bytes(
-            [
-                sys.executable,
-                "-c",
-                rollout.RECORDS_BUNDLER,
-                str(self.base / "repos"),
-                *copy,
-            ],
-            check=True,
-            timeout=PROCESS_TIMEOUT,
-        )
-        written = run_bytes(
-            [sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", planned],
-            data=bundle.stdout,
-            env=env,
-            check=False,
-            timeout=PROCESS_TIMEOUT,
-        )
-        assert written.returncode == 5, written.stderr
-        assert b"changed since inventory: " + gate.encode() in written.stderr
-        assert edited.read_text() == '{"edited": "after inventory"}\n', (
-            "the edited target stays untouched"
-        )
-        assert (home / ".omp/repos" / profile).read_bytes() == (
-            self.base / "repos" / profile
-        ).read_bytes(), "unchanged target files are still replaced"
-        assert sorted(path.name for path in edited.parent.iterdir()) == [
-            "gate.json",
-            "profile.md",
-        ], "no temporary file is left behind"
-
-    def test_writer_refuses_paths_that_leave_the_records_root(self) -> None:
-        home = self.scratch / "home"
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(home)}
-        for relative in ("../escape", "/abs", "o/./n", ""):
-            with self.subTest(relative=relative):
-                document = json.dumps({relative: [1, "eA=="]}).encode()
-                result = run_bytes(
-                    [sys.executable, "-c", rollout.RECORDS_WRITER, "~/.omp", "{}"],
-                    data=document,
-                    env=env,
-                    check=False,
-                    timeout=PROCESS_TIMEOUT,
-                )
-                assert result.returncode == 4
-        assert not (self.scratch / "escape").exists()
 
 
 if __name__ == "__main__":

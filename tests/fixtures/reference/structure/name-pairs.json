@@ -41,16 +41,16 @@
     {
       "name": "an owner exception on either name's file drops the pair",
       "changed": ["src/shop/api.py", "src/shop/cache.py"],
-      "profile": {
-        "guardrails": {
-          "exceptions": [
-            {
-              "rule": "structure-naming/same_thing",
-              "path": "src/shop/store.py",
-              "reason": "get_user is the public name kept for API callers"
-            }
-          ]
-        }
+      "config": {
+        "exceptions": [
+          {
+            "rule": "structure-naming/same_thing",
+            "path": "src/shop/store.py",
+            "reason": "get_user is the public name kept for API callers",
+            "approvedBy": "example-owner",
+            "approvedAt": "2026-11-24T09:00:00Z"
+          }
+        ]
       },
       "pairs": [["head_noun", "OrderCache", "ShopOrderCache"]]
     }

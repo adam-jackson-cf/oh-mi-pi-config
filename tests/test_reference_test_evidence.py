@@ -14,20 +14,22 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
+from test_agentrails_fixture import approval, config, write_config
 
 from guardrails.commands import cli
 from guardrails.commands.test_evidence import budgets, mutation, propagation
+from guardrails.host.process import run_text
 from guardrails.toolkit.test_report import collection, junit
 
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 FIXTURES = ROOT / "tests/fixtures/reference/test_evidence"
 
@@ -42,42 +44,50 @@ GENERIC = junit.dialect_for(None)
 MACHINE = budgets.Machine("m-approved0001", "Linux x86_64", "python 3.12.4")
 
 
-def profile(**evidence: object) -> dict[str, Any]:
+def profile(
+    skips: tuple[tuple[str, str], ...] = (), **evidence: object
+) -> dict[str, Any]:
+    """Settings for the evidence checks; ``skips`` are (test id, reason) skip approvals."""
     return {
-        "adapters": [
-            {
-                "name": "pytest_like",
-                "tiers": {
-                    "t1": {"selector": "unit", "location": "tests/unit"},
-                    "t2": {"selector": "flow", "location": "tests/flow"},
-                    "t3": {"selector": "explore", "location": "tests/explore"},
-                },
-            }
-        ],
-        "tiers": {
-            "t1": {"command": "run t1"},
-            "t2": {"command": "run t2"},
-            "t3": {"command": "run t3"},
-        },
-        "layout": {
-            "support_dir": "tests/support",
-            "fixtures_dir": "tests/data",
-            "test_file_patterns": ["test_*.py"],
-        },
-        "fast_tier_budget": {
-            "duration_report_command": "run t1 --durations",
-            "machines": [
+        "tests": {
+            "adapters": [
                 {
-                    "id": MACHINE.id,
-                    "platform": MACHINE.platform,
-                    "runtime": MACHINE.runtime,
-                    "wall_limit_s": 2.0,
-                    "per_test_limit_s": 0.5,
-                    "approval": "owner approval 2026-11-01",
+                    "name": "pytest_like",
+                    "tiers": {
+                        "t1": {"selector": "unit", "location": "tests/unit"},
+                        "t2": {"selector": "flow", "location": "tests/flow"},
+                        "t3": {"selector": "explore", "location": "tests/explore"},
+                    },
                 }
             ],
+            "tiers": {
+                "t1": {"command": "run t1"},
+                "t2": {"command": "run t2"},
+                "t3": {"command": "run t3"},
+            },
+            "layout": {
+                "support_dir": "tests/support",
+                "fixtures_dir": "tests/data",
+                "test_file_patterns": ["test_*.py"],
+            },
+            "fast_tier_budget": {
+                "duration_report_command": "run t1 --durations",
+                "machines": [
+                    {
+                        "id": MACHINE.id,
+                        "platform": MACHINE.platform,
+                        "runtime": MACHINE.runtime,
+                        "wall_limit_s": 2.0,
+                        "per_test_limit_s": 0.5,
+                    }
+                ],
+            },
         },
-        "guardrails": {"test_evidence": evidence},
+        "checkers": {"test_evidence": evidence},
+        "approvals": [
+            approval("budget", MACHINE.id, "owner approval 2026-11-01"),
+            *(approval("skip", test_id, reason) for test_id, reason in skips),
+        ],
     }
 
 
@@ -216,12 +226,9 @@ class MachineProbeTests(unittest.TestCase):
 
 class BudgetTests(unittest.TestCase):
     def evaluate(
-        self,
-        report: junit.Report,
-        machine: budgets.Machine = MACHINE,
-        **evidence: object,
+        self, report: junit.Report, machine: budgets.Machine = MACHINE
     ) -> budgets.BudgetResult:
-        return budgets.evaluate(report, profile(**evidence), REVISION, machine)
+        return budgets.evaluate(report, profile(), REVISION, machine)
 
     def test_an_approved_machine_within_limits_passes(self) -> None:
         result = self.evaluate(fixture("pytest-clean.xml"))
@@ -252,7 +259,7 @@ class BudgetTests(unittest.TestCase):
 
     def test_a_machine_without_approval_is_report_only(self) -> None:
         unapproved = profile()
-        unapproved["fast_tier_budget"]["machines"][0]["approval"] = ""
+        unapproved["approvals"] = []
         report = edited("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
         result = budgets.evaluate(report, unapproved, REVISION, MACHINE)
         assert result.findings == []
@@ -308,9 +315,8 @@ class RepoTestCase(unittest.TestCase):
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-evidence-")
         self.addCleanup(scratch.cleanup)
         self.repo = Path(scratch.name).resolve() / "repo"
-        self.record = Path(scratch.name).resolve() / "record"
         self.repo.mkdir()
-        self.record.mkdir()
+        run_text(["git", "init", "-q", str(self.repo)], check=True, timeout=60)
 
     def write(self, relative: str, text: str) -> Path:
         path = self.repo / relative
@@ -319,8 +325,9 @@ class RepoTestCase(unittest.TestCase):
         return path
 
     def write_profile(self, values: dict[str, Any]) -> None:
-        text = f"---\n{json.dumps(values)}\n---\n# Repo test profile\n"
-        (self.record / "profile.md").write_text(text)
+        """The repo config validates installed adapters only: pytest stands in for pytest_like."""
+        sections = json.loads(json.dumps(values).replace('"pytest_like"', '"pytest"'))
+        write_config(self.repo, config(**sections))
 
     def copy_fixture(self, name: str, old: str = "", new: str = "") -> str:
         self.write(
@@ -334,42 +341,9 @@ class RepoTestCase(unittest.TestCase):
     def cli(self, *argv: str) -> tuple[int, str, str]:
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            location = ["--repo", str(self.repo), "--record", str(self.record)]
+            location = ["--repo", str(self.repo)]
             code = cli.main([argv[0], *location, *argv[1:]])
         return code, out.getvalue(), err.getvalue()
-
-
-class BudgetCommandTests(RepoTestCase):
-    def test_report_check_never_reads_test_timing(self) -> None:
-        self.write_profile(
-            profile(dialect={"source_suffix": ".py", "xfail_markers": ["pytest.xfail"]})
-        )
-        report = self.copy_fixture("pytest-clean.xml", 'value="1.400"', 'value="9.000"')
-        code, out, err = self.cli(
-            "report-check", "--junit", report, "--revision", "stale"
-        )
-        assert (code, out.strip(), err) == (0, "report-check: ok", "")
-
-    def test_each_check_blocks_a_missing_report_with_its_own_rule(self) -> None:
-        self.write_profile(profile())
-        for subcommand, rule in (
-            ("report-check", "TEST.failure-propagation"),
-            ("budget-check", "TEST.budget.fast-tier-time"),
-        ):
-            with self.subTest(subcommand=subcommand):
-                code, out, _ = self.cli(subcommand, "--junit", "reports/absent.xml")
-                assert code == 1
-                assert rule in out
-                assert (
-                    "TEST.failure-propagation"
-                    if rule != "TEST.failure-propagation"
-                    else "TEST.budget"
-                ) not in out
-
-    def test_budgets_skip_reports_of_slower_tiers(self) -> None:
-        report = self.copy_fixture("pytest-clean.xml", 'value="t1"', 'value="t2"')
-        argv = ["--junit", report, "--revision", "stale"]
-        assert budgets.run(self.repo, profile(), argv) == []
 
 
 class TierCollectionTests(unittest.TestCase):
@@ -383,7 +357,10 @@ class TierCollectionTests(unittest.TestCase):
             for item in collection.collection_findings(lists, profile(), [])
         ] == ["tier t3 has no collect-only list"]
         exempt = profile()
-        exempt["tiers"]["t3"] = {"none": "no exploratory suites", "approval": "ADR-9"}
+        exempt["tests"]["tiers"]["t3"] = {"none": True}
+        exempt["approvals"].append(
+            approval("exemption", "tiers.t3", "no exploratory suites (ADR-9)")
+        )
         assert collection.collection_findings(lists, exempt, []) == []
 
 
@@ -429,16 +406,10 @@ class PropagationTests(unittest.TestCase):
 
     def test_approved_skips_pass_and_incomplete_approvals_do_not(self) -> None:
         report = fixture("pytest-mixed.xml")
-        entry = {
-            "id": "tests/test_parser.py::test_unicode",
-            "reason": "locale absent in CI",
-            "approval": "ADR-12",
-        }
-        accepted = propagation.evaluate(report, profile(approved_skips=[entry]), None)
+        skip = ("tests/test_parser.py::test_unicode", "locale absent in CI (ADR-12)")
+        accepted = propagation.evaluate(report, profile(skips=(skip,)), None)
         assert not any("test_unicode" in item.message for item in accepted)
-        refused = propagation.evaluate(
-            report, profile(approved_skips=[{**entry, "approval": " "}]), None
-        )
+        refused = propagation.evaluate(report, profile(skips=((skip[0], " "),)), None)
         assert any("test_unicode" in item.message for item in refused)
 
     def test_truncated_reports_are_refused(self) -> None:

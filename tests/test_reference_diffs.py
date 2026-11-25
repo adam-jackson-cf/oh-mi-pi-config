@@ -17,10 +17,16 @@ from typing import Any
 from guardrails.host.process import run_text
 
 sys.path.insert(
-    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/dynaflows/engine")
+    0, str(Path(__file__).resolve().parents[1] / "agent/extensions/agent-rails/engine")
 )
 
 import pytest
+from test_agentrails_fixture import (
+    approval,
+    config,
+    exception as agentrails_exception,
+    write_config,
+)
 
 from guardrails.commands import cli
 from guardrails.commands.adapters import affected
@@ -35,7 +41,7 @@ from guardrails.commands.diffs import (
 pytestmark = pytest.mark.seam
 
 ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = ROOT / "agent/extensions/dynaflows/engine"
+REFERENCE = ROOT / "agent/extensions/agent-rails/engine"
 
 GIT_ENV = {
     "GIT_AUTHOR_NAME": "Fixture",
@@ -54,9 +60,7 @@ class FixtureRepo:
         scratch = tempfile.TemporaryDirectory(prefix="omp-reference-diffs-")
         test.addCleanup(scratch.cleanup)
         self.path = Path(scratch.name).resolve() / "repo"
-        self.record = Path(scratch.name).resolve() / "record"
         self.path.mkdir()
-        self.record.mkdir()
         self.git("init", "-q", "-b", "main")
 
     def git(self, *args: str) -> str:
@@ -69,11 +73,9 @@ class FixtureRepo:
     def commit(
         self, files: Mapping[str, str | None], profile: dict[str, Any] | None = None
     ) -> str:
-        """Commit ``files``; ``profile`` goes to the record, which is never in the repo."""
+        """Commit ``files``; ``profile`` sections go to the git-excluded repo config."""
         if profile is not None:
-            (self.record / "profile.md").write_text(
-                profile_text(profile), encoding="utf-8"
-            )
+            write_config(self.path, config(**profile))
         for name, text in files.items():
             target = self.path / name
             if text is None:
@@ -86,32 +88,31 @@ class FixtureRepo:
         return self.git("rev-parse", "HEAD")
 
 
-def profile_text(profile: dict[str, Any]) -> str:
-    return f"---\n{json.dumps(profile, indent=2)}\n---\n\n# Repo test profile\n"
-
-
 def rules(findings: list[Any]) -> list[tuple[str, str]]:
     return sorted((finding.rule_id, finding.path) for finding in findings)
 
 
 BASE_PROFILE: dict[str, Any] = {
-    "coverage": {"line_floor": 90, "branch_floor": 80},
-    "layout": {
-        "support_dir": "tests/support",
-        "fixtures_dir": "tests/fixtures",
-        "test_file_patterns": ["test_*.py"],
+    "tests": {
+        "coverage": {"line_floor": 90, "branch_floor": 80},
+        "layout": {
+            "support_dir": "tests/support",
+            "fixtures_dir": "tests/fixtures",
+            "test_file_patterns": ["test_*.py"],
+        },
+        "adapters": [
+            {
+                "name": "pytest",
+                "tiers": {
+                    "t1": {"location": "tests/unit", "selector": "fast"},
+                    "t2": {"location": "tests/journeys", "selector": "journey"},
+                    "t3": {"location": "tests/journeys", "selector": "scheduled"},
+                },
+            }
+        ],
+        "identity_artefacts": {"migrations/*.sql": "never edit an applied migration"},
     },
-    "adapters": [
-        {
-            "name": "pytest",
-            "tiers": {
-                "t1": {"location": "tests/unit"},
-                "t2": {"location": "tests/journeys"},
-            },
-        }
-    ],
-    "identity_artefacts": {"migrations/*.sql": "never edit an applied migration"},
-    "guardrails": {
+    "checkers": {
         "golden_record": {
             "globs": ["tests/fixtures/golden/*"],
             "change_record": "docs/golden-changes.md",
@@ -181,9 +182,7 @@ class CoverageRatchetTests(unittest.TestCase):
 
     def test_deleted_config_file_with_new_approval_passes(self) -> None:
         approved = json.loads(json.dumps(BASE_PROFILE))
-        approved["guardrails"]["coverage_ratchet"] = {
-            "approvals": [{"path": ".coveragerc", "approval": "ADR-13"}]
-        }
+        approved["approvals"] = [approval("ratchet", ".coveragerc", "ADR-13")]
         self.repo.commit({".coveragerc": None}, approved)
         assert self.check(approved) == []
 
@@ -222,15 +221,13 @@ class CoverageRatchetTests(unittest.TestCase):
 
     def test_record_floors_are_owner_config_outside_the_diff(self) -> None:
         lowered = json.loads(json.dumps(BASE_PROFILE))
-        lowered["coverage"]["branch_floor"] = 60
+        lowered["tests"]["coverage"]["branch_floor"] = 60
         self.repo.commit({}, lowered)
         assert self.check(lowered) == []
 
     def test_record_approval_clears_the_finding(self) -> None:
         approved = json.loads(json.dumps(BASE_PROFILE))
-        approved["guardrails"]["coverage_ratchet"] = {
-            "approvals": [{"path": "src/app.py", "approval": "ADR-12"}]
-        }
+        approved["approvals"] = [approval("ratchet", "src/app.py", "ADR-12")]
         self.repo.commit(
             {"src/app.py": "def run():  # pragma: no cover\n    return 1\n"}, approved
         )
@@ -238,9 +235,7 @@ class CoverageRatchetTests(unittest.TestCase):
 
     def test_approval_for_another_path_does_not_count(self) -> None:
         approved = json.loads(json.dumps(BASE_PROFILE))
-        approved["guardrails"]["coverage_ratchet"] = {
-            "approvals": [{"path": "lib/*", "approval": "ADR-12"}]
-        }
+        approved["approvals"] = [approval("ratchet", "lib/*", "ADR-12")]
         self.repo.commit({
             "src/app.py": "def run():  # pragma: no cover\n    return 1\n"
         })
@@ -249,7 +244,7 @@ class CoverageRatchetTests(unittest.TestCase):
 
     def test_placeholder_approval_does_not_count(self) -> None:
         approved = json.loads(json.dumps(BASE_PROFILE))
-        approved["guardrails"]["coverage_ratchet"] = {
+        approved["checkers"]["coverage_ratchet"] = {
             "approvals": [{"path": "src/app.py", "approval": "<approval reference>"}]
         }
         self.repo.commit(
@@ -333,10 +328,12 @@ class GoldenRecordTests(unittest.TestCase):
 
     def test_globs_without_change_record_is_a_profile_finding(self) -> None:
         profile = {
-            "guardrails": {"golden_record": {"globs": ["tests/fixtures/golden/*"]}}
+            "checkers": {"golden_record": {"globs": ["tests/fixtures/golden/*"]}}
         }
         findings = golden_record.run(self.repo.path, profile, ["--base", self.base])
-        assert rules(findings) == [("TEST.golden-change-record", "record:profile.md")]
+        assert rules(findings) == [
+            ("TEST.golden-change-record", ".agentrails/config.json#checkers")
+        ]
 
 
 class IdentityArtefactTests(unittest.TestCase):
@@ -380,7 +377,13 @@ class IdentityArtefactTests(unittest.TestCase):
     def test_approved_exemption_disables_the_rule(self) -> None:
         exempt = {
             **BASE_PROFILE,
-            "identity_artefacts": {"none": "no ids", "approval": "ADR-3"},
+            "tests": {
+                **BASE_PROFILE.get("tests", {}),
+                "identity_artefacts": {"none": True},
+            },
+            "approvals": [
+                approval("exemption", "identity_artefacts", "no ids (ADR-3)")
+            ],
         }
         self.repo.commit({"migrations/001_init.sql": "changed\n"})
         assert self.check(exempt) == []
@@ -418,8 +421,14 @@ class TimeoutIncreaseTests(unittest.TestCase):
         assert "raises timeout 'timeout' from 5 to 30" in findings[0].message
 
     def test_raised_object_style_timeout_is_reported(self) -> None:
-        layout = {**BASE_PROFILE["layout"], "test_file_patterns": ["*.test.ts"]}
-        profile = {**BASE_PROFILE, "layout": layout}
+        layout = {
+            **BASE_PROFILE["tests"]["layout"],
+            "test_file_patterns": ["*.test.ts"],
+        }
+        profile = {
+            **BASE_PROFILE,
+            "tests": {**BASE_PROFILE.get("tests", {}), "layout": layout},
+        }
         self.repo.commit({
             "tests/unit/sync.test.ts": "it('syncs', async () => {}, { timeout: 9000 });\n"
         })
@@ -445,41 +454,45 @@ class TimeoutIncreaseTests(unittest.TestCase):
                 "    subprocess.run(['sync'], timeout=30, check=True)\n"
             )
         })
-        exception = {
-            "rule": "TEST.no-evasion",
-            "path": "tests/unit/test_sync.py",
-            "reason": "Owner-approved external sync deadline",
-        }
-        waived = {**BASE_PROFILE, "guardrails": {"exceptions": [exception]}}
+        exception = agentrails_exception(
+            "TEST.no-evasion",
+            "tests/unit/test_sync.py",
+            "Owner-approved external sync deadline",
+        )
+        waived = {**BASE_PROFILE, "exceptions": [exception]}
         assert self.check(waived) == []
 
 
 AFFECTED_PROFILE: dict[str, Any] = {
     **BASE_PROFILE,
-    "adapters": [
-        {
-            "name": "pytest",
-            "tiers": {
-                "t1": {"location": "tests/unit"},
-                "t2": {"location": "tests/boundary", "selector": "boundary"},
-            },
-        }
-    ],
-    "coverage": {"scope": ["src/shop"], "line_floor": 90, "branch_floor": 80},
-    "verification_surface": {"journey_file_pattern": "journeys/*.journey.py"},
-    "ownership_areas": {
-        "map": {
-            "tests/boundary/test_cart_*.py": "cart",
-            "tests/boundary/test_billing_*.py": "billing",
-            "journeys/checkout.journey.py": "cart",
-            "journeys/invoice.journey.py": "billing",
-        }
+    "tests": {
+        **BASE_PROFILE.get("tests", {}),
+        "adapters": [
+            {
+                "name": "pytest",
+                "tiers": {
+                    "t1": {"location": "tests/unit", "selector": "fast"},
+                    "t2": {"location": "tests/boundary", "selector": "boundary"},
+                    "t3": {"location": "tests/boundary", "selector": "scheduled"},
+                },
+            }
+        ],
+        "coverage": {"scope": ["src/shop"], "line_floor": 90, "branch_floor": 80},
+        "verification_surface": {"journey_file_pattern": "journeys/*.journey.py"},
     },
     "structure": {
         "owners": {
             "files": {"src/shop/pricing.py": "billing"},
             "directories": {"src/shop/": "cart", "src/shop/billing/": "billing"},
-        }
+        },
+        "ownership_areas": {
+            "map": {
+                "tests/boundary/test_cart_*.py": "cart",
+                "tests/boundary/test_billing_*.py": "billing",
+                "journeys/checkout.journey.py": "cart",
+                "journeys/invoice.journey.py": "billing",
+            }
+        },
     },
 }
 AFFECTED_FILES = {
@@ -534,7 +547,7 @@ class AffectedSelectionTests(unittest.TestCase):
 
     def test_cli_and_adapter_print_the_selection(self) -> None:
         self.repo.commit({"src/shop/cart.py": "x = 2\n"})
-        location = ["--repo", str(self.repo.path), "--record", str(self.repo.record)]
+        location = ["--repo", str(self.repo.path)]
         args = [*location, "pytest", "affected", "--base", self.base]
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -667,24 +680,35 @@ class TestGrowthTests(unittest.TestCase):
         self.repo.commit({"tests/unit/test_cart.py": CART_TEST + "\n"})
         profile = {
             **BASE_PROFILE,
-            "adapters": [
-                {"name": "uninstalled_adapter", "tiers": {"t1": {"location": "tests"}}}
-            ],
+            "tests": {
+                **BASE_PROFILE.get("tests", {}),
+                "adapters": [
+                    {
+                        "name": "uninstalled_adapter",
+                        "tiers": {"t1": {"location": "tests"}},
+                    }
+                ],
+            },
         }
         findings = self.check(profile)
-        assert rules(findings) == [("TEST.growth.justified", "record:profile.md")]
+        assert rules(findings) == [
+            ("TEST.growth.justified", ".agentrails/config.json#tests")
+        ]
 
     def test_each_changed_test_file_is_collected_by_its_own_framework(self) -> None:
         profile = {
             **BASE_PROFILE,
-            "layout": {
-                **BASE_PROFILE["layout"],
-                "test_file_patterns": ["test_*.py", "*.test.ts"],
+            "tests": {
+                **BASE_PROFILE.get("tests", {}),
+                "layout": {
+                    **BASE_PROFILE["tests"]["layout"],
+                    "test_file_patterns": ["test_*.py", "*.test.ts"],
+                },
+                "adapters": [
+                    {"name": "pytest", "tiers": {"t1": {"location": "tests/unit"}}},
+                    {"name": "bun_test", "tiers": {"t1": {"location": "tests/unit"}}},
+                ],
             },
-            "adapters": [
-                {"name": "pytest", "tiers": {"t1": {"location": "tests/unit"}}},
-                {"name": "bun_test", "tiers": {"t1": {"location": "tests/unit"}}},
-            ],
         }
         self.repo.commit({
             "tests/unit/test_cart.py": CART_TEST + "\n" + SUMMED.format(comment=""),
@@ -707,7 +731,7 @@ class DiffCheckCliTests(unittest.TestCase):
             "src/app.py": "x = 1  # pragma: no cover\n",
         })
         with unittest.mock.patch("sys.stdout") as stdout:
-            location = ["--repo", str(repo.path), "--record", str(repo.record)]
+            location = ["--repo", str(repo.path)]
             code = cli.main(["diff-check", *location, "--base", base])
         printed = "".join(call.args[0] for call in stdout.write.call_args_list)
         assert code == 1

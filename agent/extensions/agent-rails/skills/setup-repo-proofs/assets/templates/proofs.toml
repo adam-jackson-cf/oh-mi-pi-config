@@ -1,0 +1,169 @@
+# proofs.toml: the repository's verification claims and the settings no native tool config holds.
+# The repo owns this file at its root. Paths are repo-relative. Commands are argv arrays.
+# Settings a tool, test runner, hook manager, CI workflow, package manifest or CODEOWNERS already holds stay there.
+# This example parses as written; replace every example value with the target's own, and delete these comments when shipping
+# the file (CODE.no-comments).
+
+schema = 1
+
+# Rollout scope: "whole"; "changed" with base_ref; or "paths" with repo-relative paths.
+[scope]
+mode = "whole"
+
+# The validator's own CI job; required when any claim names a ci point. Host protection requires this status
+# (GATE.self-check, GIT.required-checks). A repo without CI omits it and records GATE.self-check as unenforced.
+[validator]
+status = "proofs"
+file = ".github/workflows/proofs.yml"
+ref = "validate_rule_coverage.py --root ."
+
+# Proves the hook manager is installed in this clone. Required when any claim names a hook point.
+[hooks]
+check = ["git", "config", "--get", "core.hooksPath"]
+expect = ".githooks"
+
+# One claim per control. `rules` names catalogue IDs; a trailing `*` matches a family.
+[[claim]]
+id = "lint.python"
+rules = ["RUFF.*", "MYPY.*"]
+control = ["pyproject.toml"]
+
+# A deterministic point that runs the control and blocks on failure.
+# `ref` is the text in `file` that invokes the control.
+[[claim.enforced_by]]
+point = "hook"
+file = ".githooks/pre-commit"
+ref = "make check"
+
+# A CI point blocks only through its status, which host protection requires.
+[[claim.enforced_by]]
+point = "ci"
+file = ".github/workflows/gate.yml"
+ref = "make check"
+status = "gate"
+
+# One or more canaries, each run through the enforcement entrypoint: passing exits 0; violating exits nonzero and prints
+# `expect`, the exact text the pinned tool version prints. A tool claim needs one; a repo checker needs one per bespoke rule
+# it enforces, naming it in `rule` (checked with --catalog).
+[[claim.canary]]
+command = ["make", "check", "FILES={fixture}"]
+passing = "tests/canaries/lint/compliant.py"
+violating = "tests/canaries/lint/violating.py"
+expect = "F401"
+timeout_seconds = 60
+
+[[claim]]
+id = "structure.paths"
+rules = ["STRUCT.dependency-direction", "STRUCT.folder-placement"]
+control = ["tools/check_structure.py"]
+
+[[claim.enforced_by]]
+point = "hook"
+file = ".githooks/pre-commit"
+ref = "make check"
+
+[[claim.enforced_by]]
+point = "ci"
+file = ".github/workflows/gate.yml"
+ref = "make check"
+status = "gate"
+
+[[claim.canary]]
+command = ["make", "check", "FILES={fixture}"]
+passing = "tests/canaries/structure/compliant"
+violating = "tests/canaries/structure/reversed-import"
+expect = "STRUCT.dependency-direction"
+rule = "STRUCT.dependency-direction"
+
+[[claim.canary]]
+command = ["make", "check", "FILES={fixture}"]
+passing = "tests/canaries/structure/compliant"
+violating = "tests/canaries/structure/misplaced-file"
+expect = "STRUCT.folder-placement"
+rule = "STRUCT.folder-placement"
+
+# The validator's own claim: its CI job enforces GATE.*; the canaries are fixture repositories with a bound and an unbound claim.
+# Each fixture is a complete repository the validator accepts on its own: a proofs.toml with [validator], [hooks] when a claim
+# names a hook point, and at least one claim with its control, enforced_by and [[claim.canary]] files present; the unbound
+# fixture differs only in an enforced_by ref its file lacks.
+[[claim]]
+id = "proofs.validator"
+rules = ["GATE.*"]
+control = ["tools/validate_rule_coverage.py"]
+
+[[claim.enforced_by]]
+point = "ci"
+file = ".github/workflows/proofs.yml"
+ref = "validate_rule_coverage.py --root ."
+status = "proofs"
+
+[[claim.canary]]
+command = ["python3", "tools/validate_rule_coverage.py", "--root", "{fixture}"]
+passing = "tests/canaries/proofs/bound"
+violating = "tests/canaries/proofs/unbound"
+expect = "lacks ref"
+
+# A host claim: the setting enforces; the live query proves it (--live-host-query).
+[[claim]]
+id = "host.required-checks"
+rules = ["GIT.required-checks"]
+
+[claim.host]
+command = ["gh", "api", "repos/example/shop/branches/main/protection"]
+expect = ["\"gate\"", "\"proofs\""]
+
+# Owner-approved exclusion of a conditional rule. `evidence` proves the construct is absent: `absent` globs that
+# `git ls-files` must not match; `path` and `contains` for what a file declares; or `command` and `expect`, a read-only
+# probe run on every validation (add `host = true` when it queries the host; it then runs with --live-host-query).
+[[not_applicable]]
+rule = "TSC.*"
+reason = "No TypeScript sources."
+approved_by = "owner, 2026-11-20"
+evidence = { absent = ["*.ts", "*.tsx", "*.mts", "*.cts"] }
+
+# Owner-approved exception for a repo checker. Third-party tool suppressions stay in the tool's config.
+[[exception]]
+rule = "STRUCT.folder-placement"
+path = "legacy/**"
+reason = "Pre-existing layout; the owner chose a changed-paths rollout."
+approved_by = "owner, 2026-11-20"
+
+# Settings with no native home, read only by the repo checker named in the comment.
+
+# tools/check_structure.py: STRUCT.*, and NAME.conventions and TEST.placement when it owns them.
+[structure]
+tiers = ["shop/core", "shop/service", "shop/cli"]
+import_package = "shop"
+source_root = "src"
+
+[structure.owners]
+"src/shop/billing/" = "billing"
+"src/shop/catalog/" = "catalog"
+
+[structure.ownership_areas]
+"tests/billing/*" = "billing"
+
+# Test and support layout: TEST.placement, NAME.test-files, CODE.no-product-mocks.
+[layout]
+support_dir = "tests/support"
+fixtures_dir = "tests/fixtures"
+test_file_patterns = ["tests/**/test_*.py"]
+
+# TEST.budget.*: owner-approved limits per machine.
+[[test_budget.machine]]
+id = "darwin-arm64-apple-m3-python3.12"
+wall_limit_s = 30
+per_test_limit_s = 1
+approval = "owner, 2026-11-20"
+
+# PYQ201: the owner-approved limit; unset blocks until Step 5 approves one.
+[python_quality]
+max_public_methods = 20
+
+# SURFACE.* when the product is runnable; TEST.identity-artefacts when identity-bearing files exist.
+# [surface]
+# lever_command = ["make", "lever"]
+# feature_map_path = "docs/features"
+# journey_file_pattern = "tests/journeys/*.py"
+# [identity_artefacts]
+# "data/schema.sql" = "test-only work never changes it"

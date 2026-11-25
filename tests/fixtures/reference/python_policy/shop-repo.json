@@ -1,76 +1,41 @@
 {
-  "profile": {
-    "public_entry_points": {
-      "shop": "shop.cli:main"
+  "config": {
+    "tests": {
+      "public_entry_points": {
+        "shop": "shop.cli:main"
+      }
     },
-    "guardrails": {
+    "checkers": {
       "python": {
-        "maintained_roots": [
-          "src/shop",
-          "scripts",
-          "tests",
-          ".agents/skills"
-        ],
-        "source_roots": [
-          "src"
-        ],
-        "script_roots": [
-          "scripts"
-        ],
-        "script_names": [
-          "build-catalogue.py"
-        ],
-        "test_roots": [
-          "tests"
-        ],
+        "maintained_roots": ["src/shop", "scripts", "tests", ".agents/skills"],
+        "source_roots": ["src"],
+        "script_roots": ["scripts"],
+        "script_names": ["build-catalogue.py"],
+        "test_roots": ["tests"],
         "test_groups": {
-          "behaviour": [
-            "tests/test_*.py"
-          ],
-          "support": [
-            "tests/support/*.py"
-          ]
+          "behaviour": ["tests/test_*.py"],
+          "support": ["tests/support/*.py"]
         },
-        "test_root_files": [
-          "tests/conftest.py"
-        ],
-        "skill_roots": [
-          ".agents/skills"
-        ],
+        "test_root_files": ["tests/conftest.py"],
+        "skill_roots": [".agents/skills"],
         "subprocess_wrappers": {
-          "src/shop/process.py": [
-            "run_tool"
-          ],
-          "scripts/build-catalogue.py": [
-            "main"
-          ]
+          "src/shop/process.py": ["run_tool"],
+          "scripts/build-catalogue.py": ["main"]
         },
-        "dynamic_import_adapters": [
-          "src/shop/plugins.py"
-        ],
-        "contract_files": [
-          "src/shop/contracts.py"
-        ],
+        "dynamic_import_adapters": ["src/shop/plugins.py"],
+        "contract_files": ["src/shop/contracts.py"],
         "contract_data_annotations": {
           "src/shop/contracts.py": {
             "price.raw": "Any"
           }
         },
-        "analyzer_roots": [
-          "src/shop/analysis"
-        ],
-        "analyzer_bases": [
-          "AnalyzerBase"
-        ],
+        "analyzer_roots": ["src/shop/analysis"],
+        "analyzer_bases": ["AnalyzerBase"],
         "analyzer_entrypoints": {
           "AnalyzerBase": "analyse_project"
         },
-        "analyzer_like_roots": [
-          "src/shop/analysis"
-        ],
-        "ownership_markers": [
-          "src/shop/analysis/OWNERS.md"
-        ]
+        "analyzer_like_roots": ["src/shop/analysis"],
+        "ownership_markers": ["src/shop/analysis/OWNERS.md"]
       }
     }
   },
@@ -371,12 +336,10 @@
     {
       "checker": "scalability",
       "rule": "PYS253",
-      "path": "record:profile.md",
+      "path": ".agentrails/config.json#checkers",
       "files": {},
       "settings": {
-        "ownership_markers": [
-          "src/shop/analysis/MISSING.md"
-        ]
+        "ownership_markers": ["src/shop/analysis/MISSING.md"]
       },
       "note": ""
     },
@@ -410,7 +373,7 @@
     {
       "checker": "fanout",
       "rule": "FANOUT.general",
-      "path": "record:profile.md",
+      "path": ".agentrails/config.json#checkers",
       "files": {},
       "settings": {
         "source_roots": []

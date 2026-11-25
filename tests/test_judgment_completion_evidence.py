@@ -14,8 +14,10 @@ import pytest
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-JUDGMENT = ROOT / "agent/extensions/dynaflows/judgments/completion-evidence"
-TUNER = ROOT / "agent/skills/jev-actions/scripts/tune_threshold.py"
+JUDGMENT = ROOT / "agent/extensions/agent-rails/judgments/completion-evidence"
+TUNER = (
+    ROOT / "agent/extensions/agent-rails/skills/jev-actions/scripts/tune_threshold.py"
+)
 QUESTION = "evidence_gap"
 OWNER_RULING = "owner ruling 2026-11-21: docs"
 

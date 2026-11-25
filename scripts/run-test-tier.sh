@@ -57,7 +57,7 @@ if [[ "$tier" == t2 ]] && command -v go >/dev/null; then
 fi
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
-preload="$repo_root/agent/extensions/dynaflows/engine/guardrails/commands/adapters/bun_test/preload.ts"
+preload="$repo_root/agent/extensions/agent-rails/engine/guardrails/commands/adapters/bun_test/preload.ts"
 
 run_bun() {
   local args=() file file_tier

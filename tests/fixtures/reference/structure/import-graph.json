@@ -1,7 +1,18 @@
 {
-  "profile": {
-    "structure": {"tiers": ["shared", "commands"], "import_direction": {"package": "acme.orders", "source_root": "src/orders"}},
-    "guardrails": {"structure": {"root_directories": ["src"], "root_files": []}}
+  "config": {
+    "checkers": {
+      "structure": {
+        "root_directories": ["src"],
+        "root_files": []
+      }
+    },
+    "structure": {
+      "tiers": ["shared", "commands"],
+      "import_direction": {
+        "package": "acme.orders",
+        "source_root": "src/orders"
+      }
+    }
   },
   "cases": [
     {

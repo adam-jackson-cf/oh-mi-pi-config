@@ -1,29 +1,82 @@
 {
-  "profile": {
-    "tiers": {
-      "t1": {"command": "make test-fast"},
-      "t2": {"command": "make test-boundary"},
-      "t3": {"command": "make test-nightly"}
-    },
-    "adapters": [
-      {
-        "name": "pytest",
-        "tiers": {
-          "t1": {"selector": "not boundary", "location": "tests/unit"},
-          "t2": {"selector": "boundary", "location": "tests/boundary"},
-          "t3": {"selector": "scheduled", "location": "tests/scheduled"}
+  "config": {
+    "tests": {
+      "tiers": {
+        "t1": {
+          "command": "make test-fast"
+        },
+        "t2": {
+          "command": "make test-boundary"
+        },
+        "t3": {
+          "command": "make test-nightly"
         }
+      },
+      "adapters": [
+        {
+          "name": "pytest",
+          "tiers": {
+            "t1": {
+              "selector": "not boundary",
+              "location": "tests/unit"
+            },
+            "t2": {
+              "selector": "boundary",
+              "location": "tests/boundary"
+            },
+            "t3": {
+              "selector": "scheduled",
+              "location": "tests/scheduled"
+            }
+          }
+        }
+      ],
+      "layout": {
+        "support_dir": "tests/support",
+        "fixtures_dir": "tests/fixtures",
+        "test_file_patterns": ["test_*.py"]
       }
-    ],
-    "ownership_areas": {
-      "map": {"tests/boundary/test_orders_*.py": "orders"},
-      "affected_t2_selection": "all"
     },
-    "layout": {
-      "support_dir": "tests/support",
-      "fixtures_dir": "tests/fixtures",
-      "test_file_patterns": ["test_*.py"]
+    "checkers": {
+      "structure": {
+        "root_directories": ["src", "tests", "lab", "docs"],
+        "root_files": ["README.md", "pyproject.toml"],
+        "areas": {
+          "lab": {
+            "directories": ["workflows"],
+            "files": []
+          }
+        },
+        "packages": [
+          {
+            "root": "src/orders",
+            "children": {
+              "contract": [],
+              "engine": ["stages"],
+              "cli": []
+            },
+            "max_depth": 2
+          }
+        ],
+        "instances": [
+          {
+            "root": "lab/workflows",
+            "depth": 2,
+            "marker": "workflow.yaml"
+          }
+        ],
+        "forbidden_imports": [
+          {
+            "root": "src/orders/contract",
+            "modules": ["requests"]
+          }
+        ]
+      },
+      "naming": {
+        "version_exempt": ["docs/"]
+      }
     },
+    "exceptions": [],
     "structure": {
       "owners": {
         "files": {
@@ -43,24 +96,19 @@
         }
       },
       "tiers": ["contract", "engine", "cli"],
-      "import_direction": {"package": "orders", "source_root": "src/orders"}
-    },
-    "house_style": {"version": 1},
-    "guardrails": {
-      "exceptions": [],
-      "structure": {
-        "root_directories": ["src", "tests", "lab", "docs"],
-        "root_files": ["README.md", "pyproject.toml"],
-        "areas": {"lab": {"directories": ["workflows"], "files": []}},
-        "packages": [
-          {"root": "src/orders", "children": {"contract": [], "engine": ["stages"], "cli": []}, "max_depth": 2}
-        ],
-        "instances": [{"root": "lab/workflows", "depth": 2, "marker": "workflow.yaml"}],
-        "forbidden_imports": [{"root": "src/orders/contract", "modules": ["requests"]}]
+      "import_direction": {
+        "package": "orders",
+        "source_root": "src/orders"
       },
-      "naming": {
-        "version_exempt": ["docs/"]
+      "ownership_areas": {
+        "map": {
+          "tests/boundary/test_orders_*.py": "orders"
+        },
+        "affected_t2_selection": "all"
       }
+    },
+    "houseStyle": {
+      "version": 1
     }
   },
   "files": {
