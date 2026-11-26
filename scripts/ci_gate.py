@@ -3,7 +3,7 @@
 
 The gate policy comes from the repo's agent-rails config, never from the checked-out tree: a
 NUC-local copy at <XDG_DATA_HOME or ~/.local/share>/ci-gate/configs/<owner>/<name>/config.json.
-The engine's repo_config validates it. Only a config with ci.enabled true and ci.runner "ci-gate"
+The engine's config validator validates it. Only a config with ci.enabled true and ci.runner "ci-gate"
 runs here: commands.ci is the offline gate, ci.requiredContext the status context, and
 commands.audit runs online after the devcontainer setup when gates.audit is true.
 
@@ -46,7 +46,7 @@ sys.path.insert(
         / "engine"
     ),
 )
-from guardrails.context.config import repo_config
+from guardrails.context.config import validator
 
 SELF = Path(__file__).resolve()
 
@@ -104,12 +104,12 @@ def load(path: Path) -> Any:
 def config_file(repo: str) -> Path:
     """The NUC-local agent-rails config of an allowlisted owner/name (lowercase path)."""
     owner, name = repo.lower().split("/")
-    return root("DATA") / "configs" / owner / name / repo_config.CONFIG_FILE
+    return root("DATA") / "configs" / owner / name / validator.CONFIG_FILE
 
 
 def checked_config(config: object, slug: str, where: Path) -> dict[str, Any]:
-    """The config when repo_config accepts it for slug; else RuntimeError naming its problems."""
-    problems = repo_config.validate(config, origin=slug)
+    """The config when the engine validator accepts it for slug; else RuntimeError naming its problems."""
+    problems = validator.validate(config, origin=slug)
     if problems:
         raise RuntimeError(
             f"Invalid agent-rails config {where}: {'; '.join(problems)}"
@@ -122,8 +122,8 @@ def repo_settings(repo: str) -> dict[str, Any]:
     """The allowlisted repo's agent-rails config, validated, that routes its CI to ci-gate."""
     path = config_file(repo)
     try:
-        config = repo_config.read_config(path)
-    except repo_config.ConfigError as error:
+        config = validator.read_config(path)
+    except validator.ConfigError as error:
         if error.kind == "missing":
             raise RuntimeError(
                 f"No agent-rails config for {repo} at {path}; run ci_gate.py config-import "
@@ -162,8 +162,8 @@ def audit_argv(settings: dict[str, Any]) -> list[str] | None:
 def config_import(source: Path) -> int:
     """Validate an exported config, check its slug is allowlisted and install it atomically."""
     try:
-        config = repo_config.read_config(source)
-    except repo_config.ConfigError as error:
+        config = validator.read_config(source)
+    except validator.ConfigError as error:
         raise RuntimeError(f"Cannot import {source}: {error}") from None
     repo = config.get("repo") if isinstance(config, dict) else None
     slug = repo.get("slug") if isinstance(repo, dict) else None

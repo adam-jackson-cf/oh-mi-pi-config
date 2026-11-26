@@ -6,29 +6,14 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters.contract import TIER_GUARDS, output_finding
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.dispatch import SUBCOMMANDS
+from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 NAME = "bun_test"
-TIER_GUARDS = {
-    "t1": ("fast-tier", "user-data"),
-    "t2": ("user-data",),
-    "t3": ("user-data",),
-}
 WRITING_ACTIONS = frozenset({"tiers", "junit-args", "mutation-report"})
-
-
-def output_finding(repo: Path, out: object) -> Finding | None:
-    target = Path(str(out)).expanduser()
-    target = (target if target.is_absolute() else repo / target).resolve()
-    if target.is_relative_to(repo.resolve()):
-        return Finding(
-            "GUARDRAILS.output-outside-repo",
-            str(out),
-            "adapter evidence must be outside the repository",
-            "choose an external temporary directory",
-        )
-    return None
+STRYKER_RUNNER = "command"
+STRYKER_COMMAND = "bun test"
 
 
 def parser() -> argparse.ArgumentParser:
@@ -97,30 +82,25 @@ def evidence_action(
 def affected_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
-    from guardrails.commands.adapters.affected import TierCommand, print_affected
-    from guardrails.commands.adapters.bun_test.cases import SUFFIXES
+    from guardrails.checker.affected import TierCommand, print_affected
     from guardrails.commands.adapters.bun_test.tiers import selector_arguments
+    from guardrails.commands.adapters.javascript import cases
 
     def t2_arguments(selector: object, paths: list[str]) -> list[str]:
         return [*selector_arguments(str(selector)), *paths]
 
-    command = TierCommand(NAME, SUFFIXES, t2_arguments)
+    command = TierCommand(NAME, cases.SUFFIXES, t2_arguments)
     return print_affected(repo, config, command, options.base, options.head)
 
 
 def mutation_tool_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
-    from guardrails.commands.adapters.bun_test.mutation import (
-        COMMAND,
-        RUNNER,
-        TOOL,
-        VERSION,
-    )
+    from guardrails.commands.adapters.javascript import stryker
 
     print(
-        f"{TOOL}@{VERSION} (testRunner {RUNNER!r}, commandRunner {COMMAND!r}, "
-        "coverageAnalysis 'off'; tier t3; JSON reporter)"
+        f"{stryker.TOOL}@{stryker.VERSION} (testRunner {STRYKER_RUNNER!r}, "
+        f"commandRunner {STRYKER_COMMAND!r}, coverageAnalysis 'off'; tier t3; JSON reporter)"
     )
     return []
 
@@ -128,15 +108,15 @@ def mutation_tool_action(
 def mutation_report_action(
     repo: Path, config: dict[str, Any], options: argparse.Namespace
 ) -> list[Finding]:
-    from guardrails.commands.adapters.bun_test.mutation import write_report
-    from guardrails.foundation.inventory import settings
+    from guardrails.commands.adapters.javascript import stryker
+    from guardrails.context.config.reader import checker_settings
 
     source = options.input or Path(
-        settings(config, "adapter_bun_test").get(
+        checker_settings(config, "adapter_bun_test").get(
             "mutation_report", "reports/mutation/mutation.json"
         )
     )
-    return write_report(repo, repo / source, options.out)
+    return stryker.write_report(repo, repo / source, options.out)
 
 
 def conformance_action(

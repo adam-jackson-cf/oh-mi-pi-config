@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from guardrails.toolkit.test_report.junit import Dialect
+from guardrails.test_report.junit import Dialect
 
-GUARDS_PROPERTY = "omp.guards"
 XFAIL_TYPE = "go.xfail"
 SKIP_TYPE = "go.skip"
 XFAIL_PREFIX = "xfail:"

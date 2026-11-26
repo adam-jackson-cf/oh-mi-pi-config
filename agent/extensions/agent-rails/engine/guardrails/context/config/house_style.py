@@ -1,31 +1,28 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from functools import cache
-from importlib import resources
+from pathlib import Path
 from typing import Any
 
+from guardrails.context.config.reader import config_exceptions
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import config_exceptions, matches
+from guardrails.foundation.inventory import matches
 
+DATA_FOLDER = Path(__file__).resolve().parents[3] / "data"
 DATA_FILE = "house-style.json"
 
 
 def data_bytes() -> bytes:
-    return resources.files("guardrails.data").joinpath(DATA_FILE).read_bytes()
+    return (DATA_FOLDER / DATA_FILE).read_bytes()
 
 
 @cache
 def load_house_style() -> dict[str, Any]:
     style: dict[str, Any] = json.loads(data_bytes())
     return style
-
-
-def digest() -> str:
-    return hashlib.sha256(data_bytes()).hexdigest()
 
 
 def stem(name: str) -> str:

@@ -12,8 +12,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from guardrails.commands.adapters.go.dialect import GUARDS_PROPERTY
-from guardrails.commands.adapters.go.guard import (
+from guardrails.commands.adapters.contract import TIER_GUARDS
+from guardrails.commands.adapters.go.packages import build_arguments, list_packages
+from guardrails.commands.adapters.go.report import (
+    FAILING,
+    convert,
+    read_stream,
+    write_junit,
+)
+from guardrails.commands.adapters.go.syscall_overlay import (
     ALLOWED_VARIABLE,
     GUARDS_VARIABLE,
     JOURNAL_VARIABLE,
@@ -21,31 +28,28 @@ from guardrails.commands.adapters.go.guard import (
     PROTECTED_VARIABLE,
     write_overlay,
 )
-from guardrails.commands.adapters.go.packages import build_arguments, list_packages
-from guardrails.commands.adapters.go.process import run_command
-from guardrails.commands.adapters.go.report import (
-    FAILING,
-    convert,
-    read_stream,
-    write_junit,
-)
-from guardrails.commands.adapters.go.source import (
+from guardrails.commands.adapters.go.toolchain import (
     NAME,
     SETTINGS,
-    SourceError,
+    ToolchainError,
     command,
+    options,
     package_patterns,
     selector_arguments,
 )
 from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.foundation.child_env import clean_environment, repo_environment
-from guardrails.foundation.inventory import as_list, settings
+from guardrails.foundation.inventory import as_list
+from guardrails.host.process import run_text
+from guardrails.test_report.junit import (
+    EXIT_CODE_PROPERTY,
+    GUARDS_PROPERTY,
+    REVISION_PROPERTY,
+    RUNTIME_PROPERTY,
+    TIER_PROPERTY,
+    WALL_PROPERTY,
+)
 
-TIER_GUARDS = {
-    "t1": ("fast-tier", "user-data"),
-    "t2": ("user-data",),
-    "t3": ("user-data",),
-}
 KEPT_GO_ENV = ("GOCACHE", "GOMODCACHE", "GOPATH", "GOENV")
 XDG_FOLDERS = {
     "XDG_CONFIG_HOME": "config",
@@ -56,28 +60,31 @@ XDG_FOLDERS = {
 
 
 def run_timeout(config: dict[str, Any]) -> float:
-    timeout = settings(config, SETTINGS).get("run_timeout_s", 1800)
+    timeout = options(config).get("run_timeout_s", 1800)
     if (
         isinstance(timeout, bool)
         or not isinstance(timeout, (int, float))
         or not math.isfinite(timeout)
         or timeout <= 0
     ):
-        raise SourceError(f"{SETTINGS}.run_timeout_s must be a positive finite number")
+        raise ToolchainError(
+            f"{SETTINGS}.run_timeout_s must be a positive finite number"
+        )
     return float(timeout)
 
 
 def go_environment(
     go: list[str], repo: Path, environment: Mapping[str, str]
 ) -> dict[str, str]:
-    result = run_command(
+    result = run_text(
         [*go, "env", "-json", "GOROOT", "GOVERSION", *KEPT_GO_ENV],
-        repo,
-        environment,
-        60,
+        cwd=repo,
+        env=environment,
+        timeout=60,
+        check=False,
     )
     if result.returncode:
-        raise SourceError(
+        raise ToolchainError(
             f"go env exited {result.returncode}: {result.stderr.strip()[-400:]}"
         )
     values = json.loads(result.stdout)
@@ -94,7 +101,13 @@ def path_variants(*paths: Path) -> str:
 
 
 def revision(repo: Path) -> str | None:
-    result = run_command(["git", "rev-parse", "HEAD"], repo, clean_environment(), 60)
+    result = run_text(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo,
+        env=clean_environment(),
+        timeout=60,
+        check=False,
+    )
     return result.stdout.strip() or None if result.returncode == 0 else None
 
 
@@ -128,7 +141,7 @@ def guarded_environment(
 def tier_selection(config: dict[str, Any], tier: str) -> tuple[list[str], list[str]]:
     spec = adapter_tiers(config, NAME).get(tier)
     if not isinstance(spec, dict) or not isinstance(spec.get("selector"), str):
-        raise SourceError(f"the go adapter needs a go test selector for tier {tier}")
+        raise ToolchainError(f"the go adapter needs a go test selector for tier {tier}")
     return selector_arguments(spec["selector"]), package_patterns(
         as_list(spec.get("location"))
     )
@@ -146,7 +159,7 @@ def guarded_test(
     invocation: Invocation, command_line: list[str], timeout: float
 ) -> tuple[subprocess.CompletedProcess[str], float, list[str]]:
     go_values = invocation.go_values
-    with tempfile.TemporaryDirectory(prefix="omp-go-run-") as folder:
+    with tempfile.TemporaryDirectory(prefix="guardrails-go-run-") as folder:
         scratch = Path(folder).resolve()
         overlay = write_overlay(Path(go_values["GOROOT"]), scratch / "overlay")
         guarded = guarded_environment(
@@ -154,11 +167,12 @@ def guarded_test(
         )
         toolchain = str(Path(go_values["GOROOT"]) / "bin" / "go")
         started = time.monotonic()
-        result = run_command(
+        result = run_text(
             [toolchain, "test", "-json", f"-overlay={overlay}", *command_line],
-            invocation.repo,
-            guarded,
-            timeout,
+            cwd=invocation.repo,
+            env=guarded,
+            timeout=timeout,
+            check=False,
         )
         wall = time.monotonic() - started
         journal = scratch / "journal.txt"
@@ -174,15 +188,15 @@ def run_properties(
     repo: Path, tier: str, go_values: dict[str, str], code: int, wall: float
 ) -> dict[str, str]:
     properties = {
-        "omp.tier": tier,
-        "omp.runtime": f"go {go_values['GOVERSION'].removeprefix('go')}",
-        "omp.wall_s": f"{wall:.3f}",
-        "omp.exit_code": str(code),
+        TIER_PROPERTY: tier,
+        RUNTIME_PROPERTY: f"go {go_values['GOVERSION'].removeprefix('go')}",
+        WALL_PROPERTY: f"{wall:.3f}",
+        EXIT_CODE_PROPERTY: str(code),
         GUARDS_PROPERTY: ",".join(TIER_GUARDS[tier]),
     }
     head = revision(repo)
     if head:
-        properties["omp.revision"] = head
+        properties[REVISION_PROPERTY] = head
     return properties
 
 

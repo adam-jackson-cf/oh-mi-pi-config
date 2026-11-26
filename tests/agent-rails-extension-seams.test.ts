@@ -255,7 +255,7 @@ describe("agent-rails extension", () => {
 		} finally { h.cleanup(); }
 	});
 
-	test("the default harness check is guardrails from the harness's own reference project", async () => {
+	test("the default harness check is guardrails from the harness's own engine project", async () => {
 		const h = harness({ guardrailsCommand: "default" });
 		try {
 			h.govern();

@@ -10,14 +10,15 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.commands.adapters.pytest.dialect import NAME
+from guardrails.commands.adapters.pytest.invocation import PLUGIN
 from guardrails.context.config.adapter_declarations import adapter_tiers
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding, config_label
-from guardrails.foundation.inventory import as_list, settings
+from guardrails.foundation.inventory import as_list
 from guardrails.host.process import run_text
 
 ENGINE_ROOT = Path(__file__).resolve().parents[4]
-PLUGIN = "guardrails.commands.adapters.pytest.plugin"
 SETTINGS = "adapter_pytest"
 NO_TESTS_COLLECTED = 5
 PROPAGATION = "TEST.failure-propagation"
@@ -41,7 +42,7 @@ def collect_command(locations: list[str], selector: str, out_file: Path) -> list
         "no:cacheprovider",
         "-p",
         PLUGIN,
-        f"--omp-collect-out={out_file}",
+        f"--guardrails-collect-out={out_file}",
         *selector_arguments(selector),
         "--",
         *locations,
@@ -67,12 +68,12 @@ def collect_tier(
                 PROPAGATION,
                 config_label("tests"),
                 f"the pytest adapter has no selector for tier {tier}",
-                "record it under adapters[].tiers",
+                f"set tests.adapters[].tiers.{tier}.selector in .agentrails/config.json",
             )
         ]
     locations = as_list(spec.get("location"))
-    timeout = settings(config, SETTINGS).get("collect_timeout_s")
-    with tempfile.TemporaryDirectory(prefix="omp-collect-") as scratch:
+    timeout = checker_settings(config, SETTINGS).get("collect_timeout_s")
+    with tempfile.TemporaryDirectory(prefix="guardrails-collect-") as scratch:
         listing = Path(scratch) / "ids.json"
         command = collect_command(locations, spec["selector"], listing)
         try:
@@ -124,7 +125,7 @@ def timeout_finding(tier: str, timeout: object) -> Finding:
         PROPAGATION,
         f"tiers.{tier}",
         f"tier {tier} collection exceeded collect_timeout_s={timeout}",
-        "make collection finish within the recorded limit",
+        f"make collection finish within checkers.{SETTINGS}.collect_timeout_s",
     )
 
 

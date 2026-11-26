@@ -3,28 +3,23 @@ from __future__ import annotations
 import ast
 import json
 from dataclasses import dataclass
-from importlib import resources
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
-from guardrails.context.config import adapter_declarations
 from guardrails.context.config.house_style import apply_exceptions
+from guardrails.context.config.reader import tests_settings
+from guardrails.context.config.suite_files import Suite, adapter_suite, in_suite
 from guardrails.foundation.findings import Finding, Remediation, remediation
-from guardrails.foundation.inventory import (
-    as_list,
-    matches_any,
-    name_matches,
-    tests_settings,
-)
 
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
 
-RULES_PACKAGE = "guardrails.commands.adapters.pytest"
-INLINED_RULES = frozenset({"no-test-hooks-environment.yml"})
+DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
+PATTERNS_FILE = "pytest-patterns.json"
+INLINED_PATTERNS = frozenset({"no-test-hooks-environment"})
 SKIPPED_PARTS = frozenset({
     ".git",
     ".venv",
@@ -37,7 +32,7 @@ SKIPPED_PARTS = frozenset({
 
 
 @dataclass(frozen=True)
-class Rule:
+class Pattern:
     name: str
     rule_id: str
     scope: str
@@ -47,21 +42,18 @@ class Rule:
     config: Config
 
 
-def load_rules() -> list[Rule]:
-    folder = resources.files(RULES_PACKAGE).joinpath("rules")
-    rules = []
-    for entry in sorted(folder.iterdir(), key=lambda item: item.name):
-        if not entry.name.endswith(".yml"):
-            continue
-        data = json.loads(entry.read_text(encoding="utf-8"))
+def load_patterns() -> list[Pattern]:
+    text = (DATA_FOLDER / PATTERNS_FILE).read_text(encoding="utf-8")
+    patterns = []
+    for data in json.loads(text):
         options: Config = {"rule": data["rule"]}
         if "constraints" in data:
             options["constraints"] = data["constraints"]
         if "utils" in data:
             options["utils"] = data["utils"]
-        rules.append(
-            Rule(
-                entry.name,
+        patterns.append(
+            Pattern(
+                data["name"],
                 data["id"],
                 data["scope"],
                 data.get("target"),
@@ -70,7 +62,7 @@ def load_rules() -> list[Rule]:
                 options,
             )
         )
-    return rules
+    return patterns
 
 
 def owned_packages(config: dict[str, Any]) -> frozenset[str]:
@@ -85,19 +77,8 @@ def owned_packages(config: dict[str, Any]) -> frozenset[str]:
     return frozenset(names)
 
 
-def test_patterns(config: dict[str, Any], name: str) -> tuple[list[str], list[str]]:
-    locations = adapter_declarations.locations(config, name)
-    layout = tests_settings(config, "layout")
-    patterns = (
-        as_list(layout.get("test_file_patterns")) if isinstance(layout, dict) else []
-    )
-    return locations, patterns
-
-
-def is_test_file(path: str, locations: list[str], patterns: list[str]) -> bool:
-    if PurePosixPath(path).name == "conftest.py" or matches_any(path, locations):
-        return True
-    return any(name_matches(path, pattern) for pattern in patterns)
+def is_pytest_test_file(path: str, suite: Suite) -> bool:
+    return PurePosixPath(path).name == "conftest.py" or in_suite(path, suite)
 
 
 def python_files(repo: Path, argv: list[str]) -> list[str]:
@@ -206,12 +187,8 @@ def owned_target(
     return None
 
 
-def waived(rule_id: str, path: str, config: dict[str, Any]) -> bool:
-    return not apply_exceptions([Finding(rule_id, path, "", "")], config)
-
-
 def file_findings(
-    path: str, source: str, rules: list[Rule], owned: frozenset[str]
+    path: str, source: str, patterns: list[Pattern], owned: frozenset[str]
 ) -> list[Finding]:
     from ast_grep_py import SgRoot
 
@@ -221,22 +198,23 @@ def file_findings(
     }
     imports = import_map(source)
     findings: list[Finding] = []
-    for rule in rules:
-        for match in roots[rule.name in INLINED_RULES].find_all(rule.config):
+    for pattern in patterns:
+        root = roots[pattern.name in INLINED_PATTERNS]
+        for match in root.find_all(pattern.config):
             target = None
-            if rule.target:
-                target = owned_target(match, rule.target, imports, owned)
+            if pattern.target:
+                target = owned_target(match, pattern.target, imports, owned)
                 if target is None:
                     continue
             line = match.range().start.line + 1
             snippet = " ".join(match.text().split())[:80]
-            message = rule.message.format(target=target, match=snippet)
+            message = pattern.message.format(target=target, match=snippet)
             findings.append(
                 Finding(
-                    rule.rule_id,
+                    pattern.rule_id,
                     path,
                     f"line {line}: {message}",
-                    rule.remediation.render(),
+                    pattern.remediation.render(),
                 )
             )
     return findings
@@ -244,15 +222,15 @@ def file_findings(
 
 def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
     owned = owned_packages(config)
-    locations, patterns = test_patterns(config, NAME)
-    rules = load_rules()
+    suite = adapter_suite(config, NAME)
+    patterns = load_patterns()
     findings: list[Finding] = []
     production: set[str] = set()
     for path in python_files(repo, paths):
-        if is_test_file(path, locations, patterns):
-            scoped = [rule for rule in rules if rule.scope == "tests"]
+        if is_pytest_test_file(path, suite):
+            scoped = [item for item in patterns if item.scope == "tests"]
         elif is_owned(path, owned):
-            scoped = [rule for rule in rules if rule.scope == "production"]
+            scoped = [item for item in patterns if item.scope == "production"]
             production.add(path)
         else:
             continue
@@ -261,11 +239,7 @@ def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
             continue
         findings.extend(file_findings(path, source, scoped, owned))
     findings.extend(test_only_symbol_findings(repo, config, production))
-    return [
-        finding
-        for finding in findings
-        if not waived(finding.rule_id, finding.path, config)
-    ]
+    return apply_exceptions(findings, config)
 
 
 def is_owned(path: str, owned: frozenset[str]) -> bool:
@@ -285,11 +259,11 @@ def test_only_symbol_findings(
     if not reported:
         return []
     owned = owned_packages(config)
-    locations, patterns = test_patterns(config, NAME)
+    suite = adapter_suite(config, NAME)
     production: dict[str, str] = {}
     tests: dict[str, str] = {}
     for path in python_files(repo, []):
-        if is_test_file(path, locations, patterns):
+        if is_pytest_test_file(path, suite):
             target = tests
         elif is_owned(path, owned):
             target = production

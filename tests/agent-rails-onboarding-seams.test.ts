@@ -166,7 +166,7 @@ describe("the onboarding Q&A", () => {
 		const text = onboardingInstruction(SLUG, "/repo", ["commands", "tests"]);
 		for (const fragment of [
 			"still missing: commands, tests", "skill://setup-repo-proofs", "commands: the repository's commit, ci and audit entry points",
-			"commit is the check entrypoint its hook runs", "checkers, structure and houseStyle", "--list-rules", "skill://test-guidance", "translate its tier map, adoption choice and signed plan into the tests section schema", "CONFIG.md, Tests", "guardrails init --repo /repo --out", "/.proofs/", "/agentrails onboard again",
+			"commit is the check entrypoint its hook runs", "checkers, structure and houseStyle", "--list-rules", "skill://test-guidance", "translate its tier map, adoption choice and signed plan into the tests section schema", "docs/config.md, Tests", "guardrails init --repo /repo --out", "/.proofs/", "/agentrails onboard again",
 		]) assert.ok(text.includes(fragment), fragment);
 	});
 });

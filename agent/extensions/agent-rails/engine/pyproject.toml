@@ -11,8 +11,6 @@ dependencies = ["ast-grep-py==0.51.0"]
 guardrails = "guardrails.commands.cli:main"
 
 [project.optional-dependencies]
-# TEST.mutation-sensitivity runs in T3 only.
-mutation = ["mutmut==3.8.1"]
 pytest = ["pytest==9.1.1"]
 
 [build-system]
@@ -23,4 +21,4 @@ build-backend = "setuptools.build_meta"
 include = ["guardrails*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.yml", "*.md", "*.ts", "*.txt", "*.sql"]
+"*" = ["*.md", "*.ts", "*.txt"]

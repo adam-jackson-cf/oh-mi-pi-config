@@ -1,0 +1,3363 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "RENAME.residue",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "diff_scoped_renamed_folders_and_files": true,
+        "whole_segment_retired_names": true,
+        "head_owned_directory_or_module_preserves_term": true,
+        "no_exemption_list": true
+      },
+      "summary": "Reject retired path and defined names left in a renamed folder or file.",
+      "remediation": {
+        "root_cause": "A rename moved the file or folder but left the retired name in paths and defined names inside it, so two names now describe one concept.",
+        "fix": "Finish the rename across the renamed unit: rename every path segment, symbol, constant and test that still carries the retired term, and update their callers in the same change."
+      },
+      "implementation": [
+        {
+          "subcommand": "rename-residue",
+          "module": "guardrails.commands.structure_naming.rename_residue"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.dependency-direction",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_layer_dependency_allowlist_required": true,
+        "reject_unmapped_or_forbidden_dependency_edges": true,
+        "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "diagnostic_names_file_edge_and_fix": true
+      },
+      "summary": "Reject dependencies outside the target's declared layer direction.",
+      "remediation": {
+        "root_cause": "A module imports from a layer its declared direction does not allow, so lower layers start depending on higher ones and the layering stops holding.",
+        "fix": "Move the shared behaviour down to a layer both sides may read, or invert the dependency behind an interface the lower layer owns; then re-run the structure check over the moved paths."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure_naming.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.folder-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_path_ownership_map_required": true,
+        "reject_unmapped_or_misplaced_files": true,
+        "event_scope": "added and renamed paths only; only new path segments are checked, never legacy parent directories; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "diagnostic_names_file_and_destination": true,
+        "grab_bag_folder_words_source": "house_style_banned_words"
+      },
+      "summary": "Require files to live under their declared capability owner.",
+      "remediation": {
+        "root_cause": "The file was created where it was convenient rather than under the capability that owns its behaviour in the target's ownership map.",
+        "fix": "Move the file under its declared capability owner, update imports and tests with it, and extend the ownership map only through an owner-approved .agentrails/config.json change when no owner fits."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure_naming.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.tier-readership",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "shared_tier_minimum_distinct_readers": 2,
+        "diagnostic_names_tier_and_fix": true
+      },
+      "summary": "Require at least two distinct parts to read each populated shared tier.",
+      "remediation": {
+        "root_cause": "A shared tier holds code that fewer than two parts read, so the tier claims sharing that the dependency graph does not show.",
+        "fix": "Move code read by one part under that part, delete code read by none, and keep only genuinely shared modules in the shared tier."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure_naming.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.single-owner-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "reject_shared_module_with_one_owner": true,
+        "diagnostic_names_file_and_destination": true
+      },
+      "summary": "Move a shared-tier module read by exactly one part under that owner.",
+      "remediation": {
+        "root_cause": "A shared-tier module has exactly one reader, so it was placed for anticipated reuse rather than for its actual owner.",
+        "fix": "Move the module under the one part that reads it and update its imports; promote it back to the shared tier only when a second reader exists."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure_naming.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.sibling-isolation",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configured_python_import_graph_required": true,
+        "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "reject_same_tier_cross_part_imports": true,
+        "diagnostic_names_file_edge_and_fix": true
+      },
+      "summary": "Reject imports between distinct parts on the same tier.",
+      "remediation": {
+        "root_cause": "Two parts on the same tier import each other, which couples siblings that the structure declares independent.",
+        "fix": "Extract what both siblings need into a lower shared tier or behind an interface the caller owns, and remove the direct sibling import."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure_naming.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.runtime-data-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "data_suffixes": [
+          ".cfg",
+          ".hbs",
+          ".ini",
+          ".j2",
+          ".jinja",
+          ".jinja2",
+          ".json",
+          ".jsonl",
+          ".mustache",
+          ".tmpl",
+          ".toml",
+          ".tpl",
+          ".yaml",
+          ".yml"
+        ],
+        "code_folder": "the nearest folder above the file that holds Python source (.py or .pyi files other than a bundle manifest), which includes every package folder holding __init__.py; the repository root is never one",
+        "bundle_manifests": [
+          "SKILL.md",
+          "pyproject.toml",
+          "setup.cfg",
+          "setup.py"
+        ],
+        "bundle_root_without_python_ends_the_search": true,
+        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
+        "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "exceptions": "config exceptions entries {rule, path, reason}",
+        "diagnostic_names_file_and_code_folder": true
+      },
+      "summary": "Reject runtime data and template files inside a folder of Python code.",
+      "remediation": {
+        "root_cause": "Definitions, configuration or templates that the product loads at run time were put inside its Python code, so data changes look like code changes and one folder mixes two kinds of content.",
+        "fix": "Move the file to a root data folder outside the code, load it from there by explicit path, and update every reader in the same change."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure_naming.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.entry-point-placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "entry_modules": ["__main__.py", "cli.py"],
+        "package_root": "the top folder of the unbroken chain of folders holding __init__.py that contains the entry module's folder",
+        "top_tier": "the package root and the folders directly under it",
+        "reject_entry_modules_deeper_than_top_tier": true,
+        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
+        "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
+        "internal_tool_exemption": "an owner-approved config exceptions entry {rule, path, reason}",
+        "diagnostic_names_file_depth_and_package": true
+      },
+      "summary": "Keep __main__.py and cli.py entry modules in their package's top tier.",
+      "remediation": {
+        "root_cause": "A command entry module was added deep inside an implementation tier, so the package's interface is spread across its internals instead of sitting at its top tier.",
+        "fix": "Move the entry module to the package root or a folder directly under it and import the implementation from there; for an internal tool that no user or deployment invokes, record an owner-approved exceptions entry instead."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        },
+        {
+          "subcommand": "structure",
+          "module": "guardrails.commands.structure_naming.layout"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.overlapping-responsibilities",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "unit": "the .py files directly in one folder below the repository root, except test files (names starting with test or fixture, *_test.py, conftest.py), outside hidden folders, vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), test folders (names starting with test or fixture, __tests__, spec, specs), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
+        "definitions": "top-level functions and classes and the methods of top-level classes spanning at least 5 lines, with docstrings and comments removed",
+        "tokens": "identifiers and single non-space characters",
+        "features": "the set of token 3-grams; definitions with fewer than 15 are dropped",
+        "definition_similarity": "Jaccard similarity of the two 3-gram sets",
+        "pair_score": "the highest definition similarity between two units, over candidates sharing a 3-gram held by at most 40 definitions in the head tree",
+        "scope": "units holding a .py file added, modified or renamed in base..head, compared with every other unit at head",
+        "pair_score_cutoff": 0.336,
+        "evidence": {
+          "accepted_by": "owner",
+          "accepted_on": "2026-11-23",
+          "held_out_precision": 0.74,
+          "held_out_flags": "80/108",
+          "held_out_recall": 0.81,
+          "labelled_pairs": "235 council-labelled unit pairs from the owner's projects, leave-one-repository-out cutoff",
+          "note": "the owner accepted 0.74 held-out precision as a pass"
+        },
+        "exceptions": "a config exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
+        "diagnostic_names_both_units_and_closest_definition_pair": true
+      },
+      "summary": "Reject a changed folder whose Python code repeats another folder's code.",
+      "remediation": {
+        "root_cause": "The same logic was written in two folders, so each copy changes on its own and the two drift apart.",
+        "fix": "Move the shared logic into one shared mechanism both folders use and delete the copy, or record an owner-approved exceptions entry {rule, path, reason} when the copies must stay apart."
+      },
+      "implementation": [
+        {
+          "subcommand": "responsibility-overlap",
+          "module": "guardrails.commands.structure_naming.responsibility_overlap"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.prefix-folder",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "base_and_head_required": true,
+        "candidates": "prefix clusters: sibling .py files in one folder (not __init__.py, not test files by the config's test file patterns or by name (names starting with test or fixture, *_test.py, conftest.py), not under a test folder (names starting with test or fixture, __tests__, spec, specs); not under hidden or vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
+        "pair_features": {
+          "import_edge": "either member imports the other",
+          "shared_reader": "another owned .py file, tests included, imports both",
+          "co_change": "commits touching both divided by commits touching either, over the last 200 first-parent commits up to head (merges diffed against their first parent)",
+          "prefix_is_domain_word": "the singular prefix appears as a word in a docstring or class-name token of either member"
+        },
+        "weights": {
+          "import_edge": 0.35,
+          "shared_reader": 0.25,
+          "co_change": 0.25,
+          "prefix_is_domain_word": 0.15
+        },
+        "pair_score": "sum of weight * feature, co_change capped at 1",
+        "cluster_score": "the highest pair score among the cluster's members",
+        "cluster_score_cutoff": 0.15,
+        "evidence": {
+          "accepted_by": "owner",
+          "accepted_on": "2026-11-23",
+          "replaces": "the structure-naming/prefix_should_be_folder Jev question; a judgment code can meet is deterministic only",
+          "labelled_clusters": "63 clusters (135 member pairs) from every snapshot of 8 of the owner's repositories, council labels with 26 splits arbitrated; 47 clusters hold a violation",
+          "held_out": "leave-one-repository-out precision 44/55 = 0.80, recall 44/47, bootstrap 95% 0.69-0.89",
+          "baselines": "flag every cluster 47/63 = 0.75; the Jev question alone 46/60 = 0.77, so Jev added nothing",
+          "synthetic": "council agreed with the intended label on 39/40 synthetic clusters"
+        },
+        "exceptions": "a config exceptions entry {rule, path, reason} on the folder or any member suppresses the cluster",
+        "diagnostic_names_prefix_members_and_closest_pair": true
+      },
+      "summary": "Reject sibling files sharing a name prefix that implement one concept outside a folder named for it.",
+      "remediation": {
+        "root_cause": "Files for one concept were added beside each other with a shared name prefix instead of a folder that names the concept, so the concept has no owner in the tree.",
+        "fix": "Move the prefixed files into a folder named for the prefix's concept, drop the prefix from their names, and update their imports in the same change."
+      },
+      "implementation": [
+        {
+          "subcommand": "prefix-folder",
+          "module": "guardrails.commands.structure_naming.prefix_folder"
+        }
+      ]
+    },
+    {
+      "id": "NAME.conventions",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_path_and_symbol_naming_patterns_required": true,
+        "reject_nonmatching_names": true,
+        "diagnostic_names_file_and_correct_name": true,
+        "event_scope": "added and renamed paths only: edit uses worktree changes, commit uses staged changes, PR uses merge-base/head; content edits do not trigger naming; explicit CLI paths or no-path full scans remain available",
+        "segment_scope": "only new path segments are checked, never unchanged legacy parent directories",
+        "child_repeats_parent": {
+          "match": "the whole nonempty parent token sequence occurs contiguously and in order anywhere in the child directory name or file stem token sequence",
+          "tokens": "split on underscores, hyphens, dots, ASCII lowercase-or-digit to uppercase boundaries, and acronym-to-capitalized-word boundaries; discard empty tokens and compare case-insensitively",
+          "files": "the final path segment uses its house-style stem (before the first dot, except dotfiles)",
+          "conventions": "language convention packs exempt Python __init__.py and __main__.py and Go package filenames from parent repetition, supported by ecosystem references; other exceptions require an owner-approved reason in the config",
+          "check": "child-repeats-parent",
+          "exceptions": "config exceptions entries require rule, path and nonempty reason; path uses shared config path matching (fnmatchcase for globs, path or descendants for plain paths); optional check restricts suppression to that finding sub-check, omitted check covers the whole rule; unknown fields are rejected",
+          "whole_words_only": "a single-token parent counts as a whole word in a longer child (guardrails/omp_guardrails), never as a substring (rail/guardrails); partial or reordered multi-token parents do not count"
+        }
+      },
+      "summary": "Enforce the target's explicit file, folder, and symbol naming conventions.",
+      "remediation": {
+        "root_cause": "The new path or symbol was named without applying the target's declared naming conventions, so names drift from the house style.",
+        "fix": "Rename the new path segment or symbol to the declared convention and update every reference; change the convention only through an owner-approved config change. When the convention is unclear, follow the sibling naming patterns of neighbouring files and symbols."
+      },
+      "implementation": [
+        {
+          "subcommand": "naming",
+          "module": "guardrails.commands.structure_naming.naming"
+        }
+      ]
+    },
+    {
+      "id": "TEST.placement",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "target_test_to_owner_and_tier_map_required": true,
+        "reject_unmapped_or_misplaced_tests": true,
+        "diagnostic_names_file_and_destination": true,
+        "fixtures_and_support_under_config_tests_layout": true,
+        "t2_files_map_to_config_structure_ownership_areas": true
+      },
+      "summary": "Place tests with their declared behavior owner and test tier.",
+      "remediation": {
+        "root_cause": "The test was written next to the code being changed rather than with the behaviour owner and tier declared for it.",
+        "fix": "Move the test under its declared behaviour owner and tier location, keep its selectors valid, and merge it with any existing test of the same behaviour there. Map every T2 file to its ownership area, and keep fixtures and support code under the configured layout directories."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        }
+      ]
+    },
+    {
+      "id": "TEST.budget.fast-tier-time",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "git_hook",
+      "contract": {
+        "input": "normalised_junit_run_report",
+        "limit_source": "config_tests_fast_tier_budget_machines",
+        "machine_id": "deterministic_local_probe_of_platform_cpu_model_and_runtime_version",
+        "baseline_runs_min": 5,
+        "limit_increase_requires_owner_approval": true,
+        "local_commit_blocks_over_approved_limit": true,
+        "gate": "local_commit_only",
+        "ci_never_measures_or_reports_timing": true,
+        "unknown_machine_report_only_with_record_baseline_prompt": true,
+        "missing_invalid_or_stale_report_is_failure": true,
+        "measurement": "fast_tier_wall_clock_seconds"
+      },
+      "summary": "Block a local commit when the fast tier exceeds the machine's approved wall-clock limit.",
+      "remediation": {
+        "root_cause": "The fast tier grew slow because tests in it do real waiting, heavy setup or work that belongs in a slower tier.",
+        "fix": "Profile the fast tier, move slow behaviour to the tier built for it, and remove waits and repeated setup from fast tests; never raise the machine's approved limit to pass. Derive a first whole-tier limit or a raise only from at least five repeated local runs on the same machine, and include those measurements in the owner approval request."
+      },
+      "implementation": [
+        {
+          "subcommand": "budget-check",
+          "module": "guardrails.commands.test_evidence.budgets"
+        }
+      ]
+    },
+    {
+      "id": "TEST.budget.per-test-time",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "git_hook",
+      "contract": {
+        "input": "normalised_junit_run_report",
+        "limit_source": "config_tests_fast_tier_budget_machines",
+        "machine_id": "deterministic_local_probe_of_platform_cpu_model_and_runtime_version",
+        "baseline_runs_min": 5,
+        "limit_increase_requires_owner_approval": true,
+        "local_commit_blocks_over_approved_limit": true,
+        "gate": "local_commit_only",
+        "ci_never_measures_or_reports_timing": true,
+        "unknown_machine_report_only_with_record_baseline_prompt": true,
+        "missing_invalid_or_stale_report_is_failure": true,
+        "scope": "fast_tier_test_cases",
+        "diagnostic_names_test_and_speedup_fix_never_tier_move": true
+      },
+      "summary": "Block a local commit when a fast-tier test exceeds the machine's approved per-test limit.",
+      "remediation": {
+        "root_cause": "A fast-tier test does work that is too slow for the fast tier, such as real waits, large inputs or repeated setup.",
+        "fix": "Make the slow test fast by removing waits and shrinking inputs to the outcome it proves, or move it to the tier whose budget fits its work. Derive a first limit or a raise only from at least five repeated local runs on the same machine and record it only with owner approval; CI does not measure test timing."
+      },
+      "implementation": [
+        {
+          "subcommand": "budget-check",
+          "module": "guardrails.commands.test_evidence.budgets"
+        }
+      ]
+    },
+    {
+      "id": "TEST.growth.justified",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "new_test_functions_relative_to_base_ref",
+        "descriptive_behavior_name_required": true,
+        "input": "Python test function name without test_ and underscores; JS/TS test title",
+        "one_name_per_function_covers_parameter_rows": true,
+        "presence_only_requires_two_words_other_than_test_case_todo_tbd_placeholder_example": true,
+        "uncollectable_changed_test_file_is_failure": true,
+        "truthfulness_sampled_by_jev_judge_batch_outside_check": true,
+        "diagnostic_names_test_and_rename_or_remove_fix": true
+      },
+      "summary": "Require every added test function to name the behavior it proves.",
+      "remediation": {
+        "root_cause": "A test was added without a stated behaviour, which usually means it covers code paths rather than an outcome a user can observe.",
+        "fix": "Name each added test after the behaviour it proves; delete tests that prove no distinct behaviour instead of renaming them to fit. A behaviour name has at least two meaningful words besides filler, and one name covers all its parameter rows; when reviewing a change set, check up to 20 new names against their assertions and, when more than 2 are vacuous, check every new name."
+      },
+      "implementation": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diff.growth"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
+    },
+    {
+      "id": "TEST.duplicate-path",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "new_test_cases_relative_to_base_ref",
+        "fingerprint": ["normalized_call_path", "normalized_assertion"],
+        "compare_with": "existing_and_other_new_test_cases",
+        "duplicate_fingerprint_is_failure": true,
+        "diagnostic_names_both_tests_and_merge_or_remove_fix": true
+      },
+      "summary": "Reject new tests duplicating an existing call path and assertion.",
+      "remediation": {
+        "root_cause": "A new test repeats an existing test's call path and assertion, so the suite grows without proving anything new.",
+        "fix": "Remove the duplicate or merge its distinct inputs into the existing test of that path, keeping one test per outcome class. A new test is a duplicate when it drives the same normalized call path and makes the same normalized assertion; shared setup alone is not duplication."
+      },
+      "implementation": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diff.growth"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
+    },
+    {
+      "id": "GATE.local-ci-parity",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configuration": ".agentrails/config.json#commands",
+        "schema_version": 2,
+        "authoritative_command_field": "commands.ci",
+        "required_context_field": "ci.requiredContext",
+        "runner_field": "ci.runner",
+        "required_context_green_on_exact_head_whoever_posts_it": true,
+        "ci_executes_commands_ci_argv_or_parallel_jobs_whose_union_equals_it": true,
+        "parallel_jobs_must_use_the_commands_ci_runner_with_tier_selectors_only": true,
+        "default_required_context": "gate",
+        "parallel_gate_aggregate_depends_on_every_tier_job": true,
+        "parallel_gate_aggregate_always_runs": true,
+        "parallel_gate_aggregate_fails_on_failed_cancelled_or_skipped_tiers": true,
+        "scope": "full_t1_and_t2_suite_on_every_push_and_pull_request",
+        "check_only": true,
+        "nonzero_exit_propagates": true
+      },
+      "summary": "Make CI execute exactly the declared commands.ci: the full T1 and T2 suite.",
+      "remediation": {
+        "root_cause": "CI runs a different command list than commands.ci, so local results and CI results can disagree.",
+        "fix": "Make the CI workflow invoke exactly the config's commands.ci command and nothing else, so one declared command defines both runs."
+      },
+      "implementation": [
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.toolchain.parity"
+        }
+      ]
+    },
+    {
+      "id": "GATE.pre-commit",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "git_hook",
+      "contract": {
+        "configuration": ".agentrails/config.json#commands",
+        "required_command_field": "commands.commit",
+        "scope": "static_checks_all_t1_and_t2_boundary_tests_for_affected_code",
+        "hook_manager": "any_tracked_manager_or_native_hook",
+        "installed_pre_commit_hook_executes_exact_commands_commit_argv": true,
+        "hook_installed_in_every_clone": true,
+        "nonzero_exit_blocks_commit": true
+      },
+      "summary": "Run commands.commit before every commit through an installed hook and propagate failure.",
+      "remediation": {
+        "root_cause": "Commits can land without running commands.commit because no installed hook runs it or the hook hides its failures.",
+        "fix": "Install a pre-commit hook that runs commands.commit and returns its exit status unchanged, and commit only through that hook."
+      }
+    },
+    {
+      "id": "GATE.path-check",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configuration": ".agentrails/config.json#checkers",
+        "harness_subcommand": "guardrails path-check",
+        "changed_paths_appended_as_arguments": true,
+        "success_exit_code": 0,
+        "violation_exit_nonzero": true,
+        "diagnostic": "one_error_per_line_naming_file_and_fix",
+        "checks": ["structure", "naming", "test_placement"]
+      },
+      "summary": "Run harness-owned changed-path checks over config settings with actionable per-file errors.",
+      "remediation": {
+        "root_cause": "Changed paths reach a commit without the harness path check, so per-file structure and naming errors surface late.",
+        "fix": "Run guardrails path-check over the config settings for every changed path and fix each reported file before committing."
+      },
+      "implementation": [
+        {
+          "subcommand": "path-check",
+          "module": "guardrails.commands.structure_naming.path_check"
+        }
+      ]
+    },
+    {
+      "id": "FANOUT.general",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "count": "distinct_non_stdlib_architectural_imports",
+        "max_non_stdlib_dependencies": 10
+      },
+      "summary": "Bound non-stdlib architectural imports.",
+      "remediation": {
+        "root_cause": "A module imports too many architectural dependencies, which means it coordinates concerns that belong to separate owners.",
+        "fix": "Split the module by responsibility so each part depends on the few collaborators it needs, or route related dependencies through one owning interface."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-fanout",
+          "module": "guardrails.commands.python_policy.fanout"
+        }
+      ]
+    },
+    {
+      "id": "FANOUT.large-module",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "nloc_over": 800,
+        "count": "distinct_non_stdlib_architectural_imports",
+        "max_non_stdlib_dependencies": 3
+      },
+      "summary": "Use a tighter fan-out limit for large modules.",
+      "remediation": {
+        "root_cause": "A large module also imports widely, so size and coupling compound and the module becomes the place every change touches.",
+        "fix": "Break the large module into owned units with narrow imports, moving each concern next to the code that owns it."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-fanout",
+          "module": "guardrails.commands.python_policy.fanout"
+        }
+      ]
+    },
+    {
+      "id": "MYPY.SETTING.exclude",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_exclusions_with_non_maintained_path_rationales_required": true,
+        "maintained_source_must_not_be_excluded": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting exclude.",
+      "remediation": {
+        "root_cause": "The mypy exclude setting drifted from the approved value, which silently removes or adds files from type checking.",
+        "fix": "Restore the approved exclude value so every owned file is checked, and change it only through an owner-approved config edit with the reason."
+      }
+    },
+    {
+      "id": "MYPY.SETTING.mypy_path",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_source_roots_required": true,
+        "all_maintained_import_roots_must_be_covered": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting mypy_path.",
+      "remediation": {
+        "root_cause": "The mypy_path setting drifted, so mypy resolves imports from a different location than the code actually uses.",
+        "fix": "Restore the approved mypy_path and fix the package layout or import roots that made the change look necessary."
+      }
+    },
+    {
+      "id": "MYPY.SETTING.python_version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_supported_python_version_required": true
+      },
+      "summary": "Preserve or deliberately adapt mypy setting python_version.",
+      "remediation": {
+        "root_cause": "The mypy python_version does not match the version the repository targets, so type checks judge a different language level.",
+        "fix": "Set mypy python_version to the repository's declared target version and keep it aligned with the runtime and Ruff target-version."
+      }
+    },
+    {
+      "id": "MYPY.follow_imports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "normal",
+        "third_party": "silent",
+        "vendored_third_party_override_required": true,
+        "skip_forbidden": true,
+        "untyped_third_party": "follow_untyped_imports",
+        "in_repo_third_party_stubs_forbidden": true
+      },
+      "summary": "Follow every import: report errors in first-party modules, keep third-party types but hide their errors (installed packages are silent by default; vendored copies need a named silent override); never skip imports. Third-party types come from upstream: the package's own annotations (follow_untyped_imports for a named package without py.typed) or a published stub package; never stubs or shims maintained in the repo.",
+      "remediation": {
+        "root_cause": "Imports are skipped or silenced broadly, so mypy stops checking first-party code or loses third-party types.",
+        "fix": "Follow every import, take third-party types from the package or its published stubs, and name a silent override only for a specific vendored path."
+      }
+    },
+    {
+      "id": "MYPY.module-overrides",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_named_module_overrides_required": true,
+        "each_override_requires_missing_stub_or_decorator_evidence": true,
+        "published_stub_package_before_ignore_missing_imports": true,
+        "unscoped_exceptions_forbidden": true
+      },
+      "summary": "Scope missing-import and decorator exceptions to named modules. ignore_missing_imports only for a package with no annotations and no published stub package.",
+      "remediation": {
+        "root_cause": "Missing-import or decorator exceptions were applied broadly instead of to the named modules that need them.",
+        "fix": "Scope each override to the named third-party module that lacks annotations and published stubs, and remove overrides that no longer match a module."
+      }
+    },
+    {
+      "id": "MYPY.package-coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_package_inventory_required": true,
+        "all_maintained_packages_must_be_checked": true,
+        "package_list_drift_is_failure": true
+      },
+      "summary": "Type-check every maintained package and fail on package-list drift.",
+      "remediation": {
+        "root_cause": "The mypy package list no longer matches the maintained packages, so new code is added without type checking.",
+        "fix": "Derive the checked package list from the maintained packages and add every new package to it in the same change that creates the package."
+      }
+    },
+    {
+      "id": "MYPY.strict",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "True"
+      },
+      "summary": "Enforce strict typing behavior or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Strict typing is off, so untyped definitions and implicit Any spread through owned code unnoticed.",
+        "fix": "Enable strict mode and fix the reported types at their source by annotating definitions and parsing untyped input at its boundary."
+      }
+    },
+    {
+      "id": "MYPY.warn_unused_ignores",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "True"
+      },
+      "summary": "Enforce warn_unused_ignores typing behavior or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Type ignores are not checked for use, so stale suppressions accumulate after the underlying error is gone.",
+        "fix": "Enable warn_unused_ignores and remove each ignore by fixing the type error it hid."
+      }
+    },
+    {
+      "id": "PARITY.dependency-inventory",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "declared_analyzer_dependencies_match_install": true
+      },
+      "summary": "Fail when declared optional analyzer dependencies and installation behavior drift.",
+      "remediation": {
+        "root_cause": "Optional analyzer dependencies are declared in one place and installed by another, so the two lists drift.",
+        "fix": "Keep one declared inventory of optional analyzer dependencies and make the installer read it, so adding a dependency updates both."
+      },
+      "implementation": [
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.toolchain.parity"
+        }
+      ]
+    },
+    {
+      "id": "PARITY.install-guidance",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {},
+      "summary": "Keep documented install commands aligned with the actual installer.",
+      "remediation": {
+        "root_cause": "Documented install commands were written by hand and no longer match what the installer runs.",
+        "fix": "Update the documentation to the installer's actual commands, and change both together whenever the installer changes."
+      },
+      "implementation": [
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.toolchain.parity"
+        }
+      ]
+    },
+    {
+      "id": "PARITY.lock-version",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "tracked_lockfile": true,
+        "version_sync": true
+      },
+      "summary": "Fail when package metadata and lockfile versions drift.",
+      "remediation": {
+        "root_cause": "Package metadata and the lockfile were edited separately, so they record different versions.",
+        "fix": "Regenerate the lockfile from the package metadata with the pinned package manager and commit both in the same change."
+      },
+      "implementation": [
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.toolchain.parity"
+        }
+      ]
+    },
+    {
+      "id": "PRETTIER.version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "single_exact_repository_pin": true,
+        "tracked_markdown_yaml": true
+      },
+      "summary": "Pin and invoke Prettier for maintained Markdown and YAML.",
+      "remediation": {
+        "root_cause": "Prettier runs unpinned or not at all, so Markdown and YAML formatting depends on whichever version is installed.",
+        "fix": "Pin the Prettier version in the repository's dependencies and run that pinned version over every maintained Markdown and YAML file."
+      }
+    },
+    {
+      "id": "PYQ100",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_roots_required": true
+      },
+      "summary": "Maintained Python source roots",
+      "remediation": {
+        "root_cause": "Python source sits outside the declared maintained source roots, so policy checks do not see it as owned code.",
+        "fix": "Move the module under a declared source root, or add the root to the config through an owner-approved change when it is genuinely maintained code."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ101",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_script_name_allowlist_required": true,
+        "kebab_case_for_command_scripts": true
+      },
+      "summary": "Approved script file naming and allowlist",
+      "remediation": {
+        "root_cause": "A script was added under a name or location outside the approved script allowlist, so entry points multiply without review.",
+        "fix": "Fold the behaviour into an existing approved entry point, or name and place the script by the approved pattern with an owner-approved allowlist entry."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ102",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "target_canonical_test_groups_required": true,
+        "target_must_map_groups": true
+      },
+      "summary": "Canonical test directory groups",
+      "remediation": {
+        "root_cause": "Tests were grouped in directories outside the canonical test groups, so tier and ownership rules cannot place them.",
+        "fix": "Move the tests into the canonical test directory group that matches their tier and owner, and update selectors in the same change."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ103",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "restricted_name_parts": "engine/data/house-style.json banned_words",
+        "target_allowlist_required": true
+      },
+      "summary": "No unapproved generic directory names",
+      "remediation": {
+        "root_cause": "A directory was given a generic name such as utils or helpers, which hides which concept owns its contents.",
+        "fix": "Rename the directory for the concept it owns, or move each file to the owner of its behaviour and delete the generic directory."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ104",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "restricted_name_parts": "engine/data/house-style.json banned_words",
+        "target_allowlist_required": true
+      },
+      "summary": "No unapproved generic module names",
+      "remediation": {
+        "root_cause": "A module was given a generic name, which turns it into a catch-all for unrelated code.",
+        "fix": "Rename the module for its single concept, or split its contents into modules named for each concept they serve."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ105",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "snake_case"
+      },
+      "summary": "Python package directories use snake_case",
+      "remediation": {
+        "root_cause": "A Python package directory does not use snake_case, so it cannot be imported by its path name and breaks naming consistency.",
+        "fix": "Rename the package directory to snake_case and update every import and path reference."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ106",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "kebab-case"
+      },
+      "summary": "Skill directories use kebab-case",
+      "remediation": {
+        "root_cause": "A skill directory does not use kebab-case, so skill names and paths no longer match the house convention.",
+        "fix": "Rename the skill directory to kebab-case and update every link and reference to it."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ107",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "style": "snake_case"
+      },
+      "summary": "Python module names use snake_case",
+      "remediation": {
+        "root_cause": "A Python module name does not use snake_case, so it diverges from import naming conventions.",
+        "fix": "Rename the module to snake_case and update every import of it."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ200",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_lines": 700
+      },
+      "summary": "Class length at most 700 lines",
+      "remediation": {
+        "root_cause": "A class grew past the length limit because it accumulated responsibilities that belong to separate collaborators.",
+        "fix": "Split the class by responsibility into smaller collaborators with their own tests, keeping the original class as a thin coordinator only if callers need one."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ201",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_public_methods": "checkers.python.class_limits.max_public_methods; off when unset"
+      },
+      "summary": "Public methods per class at most the configured approved limit",
+      "remediation": {
+        "root_cause": "A class exposes more public methods than the approved limit, which means its interface serves several callers with different needs.",
+        "fix": "Split the class so each caller depends on a narrow interface, and make helpers private or move them to the collaborator that owns them."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ202",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_parameters": 8
+      },
+      "summary": "Constructor parameters at most 8",
+      "remediation": {
+        "root_cause": "A constructor takes too many parameters because the class depends on too many collaborators or loose values.",
+        "fix": "Group related values into a named domain type and split the class when its dependencies serve different responsibilities."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ203",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_attributes": 12
+      },
+      "summary": "Instance attributes at most 12",
+      "remediation": {
+        "root_cause": "An instance holds too many attributes, which means it carries state for several concerns.",
+        "fix": "Move related attributes into owned value objects or separate collaborators, so each class holds the state of one concern."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ210",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "approved_base_or_mixin_required": true
+      },
+      "summary": "Analyzer classes inherit an approved analyzer base or mixin",
+      "remediation": {
+        "root_cause": "An analyzer class was written without the approved base or mixin, so it skips the shared analyzer contract.",
+        "fix": "Derive the analyzer from the approved base or mixin and implement its contract instead of reproducing parts of it."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ211",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "project_entrypoint_required": true
+      },
+      "summary": "Project analyzers implement the project entrypoint",
+      "remediation": {
+        "root_cause": "A project analyzer does not implement the project entrypoint, so the runner cannot invoke it the same way as the others.",
+        "fix": "Implement the project entrypoint on the analyzer and route its invocation through that entrypoint."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ220",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "approved_subprocess_wrapper_map_required": true
+      },
+      "summary": "Subprocess calls stay in approved seam wrappers",
+      "remediation": {
+        "root_cause": "Subprocess calls are made directly in domain code instead of through the approved seam wrappers.",
+        "fix": "Route every subprocess call through an approved seam wrapper, so timeouts, environment and failure handling stay in one owned place."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ221",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "dynamic_import_adapter_allowlist_required": true
+      },
+      "summary": "Dynamic imports stay in adapter modules",
+      "remediation": {
+        "root_cause": "Dynamic imports appear outside adapter modules, which hides dependencies from static analysis and from readers.",
+        "fix": "Move dynamic loading into an adapter module behind a typed interface, and use static imports everywhere else."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ230",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "named_callable_aliases_required": true
+      },
+      "summary": "Contract callables use named aliases",
+      "remediation": {
+        "root_cause": "Contract callables are typed inline, so the contract has no name and drifts between its uses.",
+        "fix": "Declare a named alias or Protocol for each callable contract and use it at every definition and call site."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ231",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "prohibit_any_collaborator_boundary": true
+      },
+      "summary": "Collaborator contracts do not use Any",
+      "remediation": {
+        "root_cause": "Collaborator contracts use Any, so callers and implementers can disagree without any type error.",
+        "fix": "Replace Any in the contract with a named domain type or Protocol, and parse untyped input at the boundary before it reaches the collaborator."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYQ299",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "parse_error_is_failure": true
+      },
+      "summary": "Undecodable source fails closed",
+      "remediation": {
+        "root_cause": "A source file cannot be decoded, so policy checks cannot read it and would otherwise pass it unseen.",
+        "fix": "Re-save the file as UTF-8 text, or remove it from owned sources when it is not maintained Python code."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-quality",
+          "module": "guardrails.commands.python_policy.quality"
+        }
+      ]
+    },
+    {
+      "id": "PYS000",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "parse_error_is_failure": true
+      },
+      "summary": "Unparsable source fails closed",
+      "remediation": {
+        "root_cause": "A source file does not parse, so structural checks cannot inspect it and would otherwise pass it unseen.",
+        "fix": "Fix the syntax error so the file parses under the repository's target Python version."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
+      ]
+    },
+    {
+      "id": "PYS250",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "max_loop_depth": 2
+      },
+      "summary": "Nested loop and comprehension depth at most 2",
+      "remediation": {
+        "root_cause": "Loops and comprehensions are nested deeper than two levels, which mixes iteration over several concepts in one place.",
+        "fix": "Extract the inner iteration into a named function or precompute an index, so each level iterates one concept."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
+      ]
+    },
+    {
+      "id": "PYS251",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "approved_seam_required": true
+      },
+      "summary": "No synchronous filesystem I/O in analyzer-like code",
+      "remediation": {
+        "root_cause": "Analyzer-like code reads or writes files synchronously itself instead of receiving data from its caller.",
+        "fix": "Move file access to the caller or an I/O adapter and pass the analyzer parsed data, so the analysis stays pure and testable."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
+      ]
+    },
+    {
+      "id": "PYS252",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "approved_seam_required": true
+      },
+      "summary": "No direct subprocess or environment access in analyzer-like code",
+      "remediation": {
+        "root_cause": "Analyzer-like code starts processes or reads the environment directly, coupling analysis to the host.",
+        "fix": "Inject process and environment access through an owned seam, so the analyzer receives values instead of reaching for them."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
+      ]
+    },
+    {
+      "id": "PYS253",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "analyzer_like_code",
+        "ownership_marker_required": true
+      },
+      "summary": "Analyzer-like subsystem has an ownership marker",
+      "remediation": {
+        "root_cause": "An analyzer-like subsystem has no ownership marker, so nobody is accountable for its behaviour and placement.",
+        "fix": "Add the ownership marker naming the subsystem's owner, and place the subsystem under that owner."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-scalability",
+          "module": "guardrails.commands.python_policy.scalability"
+        }
+      ]
+    },
+    {
+      "id": "RUFF.FORMAT.indent-style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "space"
+      },
+      "summary": "Enforce the indent-style formatting behavior or equivalent.",
+      "remediation": {
+        "root_cause": "Ruff's indent-style differs from the approved value, so formatting changes depend on who last ran the formatter.",
+        "fix": "Set Ruff format indent-style to the approved value and reformat the repository once with Ruff."
+      }
+    },
+    {
+      "id": "RUFF.FORMAT.line-ending",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "auto"
+      },
+      "summary": "Enforce the line-ending formatting behavior or equivalent.",
+      "remediation": {
+        "root_cause": "Ruff's line-ending setting differs from the approved value, so files flip line endings between machines.",
+        "fix": "Set Ruff format line-ending to the approved value and normalise every file once in a dedicated change."
+      }
+    },
+    {
+      "id": "RUFF.FORMAT.quote-style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "double"
+      },
+      "summary": "Enforce the quote-style formatting behavior or equivalent.",
+      "remediation": {
+        "root_cause": "Ruff's quote-style differs from the approved value, so quote changes create noise in unrelated diffs.",
+        "fix": "Set Ruff format quote-style to the approved value and reformat the repository once with Ruff."
+      }
+    },
+    {
+      "id": "RUFF.IGNORES",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "ignore": ["E501", "B006", "B008", "A005"],
+        "per_file": {
+          "__init__.py": ["F401", "F403"],
+          "test_*.py": ["S101", "PLR2004"],
+          "**/tests/**": ["S101", "PLR2004"]
+        }
+      },
+      "summary": "Carry only justified lint exceptions; detect added suppressions.",
+      "remediation": {
+        "root_cause": "Lint findings were silenced with ignores instead of being fixed, so the rules no longer hold for that code.",
+        "fix": "Remove the added suppressions and fix the code each one hid; keep an exception only with an owner-approved reason."
+      }
+    },
+    {
+      "id": "RUFF.ISORT.combine-as-imports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Enforce the combine-as-imports import-order behavior or equivalent.",
+      "remediation": {
+        "root_cause": "The isort combine-as-imports setting drifted, so import blocks are written in two styles.",
+        "fix": "Set combine-as-imports to the approved value and re-sort imports with Ruff across the repository."
+      }
+    },
+    {
+      "id": "RUFF.ISORT.force-single-line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Enforce the force-single-line import-order behavior or equivalent.",
+      "remediation": {
+        "root_cause": "The isort force-single-line setting drifted, so import layout changes with each editor.",
+        "fix": "Set force-single-line to the approved value and re-sort imports with Ruff across the repository."
+      }
+    },
+    {
+      "id": "RUFF.ISORT.known-first-party",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_first_party_package_names_required": true
+      },
+      "summary": "Enforce the known-first-party import-order behavior or equivalent.",
+      "remediation": {
+        "root_cause": "Ruff does not know which packages are first party, so owned imports sort among third-party ones.",
+        "fix": "List the repository's own packages in known-first-party and re-sort imports with Ruff."
+      }
+    },
+    {
+      "id": "RUFF.ISORT.split-on-trailing-comma",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Enforce the split-on-trailing-comma import-order behavior or equivalent.",
+      "remediation": {
+        "root_cause": "The isort split-on-trailing-comma setting drifted, so import wrapping disagrees with the formatter.",
+        "fix": "Set split-on-trailing-comma to the approved value and re-sort imports with Ruff."
+      }
+    },
+    {
+      "id": "RUFF.LIMIT.max-args",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0913",
+        "value": 5
+      },
+      "summary": "Enable the Ruff PLR0913 rule with the max-args limit or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Functions take many arguments because they combine several responsibilities or pass loose values instead of domain types.",
+        "fix": "Enable PLR0913 at the approved max-args limit, then group related arguments into named types or split functions by responsibility."
+      }
+    },
+    {
+      "id": "RUFF.LIMIT.max-branches",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0912",
+        "value": 12
+      },
+      "summary": "Enable the Ruff PLR0912 rule with the max-branches limit or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Functions branch heavily because they decide several unrelated cases in one place.",
+        "fix": "Enable PLR0912 at the approved max-branches limit, then extract each decision into a named function or a dispatch table."
+      }
+    },
+    {
+      "id": "RUFF.LIMIT.max-locals",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0914",
+        "value": 15
+      },
+      "summary": "Enable the Ruff PLR0914 rule with the max-locals limit or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Functions hold many local variables because they compute several results at once.",
+        "fix": "Enable PLR0914 at the approved max-locals limit, then split the function so each part computes one result."
+      }
+    },
+    {
+      "id": "RUFF.LIMIT.max-positional-args",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0917",
+        "value": 5
+      },
+      "summary": "Enable the Ruff PLR0917 rule with the max-positional-args limit or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Functions take many positional arguments, so callers can pass values in the wrong order without an error.",
+        "fix": "Enable PLR0917 at the approved limit, then make the extra arguments keyword-only or group them into a named type."
+      }
+    },
+    {
+      "id": "RUFF.LIMIT.max-public-methods",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0904",
+        "value": 20
+      },
+      "summary": "Enable the Ruff PLR0904 rule with the max-public-methods limit or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Classes expose many public methods because they serve several callers with different needs.",
+        "fix": "Enable PLR0904 at the approved limit, then split classes so each exposes the narrow interface one caller needs."
+      }
+    },
+    {
+      "id": "RUFF.LIMIT.max-returns",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0911",
+        "value": 6
+      },
+      "summary": "Enable the Ruff PLR0911 rule with the max-returns limit or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Functions return from many places because they handle several cases inline.",
+        "fix": "Enable PLR0911 at the approved max-returns limit, then extract each case so the function has one clear result path."
+      }
+    },
+    {
+      "id": "RUFF.LIMIT.max-statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PLR0915",
+        "value": 50
+      },
+      "summary": "Enable the Ruff PLR0915 rule with the max-statements limit or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Functions grow long because they do several steps that each deserve a name.",
+        "fix": "Enable PLR0915 at the approved max-statements limit, then extract each step into a named function."
+      }
+    },
+    {
+      "id": "RUFF.ROOT.exclude",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": [
+          ".build",
+          ".git",
+          ".tox",
+          ".venv",
+          "venv",
+          "__pycache__",
+          "*.egg-info",
+          "build",
+          "dist",
+          "node_modules",
+          ".pytest_cache",
+          ".mypy_cache",
+          ".ruff_cache"
+        ],
+        "target_additional_exclusions_with_non_maintained_path_rationales_required": true,
+        "maintained_source_must_not_be_excluded": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting exclude.",
+      "remediation": {
+        "root_cause": "The Ruff exclude setting drifted, so owned files leave lint and format coverage silently.",
+        "fix": "Restore the approved exclude list so every owned file is linted, and exclude only third-party paths with origin evidence."
+      }
+    },
+    {
+      "id": "RUFF.ROOT.fix",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting fix.",
+      "remediation": {
+        "root_cause": "The Ruff fix setting drifted, so lint runs rewrite files in checks that should only report.",
+        "fix": "Restore the approved fix value so the gate reports findings, and apply fixes only through an explicit developer command."
+      }
+    },
+    {
+      "id": "RUFF.ROOT.output-format",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "full"
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting output-format.",
+      "remediation": {
+        "root_cause": "The Ruff output-format drifted, so tools and readers parse findings in a different shape.",
+        "fix": "Restore the approved output-format so every consumer reads the same finding format."
+      }
+    },
+    {
+      "id": "RUFF.ROOT.preview",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting preview.",
+      "remediation": {
+        "root_cause": "The Ruff preview setting drifted, so rule behaviour changes with unreleased Ruff features.",
+        "fix": "Restore the approved preview value and adopt preview rules only through an owner-approved change."
+      }
+    },
+    {
+      "id": "RUFF.ROOT.respect-gitignore",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Preserve or deliberately adapt Ruff root setting respect-gitignore.",
+      "remediation": {
+        "root_cause": "Ruff respect-gitignore drifted, so generated or ignored files enter lint or owned files leave it.",
+        "fix": "Restore the approved respect-gitignore value so Ruff's file set matches the tracked owned files."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.A",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "A"
+      },
+      "summary": "Enable the Ruff A rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The A selector is off, so names that shadow Python builtins pass unnoticed.",
+        "fix": "Select the A rules and rename every shadowing variable, argument and attribute for its domain role."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.B",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "B"
+      },
+      "summary": "Enable the Ruff B rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The B (bugbear) selector is off, so common bug patterns such as mutable defaults pass unnoticed.",
+        "fix": "Select the B rules and fix each reported pattern at its source rather than suppressing it."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.C4",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "C4"
+      },
+      "summary": "Enable the Ruff C4 rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The C4 selector is off, so redundant comprehension and collection calls accumulate.",
+        "fix": "Select the C4 rules and rewrite each reported collection construction in its direct form."
+      }
+    },
+    {
+      "id": "CODE.no-comments",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added diff lines, including touched comment lines; existing unchanged comments remain",
+        "python": "tokenize comments and AST module/class/function docstrings",
+        "other_languages": "quote-aware lexer: hash, slash/block, SQL/Lua double-dash, Haskell/Elm block, HTML/XML/Markdown block, TeX/Erlang percent, Lisp semicolon and INI/properties comments; common extensions and Dockerfile/Makefile/CMakeLists/dotfiles",
+        "limits": "lexical, not a full non-Python parser; embedded languages, heredocs, regex literals and language-specific raw strings are not interpreted",
+        "exemptions": "shebang; noqa; type: ignore; pyright; fmt; ruff; isort; pylint; eslint-*; @ts-expect-error/ignore/nocheck; prettier-ignore; biome-ignore; go:build; nolint; SPDX-License-Identifier; markdownlint-*; vim/emacs modelines; encoding cookies; Rust #[allow] is syntax, not a comment"
+      },
+      "summary": "Block added comments of every supported syntax, including Python docstrings; preserve tool directives.",
+      "remediation": {
+        "root_cause": "Comments were added to explain code whose names and structure do not explain themselves, and they drift from the code over time.",
+        "fix": "Delete the comment and make the code carry its meaning through names, types, smaller functions and tests; keep only tool directives."
+      },
+      "implementation": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
+    },
+    {
+      "id": "CODE.no-placeholder-bodies",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added Python function-body lines",
+        "bodies": ["pass", "...", "raise NotImplementedError"],
+        "exemptions": [
+          "Protocol methods",
+          "abstract methods",
+          "@overload",
+          ".pyi"
+        ],
+        "limits": "Python AST only; non-Python placeholder bodies are not checked"
+      },
+      "summary": "Block whole-function placeholder bodies, excluding declarations.",
+      "remediation": {
+        "root_cause": "A function was declared before its behaviour was designed, leaving a body that pretends the work exists.",
+        "fix": "Implement the behaviour with an outcome test, or delete the function and its callers until the behaviour is needed."
+      },
+      "implementation": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
+    },
+    {
+      "id": "CODE.no-product-mocks",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "scope": "added import/call lines outside configured tier, support and fixtures locations, using TEST.placement path matching",
+        "libraries": [
+          "unittest.mock",
+          "mock",
+          "pytest_mock",
+          "sinon",
+          "jest-mock",
+          "ts-mockito",
+          "testdouble",
+          "mock-require",
+          "proxyquire"
+        ],
+        "calls": [
+          "jest.mock",
+          "jest.doMock",
+          "jest.unstable_mockModule",
+          "vi.mock",
+          "vi.doMock"
+        ],
+        "limits": "Python static imports and JS/TS static imports/requires plus jest/vi calls; dynamic computed names and aliases are not resolved"
+      },
+      "summary": "Keep mock libraries and mock calls out of product code.",
+      "remediation": {
+        "root_cause": "Mock libraries reached product code, usually to make a dependency replaceable for tests.",
+        "fix": "Remove the mock from product code and give the dependency an owned interface; tests supply a real or fake implementation of that interface."
+      },
+      "implementation": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.check.integrity"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
+    },
+    {
+      "id": "RUFF.SELECT.S110",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "S110"
+      },
+      "summary": "Enable Ruff S110 (try-except-pass) or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Exceptions are caught and passed over, so failures vanish instead of being handled or reported.",
+        "fix": "Select S110 and replace each try-except-pass with handling that recovers meaningfully or lets the error propagate."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.BLE001",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "BLE001"
+      },
+      "summary": "Enable Ruff BLE001 (blind-except) or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Code catches every exception, so unrelated failures are treated as the expected one.",
+        "fix": "Select BLE001 and catch only the specific exceptions the code can handle, letting others propagate."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.SIM105",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "SIM105"
+      },
+      "summary": "Enable Ruff SIM105 (suppressible-exception) or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Exceptions are suppressed with try-except-pass patterns that hide which failures are expected.",
+        "fix": "Select SIM105 and replace each suppression with explicit handling of the named exception, or remove the suppression and let the error propagate."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.E",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "E"
+      },
+      "summary": "Enable the Ruff E rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The E selector is off, so pycodestyle errors pass and style varies across files.",
+        "fix": "Select the E rules and fix each reported style error with the formatter or by hand."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.F",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "F"
+      },
+      "summary": "Enable the Ruff F rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The F selector is off, so undefined names, unused imports and other Pyflakes errors pass.",
+        "fix": "Select the F rules and fix each reported name or import error at its source."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.I",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "I"
+      },
+      "summary": "Enable the Ruff I rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The I selector is off, so import order is not enforced and diffs fill with reordering noise.",
+        "fix": "Select the I rules and sort imports with Ruff across the repository once."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.N",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "N"
+      },
+      "summary": "Enable the Ruff N rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The N selector is off, so names drift from PEP 8 naming conventions.",
+        "fix": "Select the N rules and rename each reported symbol to its PEP 8 form, updating every reference."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.PGH",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PGH"
+      },
+      "summary": "Enable the Ruff PGH rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The PGH selector is off, so blanket type ignores and noqa comments hide errors without naming them.",
+        "fix": "Select the PGH rules and fix the hidden error behind each blanket suppression instead of narrowing it."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.PT",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "PT"
+      },
+      "summary": "Enable the Ruff PT rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The PT selector is off, so pytest anti-patterns such as wrong raises and fixture misuse pass.",
+        "fix": "Select the PT rules and rewrite each reported test with the pytest idiom it names."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.SIM",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "SIM"
+      },
+      "summary": "Enable the Ruff SIM rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The SIM selector is off, so needlessly complex conditionals and constructs accumulate.",
+        "fix": "Select the SIM rules and rewrite each reported construct in its simpler form."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.UP",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "UP"
+      },
+      "summary": "Enable the Ruff UP rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The UP selector is off, so code keeps syntax that the target Python version replaced.",
+        "fix": "Select the UP rules and upgrade each reported construct to the target version's syntax."
+      }
+    },
+    {
+      "id": "RUFF.SELECT.W",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "W"
+      },
+      "summary": "Enable the Ruff W rule selector or target-language equivalent.",
+      "remediation": {
+        "root_cause": "The W selector is off, so whitespace warnings pass and create noisy diffs.",
+        "fix": "Select the W rules and fix whitespace across the repository with the formatter."
+      }
+    },
+    {
+      "id": "RUFF.SETTING.mccabe.max-complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "selector": "C901",
+        "value": 10
+      },
+      "summary": "Enable the Ruff C901 rule with the max-complexity limit or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Functions accumulate decision paths because one function handles many cases.",
+        "fix": "Enable C901 at the approved max-complexity, then extract each decision into a named function or table."
+      }
+    },
+    {
+      "id": "RUFF.SETTING.target-version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_supported_python_version_required": true
+      },
+      "summary": "Preserve the target-version setting or target-language equivalent.",
+      "remediation": {
+        "root_cause": "Ruff's target-version differs from the repository's Python version, so lint and upgrade rules judge the wrong language level.",
+        "fix": "Set Ruff target-version to the repository's declared Python version and keep it aligned with mypy python_version."
+      }
+    },
+    {
+      "id": "SECURITY.dependency-audit",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "owner": "repo_checker_run_by_checks_commit_and_checks_ci",
+        "setup_outcomes": ["repo", "grow"],
+        "harness_copy_forbidden": true,
+        "scope_source": "git ls-files --cached --others --exclude-standard",
+        "scope": "every_lock_file_and_dependency_manifest_in_every_ecosystem",
+        "unknown_lock_format_is_failure": true,
+        "manifest_with_dependencies_and_no_lock_is_failure": true,
+        "exclusions": "fixture_or_vendored_paths_named_one_by_one_with_origin_evidence",
+        "exclusion_by_glob_ecosystem_or_package_forbidden": true,
+        "runs": "whole_repo_at_every_commit_and_every_ci_run",
+        "staged_file_trigger_forbidden": true,
+        "scheduled_run_by_default": false,
+        "every_advisory_blocks": true,
+        "severity_scoring_in_checker_forbidden": true,
+        "finding_per": "advisory_and_locked_package_version_and_lock",
+        "advisory_line": "SECURITY.dependency-audit lock=<lock-path> ecosystem=<osv-ecosystem> package=<name> version=<exact-locked-version> advisory=<advisory-id> aliases=<id>,<id> fix=<version>,<version>",
+        "advisory_fields_in_order": [
+          "lock",
+          "ecosystem",
+          "package",
+          "version",
+          "advisory",
+          "aliases",
+          "fix"
+        ],
+        "failure_line": "SECURITY.dependency-audit failure=<kind> path=<repo-path> reason=<text-to-end-of-line>",
+        "failure_kinds": [
+          "unknown-lock-format",
+          "manifest-without-lock",
+          "exception",
+          "auditor"
+        ],
+        "line_grammar": "one finding per line; the rule ID starts the line; fields are separated by one space and appear in the stated order; values are nonempty and contain no whitespace except reason; list values are comma-separated with no spaces, and an empty list is an empty value (aliases=, fix=)",
+        "malicious_package_mark": "the advisory ID or an alias starts with MAL- (an OSV malicious-package record); an advisory the auditor marks malicious without one lists the alias MAL-<advisory-id>",
+        "untrusted_auditor_output_is_failure": true,
+        "exceptions": {
+          "allowed_only_for": [
+            "advisory_with_no_fix_version",
+            "fixed_release_blocked_by_pinned_dependent"
+          ],
+          "file": "repo_json_file_the_repo_dependency_audit_reads",
+          "entry_fields": [
+            "advisory",
+            "package",
+            "version",
+            "lock",
+            "reason",
+            "exposure",
+            "expires"
+          ],
+          "expires_format": "YYYY-MM-DD",
+          "expires_validation": "valid calendar date; expired when expires is before today's UTC date",
+          "entry_validation": "exactly entry_fields for an advisory with no fixed version; exactly entry_fields plus blocked_fix_fields for an advisory with fixed versions; all values are nonblank strings; unknown or missing fields fail",
+          "blocked_fix_fields": [
+            "blocked_by",
+            "constraint",
+            "constraint_source"
+          ],
+          "blocked_by_format": "<package>@<exact-locked-version>; split at the last @ so scoped package names remain valid",
+          "constraint_format": "exact upstream dependency declaration including the blocking package and version, requires, and the advisory package's constraint; for example semgrep==1.185.0 requires opentelemetry-api~=1.37.0",
+          "constraint_source_format": "absolute HTTPS URL naming the upstream package metadata or source that publishes the exact constraint for that blocker version",
+          "blocked_fix_validation": "the named blocker must be present at exactly that version in the same lock; constraint must parse, target the advisory package and exclude every reported fixed version under the ecosystem's version semantics; constraint_source must be an absolute HTTPS URL; missing blocking fields, a missing or changed blocker, an unparsable constraint, or any compatible fixed version is failure",
+          "upstream_evidence_attestation": "the owner attests that constraint is the exact upstream declaration at constraint_source when writing the entry; checkers are deterministic and never fetch constraint_source at commit or CI",
+          "suppresses_only_the_exact_advisory_package_version_and_lock": true,
+          "expired_entry_reports_the_advisory_again_and_a_failure": true,
+          "entry_matching_no_reported_advisory_is_failure": true,
+          "entry_for_an_advisory_with_an_unblocked_fix_is_failure": true,
+          "malformed_entry_is_failure": true,
+          "agents_never_add_or_edit": true
+        }
+      },
+      "summary": "Audit every lock file in the repo for advisories at every commit and CI run; every advisory blocks.",
+      "remediation": {
+        "root_cause": "A locked dependency version has a published advisory, or a lock cannot be audited, so the repository ships known-vulnerable or unaudited code.",
+        "fix": "Upgrade the affected package to a fixed version and regenerate its lock, or remove the dependency; route a fix that is blocked to the owner as an exception with evidence."
+      }
+    },
+    {
+      "id": "SKILL.metadata",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "name_matches_directory": true,
+        "use_when_prefix_case_insensitive": true,
+        "target_metadata_schema_required": true,
+        "shared_skill_scope_metadata_must_match_target_schema": true
+      },
+      "summary": "Validate agent skill metadata and linked support files when skills exist.",
+      "remediation": {
+        "root_cause": "Skill metadata or its linked support files are missing or malformed, so agents cannot discover or load the skill correctly.",
+        "fix": "Repair the skill's frontmatter and links so every referenced file exists, and validate the skill whenever its files change."
+      }
+    },
+    {
+      "id": "TEST.failure-propagation",
+      "kind": "process",
+      "applicability": "always",
+      "contract": {
+        "negative_case_required": true,
+        "missing_skipped_timed_out_or_infrastructure_failed_required_check_is_failure": true,
+        "empty_collection_is_failure": true
+      },
+      "summary": "A failed prerequisite cannot be reported as a passing gate.",
+      "remediation": {
+        "root_cause": "A gate step swallows a failed prerequisite, so a broken setup can report success.",
+        "fix": "Make each gate step return the failing prerequisite's exit status and stop the run, so no later step can report a pass. A required check that is missing, skipped, timed out, failed for infrastructure reasons or collected zero tests is a failure, never a pass."
+      },
+      "implementation": [
+        {
+          "subcommand": "report-check",
+          "module": "guardrails.commands.test_evidence.propagation"
+        },
+        {
+          "subcommand": "collection-check",
+          "module": "guardrails.commands.test_evidence.collection"
+        }
+      ]
+    },
+    {
+      "id": "TEST.subprocess-timeouts",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "scope": "test_files_and_shared_fixtures",
+        "synchronous_process_call_requires_positive_timeout": true,
+        "process_wait_or_communicate_requires_positive_timeout": true,
+        "async_process_wait_requires_bounded_wait": true,
+        "diagnostic_names_file_line_and_timeout_fix": true
+      },
+      "summary": "Bound subprocess calls in tests and keep failure output diagnosable.",
+      "remediation": {
+        "root_cause": "Tests start subprocesses without a deadline or without capturing output, so hangs block the suite and failures are unreadable.",
+        "fix": "Give every test subprocess call an explicit timeout and capture its output for the failure message, through one owned helper. Give every synchronous subprocess call and every process wait or communicate call a positive timeout, and bound every async process wait, in shared fixtures too."
+      },
+      "implementation": [
+        {
+          "subcommand": "python-subprocess-timeouts",
+          "module": "guardrails.commands.python_policy.subprocess_timeouts"
+        }
+      ]
+    },
+    {
+      "id": "TEST.no-self-mocking",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "owned_code": "packages_owning_config_tests_public_entry_points",
+        "reject_mock_stub_fake_or_runtime_patch_targets_inside_owned_code": true,
+        "mechanism": "adapter_source_patterns",
+        "diagnostic_names_test_target_and_public_entry_point_fix": true
+      },
+      "summary": "Reject tests that mock, stub, fake or patch the repository's own code.",
+      "remediation": {
+        "root_cause": "Tests replace the repository's own code, so they prove the mock instead of the behaviour.",
+        "fix": "Exercise owned code through its real interface and replace only external boundaries; give an owned dependency an interface the test can implement. Never runtime-patch the repository's own modules; put recorded or local substitutes for external services behind the production adapter."
+      },
+      "implementation": [
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
+      ]
+    },
+    {
+      "id": "TEST.no-test-hooks",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "reject_production_symbols_referenced_only_from_tests": true,
+        "reject_test_hook_names_in_production_declarations": true,
+        "reject_production_reads_of_test_markers": {
+          "environment": [
+            "getenv",
+            "environ.get",
+            "environ.pop",
+            "environ.setdefault",
+            "environ[...]",
+            "in environ",
+            "process.env",
+            "Bun.env",
+            "import.meta.env",
+            "os.Getenv",
+            "os.LookupEnv"
+          ],
+          "loaded_modules": [
+            "sys.modules.get",
+            "sys.modules[...]",
+            "in sys.modules",
+            "require.cache",
+            "import.meta.vitest",
+            "testing.Testing",
+            "flag.Lookup"
+          ]
+        },
+        "marker_shaped_data_outside_reads_is_clean": true,
+        "mechanism": "adapter_source_patterns",
+        "diagnostic_names_symbol_and_production_input_fix": true
+      },
+      "summary": "Reject test-only flags, hooks and production symbols that only tests use.",
+      "remediation": {
+        "root_cause": "Production code reads a test marker or carries a symbol that only tests use, so the tested path differs from the shipped path.",
+        "fix": "Remove the marker read or test-only symbol and drive the behaviour through production inputs: configuration, dependency injection or the public entry point. Never add test-only flags, environment variables, hooks or marker names to production code."
+      },
+      "implementation": [
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
+      ]
+    },
+    {
+      "id": "TEST.no-evasion",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "reject_unapproved_static_skip_xfail_focus_or_flaky_markers": true,
+        "reject_unapproved_skips_and_retries_to_green_in_run_report": true,
+        "reject_timeout_increases_in_changed_tests": true,
+        "mechanism": [
+          "adapter_source_patterns",
+          "normalised_junit_run_report",
+          "git_diff"
+        ]
+      },
+      "summary": "Reject skips, focused-only runs, retries to green and longer timeouts.",
+      "remediation": {
+        "root_cause": "Tests are skipped, focused, retried or given longer timeouts to get a green run, so failures stay hidden.",
+        "fix": "Remove the evasion and fix the cause of the failure or flake; record an owner-approved exception only for an external outage. Never add unapproved skip, xfail, focus/only or flaky/retry markers, rerun until green, or raise a timeout in a changed test to get a pass."
+      },
+      "implementation": [
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "report-check",
+          "module": "guardrails.commands.test_evidence.propagation"
+        },
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diff.timeout_increases"
+        }
+      ]
+    },
+    {
+      "id": "TEST.fast-tier-isolation",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "t1_setup_call_and_teardown",
+        "subprocess_creation_is_failure": true,
+        "network_connection_is_failure": true,
+        "guard_location_source": "config_tests_guards_process_and_network",
+        "ci_mechanism": "network_denied_test_container",
+        "local_mechanism": "adapter_guard_hook"
+      },
+      "summary": "Fail any T1 test that starts a process or opens a network connection.",
+      "remediation": {
+        "root_cause": "A fast-tier test starts a process or opens a network connection, so it depends on the host and becomes slow and flaky.",
+        "fix": "Replace the process or network boundary with an owned interface and a fake in fast tests, or move the test to the tier that allows real I/O. A fast-tier test, including its setup and teardown, never starts a subprocess or opens a network connection."
+      },
+      "implementation": [
+        {
+          "subcommand": "guard-run",
+          "module": "guardrails.commands.guard_run.command"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
+      ]
+    },
+    {
+      "id": "TEST.user-data-guard",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "run_with_home_and_xdg_directories_in_temp_directory": true,
+        "changed_file_under_real_user_home_outside_temp_is_failure": true,
+        "guard_location_source": "config_tests_guards_user_data"
+      },
+      "summary": "Fail the test session when a live user file changes.",
+      "remediation": {
+        "root_cause": "A test writes to a live user file because paths come from the real home or configuration directories.",
+        "fix": "Make the code under test take its data location as input and give tests a temporary directory, so no test can reach real user data. Run tests with HOME and XDG directories pointed at a temporary directory; any change to a file under the real user home is a failure."
+      },
+      "implementation": [
+        {
+          "subcommand": "guard-run",
+          "module": "guardrails.commands.guard_run.command"
+        }
+      ]
+    },
+    {
+      "id": "TEST.tier-selectors",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "collect_only_test_ids_per_tier",
+        "selector_source": "config_tests_tiers",
+        "one_tier_per_file": true,
+        "overlapping_selection_is_failure": true,
+        "unselected_test_file_is_failure": true
+      },
+      "summary": "Require strict, disjoint tier selectors that together select every test file.",
+      "remediation": {
+        "root_cause": "Tier selectors overlap, are loose or leave test files unselected, so some tests run twice or never.",
+        "fix": "Define strict, disjoint selectors per tier that together select every test file, and update them in the change that adds a test location. Each test file belongs to exactly one tier; confirm every tier's selection with the runner's collect-only listing."
+      },
+      "implementation": [
+        {
+          "subcommand": "collection-check",
+          "module": "guardrails.commands.test_evidence.collection"
+        }
+      ]
+    },
+    {
+      "id": "TEST.coverage-ratchet",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "floor_source": "config_tests_coverage",
+        "added_coverage_exclusion_or_pragma_is_failure": true,
+        "lowered_floor_or_changed_exclusion_config_requires_approval_reference": true
+      },
+      "summary": "Reject new coverage exclusions and unapproved floor or exclusion changes.",
+      "remediation": {
+        "root_cause": "Coverage exclusions or floors were changed to make a run pass instead of testing the code.",
+        "fix": "Remove the new exclusion or restore the floor and add outcome tests for the uncovered code; change floors only through an owner approval. Add no coverage exclusions or no-cover pragmas; lowering a floor or changing exclusion configuration needs a recorded owner approval."
+      },
+      "implementation": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diff.coverage_ratchet"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
+    },
+    {
+      "id": "TEST.golden-change-record",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "changed_golden_requires_change_record_entry_naming_it": true
+      },
+      "summary": "Require a change-record entry naming every changed golden file.",
+      "remediation": {
+        "root_cause": "A golden file changed without a change-record entry, so expected output moved without a stated reason.",
+        "fix": "Add a change-record entry naming each changed golden file and the behaviour change behind it, or revert the golden change. Change a golden only for an intended rule change, and name every changed golden file and the first divergent step in the change record."
+      },
+      "implementation": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diff.golden_record"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
+    },
+    {
+      "id": "TEST.identity-artefacts",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "input": "git_diff_against_base_ref",
+        "artefact_source": "config_tests_identity_artefacts",
+        "applies_when_no_production_file_changed": true,
+        "changed_identity_artefact_is_failure": true
+      },
+      "summary": "Keep identity-bearing artefacts unchanged in test-only work.",
+      "remediation": {
+        "root_cause": "Test-only work changed identity-bearing artefacts, so test changes alter what the product is.",
+        "fix": "Revert the identity artefact changes from the test-only work and make them in a product change of their own. When no production file changed, every identity-bearing artefact the config lists stays byte-identical."
+      },
+      "implementation": [
+        {
+          "subcommand": "diff-check",
+          "module": "guardrails.commands.diff.identity_artefacts"
+        },
+        {
+          "subcommand": "check",
+          "module": "guardrails.commands.check.whole_repo"
+        }
+      ]
+    },
+    {
+      "id": "TEST.property-seed",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "property_tests_set_or_report_seed": true,
+        "mechanism": "adapter_source_patterns"
+      },
+      "summary": "Require property tests to set or report their seed.",
+      "remediation": {
+        "root_cause": "Property tests run with a random seed that is neither fixed nor reported, so failures cannot be reproduced.",
+        "fix": "Set a fixed seed or report the seed on every run through one shared property-test configuration. Reproduce a failure from its reported seed and shrink path, and keep the shrunk counterexample as a named example test."
+      },
+      "implementation": [
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
+      ]
+    },
+    {
+      "id": "TEST.mutation-sensitivity",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "scope": "changed_code_relative_to_base_ref",
+        "tool_source": "adapter_mutation_tool",
+        "run_event": "t3_nightly",
+        "surviving_mutant_in_changed_behaviour_is_failure": true,
+        "untested_or_unfinished_mutant_in_changed_behaviour_is_failure": true,
+        "mechanism": "normalised_mutation_report",
+        "proofs_covered_by_red_at_parent": true
+      },
+      "summary": "Fail when a mutation of changed code leaves every test green.",
+      "remediation": {
+        "root_cause": "A mutation of changed code leaves every test green, so the tests do not observe that code's outcome.",
+        "fix": "Add or strengthen an outcome test that fails for the mutant, asserting the observable result of the changed code. The nightly T3 run mutates changed code; a surviving, untested or unfinished mutant in changed behaviour is a failure to close with an outcome or property case."
+      },
+      "implementation": [
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "mutation-check",
+          "module": "guardrails.commands.test_evidence.mutation"
+        }
+      ]
+    },
+    {
+      "id": "NAME.test-files",
+      "kind": "bespoke",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "pattern_sources": [
+          "language_convention_packs",
+          "config_tests_layout_test_file_patterns"
+        ],
+        "event_scope": "added and renamed paths only; content edits do not trigger naming; explicit CLI paths or no-path full scans remain available",
+        "reject_ticket_version_or_date_tokens": true,
+        "nonmatching_test_file_is_failure": true,
+        "diagnostic_names_file_and_correct_name": true
+      },
+      "summary": "Require test file names to match the configured test file patterns without ticket, version or date tokens.",
+      "remediation": {
+        "root_cause": "Test file names carry tickets, versions or dates, or ignore the configured test file patterns, so names describe history instead of behaviour.",
+        "fix": "Rename the test file for the behaviour it proves using a configured test file pattern, and drop ticket, version and date tokens. Mirror the owning module or feature in the file name and follow the names of sibling test files."
+      },
+      "implementation": [
+        {
+          "subcommand": "naming",
+          "module": "guardrails.commands.structure_naming.naming"
+        }
+      ]
+    },
+    {
+      "id": "CONFIG.complete",
+      "kind": "process",
+      "applicability": "always",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "configuration": ".agentrails/config.json",
+        "validator": "guardrails config-check",
+        "missing_values": [
+          "absent",
+          "empty",
+          "template_placeholder",
+          "n/a",
+          "TBD",
+          "unapproved_none"
+        ],
+        "exemptable_sections": [
+          "tiers.t3",
+          "verification_surface",
+          "run_events.nightly_scheduler",
+          "identity_artefacts"
+        ],
+        "exemption_requires": ["none_true", "owner_exemption_approval"],
+        "guardrail_exceptions": {
+          "field": "exceptions",
+          "required_fields": [
+            "rule",
+            "path",
+            "reason",
+            "approvedBy",
+            "approvedAt"
+          ],
+          "optional_fields": ["check"],
+          "values": "nonempty strings without placeholders",
+          "unknown_fields_rejected": true,
+          "path_matching": "fnmatchcase for globs; plain path or descendants",
+          "check_matching": "exact finding sub-check when present; whole rule when omitted"
+        },
+        "prove_prerequisite": true
+      },
+      "summary": "Require every repo config value, allowing only four owner-approved exemptions.",
+      "remediation": {
+        "root_cause": "The repo config is missing required values or carries unapproved exemptions, so checks run with gaps.",
+        "fix": "Set every required config value in .agentrails/config.json and get an owner exemption approval for each of the four exemptable fields left as {none: true}. An empty or stand-in value counts as missing, and each exemption needs an owner-approved reason with its approval reference."
+      },
+      "implementation": [
+        {
+          "subcommand": "config-check",
+          "module": "guardrails.commands.config.command"
+        }
+      ]
+    },
+    {
+      "id": "SURFACE.feature-map",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "path_source": "config_tests_verification_surface_feature_map_path",
+        "one_document_per_feature": true,
+        "exact_h2_sections": [
+          "Sub-features",
+          "How to get to it (user POV)",
+          "Driving it with <lever>",
+          "Gotchas"
+        ],
+        "stale_link_is_failure": true
+      },
+      "summary": "Require one feature-map document per feature with exactly the four fixed sections.",
+      "remediation": {
+        "root_cause": "A feature map is missing or does not follow the fixed four sections, so features cannot be linked to their proofs.",
+        "fix": "Write one feature-map document per feature with exactly the four fixed sections, and keep it updated with the feature. Its four H2 sections are Sub-features, How to get to it (user POV), Driving it with followed by the lever name, and Gotchas; fix every stale link."
+      },
+      "implementation": [
+        {
+          "subcommand": "surface-lint",
+          "module": "guardrails.commands.surface.feature_map"
+        }
+      ]
+    },
+    {
+      "id": "SURFACE.journeys",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "pattern_source": "config_tests_verification_surface_journey_file_pattern",
+        "nonmatching_journey_file_is_failure": true,
+        "journey_must_call_lever": true
+      },
+      "summary": "Require journeys to match the configured journey file pattern and drive the lever.",
+      "remediation": {
+        "root_cause": "Journeys do not match the configured journey file pattern or bypass the lever, so they do not prove the product as users drive it.",
+        "fix": "Rename journeys to the configured journey file pattern and drive each one through the lever's public commands. Each journey file matches the configured journey file pattern and runs through the test runner."
+      },
+      "implementation": [
+        {
+          "subcommand": "surface-lint",
+          "module": "guardrails.commands.surface.journeys"
+        }
+      ]
+    },
+    {
+      "id": "SURFACE.lever-isolation",
+      "kind": "bespoke",
+      "applicability": "conditional",
+      "evidence_kind": "local_ci",
+      "contract": {
+        "run_event": "ci",
+        "doctor_failure_prints_config_doctor_marker": true,
+        "kills_only_own_process_group": true,
+        "per_instance_ports_and_data": true,
+        "no_leftover_processes_or_ports": true,
+        "evidence_directory_survives_cleanup": true
+      },
+      "summary": "Self-test the lever: visible doctor failure, own-process cleanup and surviving evidence.",
+      "remediation": {
+        "root_cause": "The lever cannot prove its own isolation: its doctor failure is hidden, it leaks processes or loses evidence.",
+        "fix": "Make the lever self-test pass: show doctor failures, clean up every process it starts and keep run evidence after exit. The lever prints the doctor-failure marker, kills only its own process group, uses per-instance ports and data, leaves no processes or ports behind and keeps the evidence directory after cleanup."
+      },
+      "implementation": [
+        {
+          "subcommand": "lever-selftest",
+          "module": "guardrails.commands.surface.lever_selftest"
+        }
+      ]
+    },
+    {
+      "id": "TSC.strict",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.strict to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "TypeScript strict mode is off, so implicit any and unchecked null flows pass compilation.",
+        "fix": "Set compilerOptions.strict to true and fix each reported type at its source, parsing untyped input at its boundary."
+      }
+    },
+    {
+      "id": "TSC.noUncheckedIndexedAccess",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUncheckedIndexedAccess to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Indexed reads are typed as always present, so missing keys and out-of-range indexes reach code as undefined.",
+        "fix": "Set noUncheckedIndexedAccess to true and handle the absent case where each indexed value is read."
+      }
+    },
+    {
+      "id": "TSC.exactOptionalPropertyTypes",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.exactOptionalPropertyTypes to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Optional properties accept an explicit undefined, so absent and undefined values blur together.",
+        "fix": "Set exactOptionalPropertyTypes to true and omit absent properties instead of assigning undefined."
+      }
+    },
+    {
+      "id": "TSC.noImplicitOverride",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noImplicitOverride to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Overriding members lack the override keyword, so renaming a base member silently detaches the override.",
+        "fix": "Set noImplicitOverride to true and mark every overriding member with override."
+      }
+    },
+    {
+      "id": "TSC.noImplicitReturns",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noImplicitReturns to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Some code paths fall off the end of a function that returns a value, returning undefined by accident.",
+        "fix": "Set noImplicitReturns to true and give every path an explicit result."
+      }
+    },
+    {
+      "id": "TSC.noFallthroughCasesInSwitch",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noFallthroughCasesInSwitch to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Switch cases fall through without intent, so one case runs another case's code.",
+        "fix": "Set noFallthroughCasesInSwitch to true and end each case explicitly."
+      }
+    },
+    {
+      "id": "TSC.noPropertyAccessFromIndexSignature",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noPropertyAccessFromIndexSignature to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Dot access on index signatures looks like a declared property, hiding that the key may be missing.",
+        "fix": "Set noPropertyAccessFromIndexSignature to true and read dynamic keys with bracket access, or declare the properties in a named type."
+      }
+    },
+    {
+      "id": "TSC.noUnusedLocals",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUnusedLocals to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Unused locals stay in code after refactors, hiding dead paths.",
+        "fix": "Set noUnusedLocals to true and delete each unused local together with the code that only fed it."
+      }
+    },
+    {
+      "id": "TSC.noUnusedParameters",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.noUnusedParameters to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Functions keep parameters they no longer use, so their signatures lie about their inputs.",
+        "fix": "Set noUnusedParameters to true and remove each unused parameter from the signature and its callers."
+      }
+    },
+    {
+      "id": "TSC.allowUnreachableCode",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Set tsc compilerOptions.allowUnreachableCode to false in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Unreachable code is allowed, so dead statements remain after early returns.",
+        "fix": "Set allowUnreachableCode to false and delete the unreachable statements."
+      }
+    },
+    {
+      "id": "TSC.allowUnusedLabels",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": false
+      },
+      "summary": "Set tsc compilerOptions.allowUnusedLabels to false in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Unused labels are allowed, so leftover or mistyped labels pass unnoticed.",
+        "fix": "Set allowUnusedLabels to false and remove every unused label."
+      }
+    },
+    {
+      "id": "TSC.forceConsistentCasingInFileNames",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Set tsc compilerOptions.forceConsistentCasingInFileNames to true in the repository's tsconfig.",
+      "remediation": {
+        "root_cause": "Imports may differ in case from file names, which works on one file system and breaks on another.",
+        "fix": "Set forceConsistentCasingInFileNames to true and match every import path to the file's exact case."
+      }
+    },
+    {
+      "id": "TSC.project-coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "target_maintained_source_roots_required": true,
+        "all_maintained_typescript_files_must_be_checked": true,
+        "third_party_types_from_upstream_packages": true,
+        "in_repo_third_party_declaration_shims_forbidden": true
+      },
+      "summary": "Type-check every maintained TypeScript file with the repository's tsc; third-party types come from the package or a published @types package.",
+      "remediation": {
+        "root_cause": "Some maintained TypeScript files sit outside every tsc project, so they are never type-checked.",
+        "fix": "Include every maintained TypeScript file in a checked tsc project and take third-party types from the package or its published @types package."
+      }
+    },
+    {
+      "id": "OXLINT.plugins",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": ["eslint", "typescript", "unicorn", "oxc", "import"]
+      },
+      "summary": "Enable oxlint's default plugins plus import, which carries the dependency fan-out limit.",
+      "remediation": {
+        "root_cause": "Oxlint runs without its default plugins or import, so whole rule families, including the fan-out limit, never run.",
+        "fix": "Enable the default plugins plus import in the repository's oxlint configuration and fix what they report."
+      }
+    },
+    {
+      "id": "OXLINT.CATEGORY.correctness",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "error"
+      },
+      "summary": "Report every oxlint correctness rule as an error.",
+      "remediation": {
+        "root_cause": "Correctness rules are off or warnings, so likely bugs pass the gate.",
+        "fix": "Set the correctness category to error and fix each reported bug at its source."
+      }
+    },
+    {
+      "id": "OXLINT.CATEGORY.suspicious",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "error"
+      },
+      "summary": "Report every oxlint suspicious rule as an error.",
+      "remediation": {
+        "root_cause": "Suspicious rules are off or warnings, so code that is probably wrong passes the gate.",
+        "fix": "Set the suspicious category to error and rewrite each reported construct in its intended form."
+      }
+    },
+    {
+      "id": "OXLINT.LIMIT.complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/complexity",
+        "value": [
+          "error",
+          {
+            "max": 10
+          }
+        ],
+        "mirrors": "RUFF.SETTING.mccabe.max-complexity"
+      },
+      "summary": "Enable oxlint eslint/complexity as RUFF.SETTING.mccabe.max-complexity does for Python.",
+      "remediation": {
+        "root_cause": "TypeScript functions accumulate decision paths because one function handles many cases.",
+        "fix": "Enable eslint/complexity at the approved limit, then extract each decision into a named function or table."
+      }
+    },
+    {
+      "id": "OXLINT.LIMIT.max-params",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/max-params",
+        "value": [
+          "error",
+          {
+            "max": 5
+          }
+        ],
+        "mirrors": "RUFF.LIMIT.max-args"
+      },
+      "summary": "Enable oxlint eslint/max-params as RUFF.LIMIT.max-args does for Python.",
+      "remediation": {
+        "root_cause": "TypeScript functions take many parameters because they combine responsibilities or pass loose values.",
+        "fix": "Enable eslint/max-params at the approved limit, then group related values into named types or split the function."
+      }
+    },
+    {
+      "id": "OXLINT.LIMIT.max-statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/max-statements",
+        "value": [
+          "error",
+          {
+            "max": 50
+          }
+        ],
+        "mirrors": "RUFF.LIMIT.max-statements"
+      },
+      "summary": "Enable oxlint eslint/max-statements as RUFF.LIMIT.max-statements does for Python.",
+      "remediation": {
+        "root_cause": "TypeScript functions grow long because they do several steps that each deserve a name.",
+        "fix": "Enable eslint/max-statements at the approved limit, then extract each step into a named function."
+      }
+    },
+    {
+      "id": "OXLINT.LIMIT.max-dependencies",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "import/max-dependencies",
+        "value": [
+          "error",
+          {
+            "max": 10
+          }
+        ],
+        "mirrors": "FANOUT.general"
+      },
+      "summary": "Enable oxlint import/max-dependencies as FANOUT.general does for Python.",
+      "remediation": {
+        "root_cause": "TypeScript modules import too many dependencies, which means they coordinate concerns of separate owners.",
+        "fix": "Enable import/max-dependencies at the approved limit, then split the module so each part imports only what it needs."
+      }
+    },
+    {
+      "id": "OXLINT.RULE.no-empty",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "eslint/no-empty",
+        "value": [
+          "error",
+          {
+            "allowEmptyCatch": false
+          }
+        ],
+        "mirrors": "RUFF.SELECT.S110"
+      },
+      "summary": "Enable oxlint eslint/no-empty as RUFF.SELECT.S110 does for Python.",
+      "remediation": {
+        "root_cause": "Empty blocks, including empty catch blocks, swallow failures or leave unfinished branches.",
+        "fix": "Enable eslint/no-empty and give each block real handling, or delete the branch."
+      }
+    },
+    {
+      "id": "OXLINT.RULE.ban-ts-comment",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "typescript/ban-ts-comment",
+        "value": "error",
+        "mirrors": "RUFF.SELECT.PGH"
+      },
+      "summary": "Enable oxlint typescript/ban-ts-comment as RUFF.SELECT.PGH does for Python.",
+      "remediation": {
+        "root_cause": "TypeScript directive comments silence the compiler instead of fixing the type error.",
+        "fix": "Enable typescript/ban-ts-comment and fix the type error behind each directive, then delete the directive."
+      }
+    },
+    {
+      "id": "OXLINT.RULE.no-explicit-any",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "rule": "typescript/no-explicit-any",
+        "value": "error",
+        "mirrors": "MYPY.strict"
+      },
+      "summary": "Enable oxlint typescript/no-explicit-any as MYPY.strict does for Python.",
+      "remediation": {
+        "root_cause": "Explicit any switches off type checking for every value it touches.",
+        "fix": "Enable typescript/no-explicit-any and replace each any with a named type, parsing unknown input at its boundary."
+      }
+    },
+    {
+      "id": "GOLANGCI.version",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "2"
+      },
+      "summary": "Use the golangci-lint v2 configuration format.",
+      "remediation": {
+        "root_cause": "The golangci-lint configuration uses an older format, so settings are misread or ignored by v2.",
+        "fix": "Migrate the configuration to the v2 format and verify that golangci-lint config verify accepts it."
+      }
+    },
+    {
+      "id": "GOLANGCI.run.tests",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Lint test files with the same linters as production code.",
+      "remediation": {
+        "root_cause": "Test files are excluded from linting, so test code drifts below production quality.",
+        "fix": "Set run.tests to true and fix what the linters report in test files."
+      }
+    },
+    {
+      "id": "GOLANGCI.linters.default",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "standard",
+        "includes": [
+          "errcheck",
+          "govet",
+          "ineffassign",
+          "staticcheck",
+          "unused"
+        ]
+      },
+      "summary": "Keep the standard linter set, which runs go vet (govet), errcheck, staticcheck, unused and ineffassign.",
+      "remediation": {
+        "root_cause": "The standard linter set was replaced, so go vet, errcheck, staticcheck, unused or ineffassign stop running.",
+        "fix": "Restore linters.default to standard and fix each finding the standard linters report."
+      }
+    },
+    {
+      "id": "GOLANGCI.ENABLE.gocyclo",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "gocyclo"
+      },
+      "summary": "Enable the golangci-lint gocyclo linter.",
+      "remediation": {
+        "root_cause": "gocyclo is not enabled, so Go functions can grow complex without a limit.",
+        "fix": "Enable gocyclo and split each reported function into named steps."
+      }
+    },
+    {
+      "id": "GOLANGCI.ENABLE.funlen",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen"
+      },
+      "summary": "Enable the golangci-lint funlen linter.",
+      "remediation": {
+        "root_cause": "funlen is not enabled, so Go functions can grow long without a limit.",
+        "fix": "Enable funlen and extract each reported function's steps into named functions."
+      }
+    },
+    {
+      "id": "GOLANGCI.ENABLE.revive",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "revive"
+      },
+      "summary": "Enable the golangci-lint revive linter.",
+      "remediation": {
+        "root_cause": "revive is not enabled, so Go style and argument-count rules never run.",
+        "fix": "Enable revive with the approved rules and fix each reported construct."
+      }
+    },
+    {
+      "id": "GOLANGCI.ENABLE.forbidigo",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "forbidigo"
+      },
+      "summary": "Enable the golangci-lint forbidigo linter.",
+      "remediation": {
+        "root_cause": "forbidigo is not enabled, so forbidden calls such as exec.Command pass unnoticed.",
+        "fix": "Enable forbidigo with the approved patterns and replace each forbidden call with its approved form."
+      }
+    },
+    {
+      "id": "GOLANGCI.ENABLE.nolintlint",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "nolintlint"
+      },
+      "summary": "Enable the golangci-lint nolintlint linter.",
+      "remediation": {
+        "root_cause": "nolintlint is not enabled, so nolint directives can be vague, stale or unexplained.",
+        "fix": "Enable nolintlint and fix the code behind each directive, keeping only specific, explained exceptions."
+      }
+    },
+    {
+      "id": "GOLANGCI.LIMIT.gocyclo.min-complexity",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "gocyclo",
+        "setting": "min-complexity",
+        "value": 10,
+        "mirrors": "RUFF.SETTING.mccabe.max-complexity"
+      },
+      "summary": "Report Go functions whose cyclomatic complexity exceeds 10.",
+      "remediation": {
+        "root_cause": "The gocyclo threshold drifted from 10, so more complex Go functions pass.",
+        "fix": "Set gocyclo min-complexity to 10 and split each reported function by decision."
+      }
+    },
+    {
+      "id": "GOLANGCI.LIMIT.funlen.statements",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen",
+        "setting": "statements",
+        "value": 50,
+        "mirrors": "RUFF.LIMIT.max-statements"
+      },
+      "summary": "Report Go functions with more than 50 statements.",
+      "remediation": {
+        "root_cause": "The funlen statement limit drifted from 50, so longer Go functions pass.",
+        "fix": "Set funlen statements to 50 and extract each reported function's steps into named functions."
+      }
+    },
+    {
+      "id": "GOLANGCI.LIMIT.funlen.lines",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "funlen",
+        "setting": "lines",
+        "value": -1
+      },
+      "summary": "Judge Go function size by statements only; line counts are off.",
+      "remediation": {
+        "root_cause": "funlen judges line counts, so formatting rather than statements decides function size.",
+        "fix": "Turn the funlen line limit off and judge size by statements only."
+      }
+    },
+    {
+      "id": "GOLANGCI.LIMIT.revive.argument-limit",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "revive",
+        "setting": "argument-limit",
+        "value": 5,
+        "mirrors": "RUFF.LIMIT.max-args"
+      },
+      "summary": "Report Go functions with more than 5 parameters.",
+      "remediation": {
+        "root_cause": "The revive argument limit drifted from 5, so Go functions take more parameters than approved.",
+        "fix": "Set the revive argument-limit to 5 and group related parameters into named structs."
+      }
+    },
+    {
+      "id": "GOLANGCI.RULE.forbidigo.exec-command",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "forbidigo",
+        "value": [
+          {
+            "pattern": "^exec\\.Command$",
+            "msg": "use exec.CommandContext with a deadline so a hung process cannot stall the run"
+          }
+        ],
+        "mirrors": "TEST.subprocess-timeouts"
+      },
+      "summary": "Forbid exec.Command; every process call takes a context with a deadline (exec.CommandContext).",
+      "remediation": {
+        "root_cause": "Processes are started with exec.Command, which has no context and therefore no deadline or cancellation.",
+        "fix": "Forbid exec.Command and start every process with exec.CommandContext and a context that carries a deadline."
+      }
+    },
+    {
+      "id": "GOLANGCI.RULE.nolintlint",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "linter": "nolintlint",
+        "value": {
+          "require-explanation": true,
+          "require-specific": true
+        },
+        "mirrors": "RUFF.IGNORES"
+      },
+      "summary": "Every //nolint names its linter and explains why.",
+      "remediation": {
+        "root_cause": "nolint directives omit the linter name or the reason, so exceptions are broad and unexplained.",
+        "fix": "Require a specific linter and an explanation on every nolint, and fix the code wherever no real reason exists."
+      }
+    },
+    {
+      "id": "GOLANGCI.FORMAT.gofmt",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "formatter": "gofmt"
+      },
+      "summary": "Enforce gofmt formatting through golangci-lint fmt.",
+      "remediation": {
+        "root_cause": "gofmt formatting is not enforced, so formatting varies between editors.",
+        "fix": "Enable gofmt through golangci-lint fmt and format the repository once."
+      }
+    },
+    {
+      "id": "GOLANGCI.FORMAT.goimports",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "formatter": "goimports",
+        "target_module_path_local_prefix_required": true,
+        "mirrors": "RUFF.ISORT.known-first-party"
+      },
+      "summary": "Enforce goimports grouping with the repository's module path as the local prefix.",
+      "remediation": {
+        "root_cause": "goimports grouping is not enforced with the module prefix, so local imports mix with third-party ones.",
+        "fix": "Enable goimports with the repository's module path as local prefix and re-group imports once."
+      }
+    },
+    {
+      "id": "SHELLCHECK.enable",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": [
+          "avoid-nullary-conditions",
+          "check-extra-masked-returns",
+          "check-set-e-suppressed",
+          "check-unassigned-uppercase",
+          "deprecate-which",
+          "quote-safe-variables"
+        ]
+      },
+      "summary": "Enable shellcheck's optional checks for masked returns, suppressed set -e, unassigned uppercase variables, nullary conditions, which and unquoted variables.",
+      "remediation": {
+        "root_cause": "Shellcheck's optional checks are off, so masked returns, suppressed set -e and unquoted variables pass.",
+        "fix": "Enable the approved optional checks in .shellcheckrc and fix each reported script construct."
+      }
+    },
+    {
+      "id": "SHELLCHECK.external-sources",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": true
+      },
+      "summary": "Let shellcheck follow sourced files.",
+      "remediation": {
+        "root_cause": "Shellcheck does not follow sourced files, so their definitions look undefined or go unchecked.",
+        "fix": "Enable external-sources so shellcheck reads every sourced file."
+      }
+    },
+    {
+      "id": "SHELLCHECK.source-path",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "value": "SCRIPTDIR"
+      },
+      "summary": "Resolve sourced files relative to the script's own directory.",
+      "remediation": {
+        "root_cause": "Sourced files resolve from the working directory, so shellcheck results depend on where it runs.",
+        "fix": "Set source-path to SCRIPTDIR so sourced files resolve relative to each script."
+      }
+    },
+    {
+      "id": "SHELLCHECK.coverage",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "all_maintained_shell_scripts_must_be_checked": true,
+        "scope_source": "git ls-files",
+        "extensionless_scripts_by_shebang": true
+      },
+      "summary": "Run shellcheck over every maintained shell script, including extensionless scripts with a shell shebang.",
+      "remediation": {
+        "root_cause": "Some maintained shell scripts, often extensionless ones, are never passed to shellcheck.",
+        "fix": "Select scripts by shell shebang as well as extension so every maintained script is checked."
+      }
+    },
+    {
+      "id": "SHFMT.indent_style",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": "space"
+      },
+      "summary": "Set shfmt indent_style to space in the repository's .editorconfig shell section.",
+      "remediation": {
+        "root_cause": "Shell indent style differs from the approved space style, so formatting flips between editors.",
+        "fix": "Set indent_style to space in the .editorconfig shell section and format every script once with shfmt."
+      }
+    },
+    {
+      "id": "SHFMT.indent_size",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": 2
+      },
+      "summary": "Set shfmt indent_size to 2 in the repository's .editorconfig shell section.",
+      "remediation": {
+        "root_cause": "Shell indent size differs from 2, so scripts are formatted inconsistently.",
+        "fix": "Set indent_size to 2 in the .editorconfig shell section and format every script once with shfmt."
+      }
+    },
+    {
+      "id": "SHFMT.binary_next_line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": true
+      },
+      "summary": "Set shfmt binary_next_line to true in the repository's .editorconfig shell section.",
+      "remediation": {
+        "root_cause": "Binary operators end lines instead of starting them, so continued conditions are hard to read.",
+        "fix": "Set binary_next_line to true in the .editorconfig shell section and reformat scripts with shfmt."
+      }
+    },
+    {
+      "id": "SHFMT.switch_case_indent",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": true
+      },
+      "summary": "Set shfmt switch_case_indent to true in the repository's .editorconfig shell section.",
+      "remediation": {
+        "root_cause": "Case branches are not indented, so case blocks read flat.",
+        "fix": "Set switch_case_indent to true in the .editorconfig shell section and reformat scripts with shfmt."
+      }
+    },
+    {
+      "id": "SHFMT.function_next_line",
+      "kind": "tool",
+      "applicability": "conditional",
+      "contract": {
+        "section": "[*.{sh,bash}]",
+        "value": false
+      },
+      "summary": "Set shfmt function_next_line to false in the repository's .editorconfig shell section.",
+      "remediation": {
+        "root_cause": "Function braces move to the next line, breaking the approved shell style.",
+        "fix": "Set function_next_line to false in the .editorconfig shell section and reformat scripts with shfmt."
+      }
+    },
+    {
+      "id": "PARITY.package-manager",
+      "kind": "process",
+      "applicability": "conditional",
+      "contract": {
+        "exact_package_manager_pin": true,
+        "lock_matches_package_manager": true,
+        "foreign_lockfiles_forbidden": true
+      },
+      "summary": "Declare one exact packageManager pin and commit only that manager's lockfile.",
+      "remediation": {
+        "root_cause": "Several package managers or lockfiles are in use, so installs resolve different dependency trees.",
+        "fix": "Declare one exact packageManager pin, delete other managers' lockfiles and regenerate the lock with the pinned manager."
+      },
+      "implementation": [
+        {
+          "subcommand": "toolchain-parity",
+          "module": "guardrails.commands.toolchain.parity"
+        }
+      ]
+    },
+    {
+      "id": "GUARDRAILS.output-outside-repo",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "reject_adapter_output_paths_inside_the_repository": true,
+        "applies_to_actions_that_write": true
+      },
+      "summary": "Reject adapter output paths inside the repository; guardrails never writes into the repo tree.",
+      "remediation": {
+        "root_cause": "An adapter was asked to write its output inside the repository, which would leave harness files in the repo tree.",
+        "fix": "Pass an --out path outside the checkout, such as under the system temporary directory, from every caller that requests output."
+      },
+      "implementation": [
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.vitest"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.go"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.bun_test"
+        }
+      ]
+    },
+    {
+      "id": "GUARDRAILS.adapter-prerequisite",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "missing_adapter_runtime_is_a_finding": true,
+        "never_reported_as_a_pass": true
+      },
+      "summary": "Report a missing adapter runtime prerequisite as a finding, never as a passing conformance run.",
+      "remediation": {
+        "root_cause": "The adapter's runtime prerequisite is not installed, so its checks cannot run and must not report a pass.",
+        "fix": "Install the adapter's declared extra or toolchain from the locked dependencies and rerun the check."
+      },
+      "implementation": [
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.pytest"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.kind-candidates",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "base_and_head_required": true,
+        "unreadable_commits_are_a_finding": true,
+        "candidate": "a .py file other than __init__.py with at least one top-level def or class, directly in a folder whose last segment is a technical-kind word (models, schemas, services, handlers, controllers, utils, helpers, types, adapters, clients, managers, constants, exceptions, interfaces, repositories, validators, serializers, middleware, mixins, enums, dto, entities, manager, in singular or plural form), outside hidden and vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor) and SKILL.md bundles",
+        "scope": "candidates whose file is added, modified or renamed in base..head",
+        "exceptions": "a config exceptions entry {rule: structure-naming/technical_kind_grouping, path, reason} on the file drops it before judgment"
+      },
+      "summary": "Report unreadable base or head commits when proposing structure-naming kind-folder files.",
+      "remediation": {
+        "root_cause": "Kind-folder file proposal received commits it cannot read, so it has no head tree to search for technical-kind folders.",
+        "fix": "Fetch the base and head commits into this clone and rerun kind-candidates once both resolve with git rev-parse."
+      },
+      "implementation": [
+        {
+          "subcommand": "kind-candidates",
+          "module": "guardrails.commands.structure_naming.kind_candidates"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.consumer-candidates",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "base_and_head_required": true,
+        "unreadable_commits_are_a_finding": true,
+        "candidate": "a .py file other than __init__.py with an ancestor package folder below the repository root, outside repository-root tests, fixtures, migrations, build and scripts folders, hidden and vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor) and SKILL.md bundles, that has a run marker (main guard, argparse, click, typer, fire, streamlit, Dash, gradio, Flask, FastAPI, a textual App or rich.live), that no other tracked .py file imports, that no non-test .py file names by path (a string ending in its path, or its bare file name inside its own package) or by module string (as runpy or python -m take it), docstrings excepted, and that no [project.scripts], gui-scripts, poetry scripts or setup console entry names",
+        "scope": "candidates whose file is added, modified or renamed in base..head",
+        "exceptions": "a config exceptions entry {rule: structure-naming/consumer_placement, path, reason} on the file drops it before judgment"
+      },
+      "summary": "Report unreadable base or head commits when proposing structure-naming consumer files.",
+      "remediation": {
+        "root_cause": "Consumer-file proposal received commits it cannot read, so it has no head tree to search for runnable files.",
+        "fix": "Make both commits readable in the clone (fetch them from the remote if needed), then rerun consumer-candidates for that range."
+      },
+      "implementation": [
+        {
+          "subcommand": "consumer-candidates",
+          "module": "guardrails.commands.structure_naming.consumer_candidates"
+        }
+      ]
+    },
+    {
+      "id": "STRUCT.name-pairs",
+      "kind": "bespoke",
+      "applicability": "always",
+      "contract": {
+        "base_and_head_required": true,
+        "unreadable_commits_are_a_finding": true,
+        "proposer_rules": [
+          "alias",
+          "head_noun",
+          "synonym",
+          "const_value",
+          "clone"
+        ],
+        "proposer_score": "0.5 * name_sim + 0.5 * body_sim",
+        "scope": "pairs with at least one name defined in a file added, modified or renamed in base..head",
+        "exceptions": "a config exceptions entry {rule: structure-naming/same_thing, path, reason} on either name's file drops the pair before judgment"
+      },
+      "summary": "Report unreadable base or head commits when proposing structure-naming name pairs.",
+      "remediation": {
+        "root_cause": "Name-pair proposal received commits it cannot read, so it has no head tree to propose pairs from.",
+        "fix": "Fetch the missing base or head commit into the clone, then rerun name-pairs over that exact merge-base and head range."
+      },
+      "implementation": [
+        {
+          "subcommand": "name-pairs",
+          "module": "guardrails.commands.structure_naming.name_pair.candidates"
+        }
+      ]
+    }
+  ]
+}

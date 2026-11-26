@@ -1,5 +1,5 @@
 // The agent-rails repo config: <main checkout>/.agentrails/config.json, one per repository,
-// kept out of Git through the shared info/exclude. The engine's repo_config.py is the only
+// kept out of Git through the shared info/exclude. The engine's validator.py is the only
 // validator; `guardrails config-check` exposes it. This module finds the file, asks the engine
 // for a verdict and caches it by (path, sha256). It holds hand-written types only: a TypeScript
 // validator would be a second authority.

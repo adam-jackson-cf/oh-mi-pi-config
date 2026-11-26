@@ -212,7 +212,7 @@ describe("agent-rails closes routes around the bash rails", () => {
 			"await $`gh pr merge 3 --admin`", "require('child_process').execSync('git push')", "!git commit -n -m x",
 			"import os; os.system('omp -p hi')",
 		]) await assertRefused(h, "eval", { language: "py", code });
-		for (const code of ["print(1 + 1)", "sh(\"ls\")", "%load ~/.omp/agent/extensions/agent-rails/engine/workflows.py"]) {
+		for (const code of ["print(1 + 1)", "sh(\"ls\")", "%load ~/.omp/agent/extensions/agent-rails/lib/rails_kernel.py"]) {
 			await assertAllowed(h, "eval", { language: "py", code });
 		}
 	}));

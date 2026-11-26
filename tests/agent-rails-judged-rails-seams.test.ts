@@ -300,7 +300,7 @@ describe("completion-evidence at the turn end", () => {
 });
 
 describe("judged-rails helpers", () => {
-	test("sections, evidence splits, profile summaries and clipping", () => {
+	test("sections, evidence splits, config summaries and clipping", () => {
 		const body = "# Title\n## Why\nbecause\n### Detail\nmore\n## Testing\n- ran it\n\n**Not tested:** Linux\n## Other\nx";
 		assert.deepEqual(sections(body, ["why"]), ["because\n### Detail\nmore"]);
 		assert.deepEqual(evidenceText(body), { tested: "- ran it", notTested: "Linux" });

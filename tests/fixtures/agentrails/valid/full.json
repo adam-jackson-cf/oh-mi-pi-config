@@ -83,7 +83,7 @@
         "python-scalability",
         "surface-lint",
         "adapter lint",
-        "python-test-hygiene"
+        "python-subprocess-timeouts"
       ],
       "exclude": [
         "tests/fixtures/**"
@@ -95,7 +95,7 @@
         "line_floor"
       ]
     },
-    "structure": {
+    "layout": {
       "root_directories": [
         "agent",
         "scripts",
@@ -131,7 +131,7 @@
         ".python-version"
       ]
     },
-    "guarded_run": {
+    "guard_run": {
       "watch": [
         ".omp",
         ".ssh",
@@ -158,7 +158,9 @@
       "host",
       "foundation",
       "context",
-      "toolkit",
+      "test_report",
+      "checker",
+      "subcommand",
       "commands"
     ],
     "import_direction": {
@@ -167,7 +169,7 @@
     },
     "ownership_areas": {
       "map": {
-        "tests/test_workflows_seams.py": "agent-rails"
+        "tests/test_rails_kernel_seams.py": "agent-rails"
       },
       "affected_t2_selection": "scripts/run-ci-quality-gates.sh --tier commit selects each framework T2 by staged paths"
     }

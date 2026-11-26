@@ -6,15 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.context.config import house_style
-from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import (
-    GLOB_CHARACTERS,
-    InventoryError,
-    as_list,
-    tests_settings,
-)
-from guardrails.toolkit.python_rules.scope import (
+from guardrails.checker.python_rules.settings import (
     PythonSettings,
     finding,
     inventory_finding,
@@ -26,6 +18,10 @@ from guardrails.toolkit.python_rules.scope import (
     segments,
     setting_finding,
 )
+from guardrails.context.config import house_style
+from guardrails.context.config.reader import tests_settings
+from guardrails.foundation.findings import Finding
+from guardrails.foundation.inventory import GLOB_CHARACTERS, InventoryError, as_list
 
 GENERAL = "FANOUT.general"
 LARGE = "FANOUT.large-module"

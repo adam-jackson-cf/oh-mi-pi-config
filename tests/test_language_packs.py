@@ -11,9 +11,9 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.structure import naming
-from guardrails.context.config.suite_files import is_test_file
+from guardrails.commands.structure_naming import naming
 from guardrails.foundation import conventions
+from guardrails.foundation.inventory import name_matches
 
 pytestmark = pytest.mark.fast
 
@@ -71,7 +71,10 @@ class LanguagePackTests(unittest.TestCase):
             "account/__tests__/balance.ts",
         ):
             with self.subTest(path=path):
-                assert is_test_file(path, {})
+                assert any(
+                    name_matches(path, pattern)
+                    for pattern in conventions.test_patterns(path)
+                )
                 assert conventions.placement(path)["beside_code"]
         assert conventions.fixed_folder("account/check.ts", "__tests__")
         assert conventions.fixed_folder("clock/read.go", "testdata")

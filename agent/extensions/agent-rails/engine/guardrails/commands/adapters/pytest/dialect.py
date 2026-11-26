@@ -3,13 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from guardrails.toolkit.test_report.junit import Dialect, Report, as_int
+from guardrails.test_report.junit import Dialect, Report, as_int
 
-GUARDS_PROPERTY = "omp.guards"
 SUBTEST_PROPERTIES = {
-    "tests": "omp.subtests.tests",
-    "failures": "omp.subtests.failures",
-    "errors": "omp.subtests.errors",
+    "tests": "guardrails.subtests.tests",
+    "failures": "guardrails.subtests.failures",
+    "errors": "guardrails.subtests.errors",
 }
 
 

@@ -57,13 +57,13 @@
     "tests.verification_surface.none: must be true; the reason lives in the exemption approval"
   ],
   "exemption-with-approval-text.json": [
-    "tests.verification_surface.approval: is refused: owner approvals live only in the approvals section"
+    "tests.verification_surface.approval: is not a config key; remove it or fix its spelling"
   ],
   "exemption-without-approval.json": [
     "tests.tiers.t3: is exempt without an exemption approval for 'tiers.t3'"
   ],
   "machine-approval-field.json": [
-    "tests.fast_tier_budget.machines[0].approval: is refused: owner approvals live only in the approvals section"
+    "tests.fast_tier_budget.machines[0].approval: is not a config key; remove it or fix its spelling"
   ],
   "machine-without-budget-approval.json": [
     "tests.fast_tier_budget.machines[0]: machine 'a1b2c3d4e5f60718' has no budget approval"
@@ -84,19 +84,19 @@
     "checkers.coverage_ratchet.approvals: is refused: record each entry in approvals as kind 'ratchet'"
   ],
   "stale-house-style.json": [
-    "houseStyle.version: is 99 but the installed house style is version 1; review the house-style changes and record the new version"
+    "houseStyle.version: is 99 but the installed house style is version 1; review the house-style changes and set the new version in .agentrails/config.json"
   ],
   "stale-questionnaire-version.json": [
     "onboarding.questionnaireVersion: is 2 but the extension's questionnaire is version 1; ask the owner to run /agentrails configure"
   ],
   "unknown-check-step.json": [
-    "checkers.check.run: names unknown steps ['lint-everything']; choose from ['python-quality', 'python-fanout', 'python-scalability', 'surface-lint', 'adapter lint', 'python-test-hygiene']"
+    "checkers.check.run: names unknown steps ['lint-everything']; choose from ['python-quality', 'python-fanout', 'python-scalability', 'surface-lint', 'adapter lint', 'python-subprocess-timeouts']"
   ],
   "unknown-checker-section.json": [
     "checkers.exceptions: is not a config key; remove it or fix its spelling"
   ],
   "unknown-gate-rule.json": [
-    "gates.rules.PROFILE.complete: is not a code-check rule id (catalogue kind tool or bespoke)"
+    "gates.rules.CONFIG.complete: is not a code-check rule id (catalogue kind tool or bespoke)"
   ],
   "unknown-judgment-question.json": [
     "judgments.in-scope/whatever: is not a judgment question; choose from ['completion-evidence/evidence_gap', 'dependency-severity/local_only', 'dependency-severity/needs_interaction', 'dependency-severity/needs_privileges', 'dependency-severity/reached', 'extension-impact/impact', 'implementation-integrity/weakens_verification', 'structure-naming/consumer_placement', 'structure-naming/same_thing', 'structure-naming/technical_kind_grouping']"

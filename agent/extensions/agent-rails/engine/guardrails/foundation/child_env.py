@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Mapping
 
 HARNESS_VARIABLES = frozenset({"AGENT"})
 
 
-def repo_environment(
-    base: Mapping[str, str] | None = None, *, unset: Iterable[str] = ()
-) -> dict[str, str]:
-    removed = HARNESS_VARIABLES | set(unset)
+def repo_environment(base: Mapping[str, str] | None = None) -> dict[str, str]:
     source = os.environ if base is None else base
-    return {key: value for key, value in source.items() if key not in removed}
+    return {key: value for key, value in source.items() if key not in HARNESS_VARIABLES}
 
 
-def clean_environment(unset: Iterable[str] = ()) -> dict[str, str]:
+def clean_environment() -> dict[str, str]:
     return {
         key: value
-        for key, value in repo_environment(unset=unset).items()
+        for key, value in repo_environment().items()
         if not key.startswith("GIT_")
     }

@@ -1,21 +1,22 @@
 from __future__ import annotations
 
 import json
-import math
 import shlex
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters.contract import PROPAGATION, collect_timeout
 from guardrails.context.config.adapter_declarations import adapter_tiers
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, settings
+from guardrails.foundation.inventory import as_list
 from guardrails.host.process import run_text
 
 NAME = "vitest"
-RULE = "TEST.failure-propagation"
+SETTINGS = "adapter_vitest"
 
 
 def selector_arguments(selector: str) -> list[str]:
@@ -23,7 +24,7 @@ def selector_arguments(selector: str) -> list[str]:
 
 
 def command(repo: Path, config: dict[str, Any]) -> list[str]:
-    configured = settings(config, "adapter_vitest").get("command")
+    configured = checker_settings(config, SETTINGS).get("command")
     if configured is not None:
         if (
             not isinstance(configured, list)
@@ -37,7 +38,8 @@ def command(repo: Path, config: dict[str, Any]) -> list[str]:
     executable = repo / "node_modules/vitest/vitest.mjs"
     if not executable.is_file():
         raise ValueError(
-            "install the repository's locked Vitest dependency or record adapter_vitest.command"
+            "install the repository's locked Vitest dependency or set "
+            "checkers.adapter_vitest.command in .agentrails/config.json"
         )
     return ["node", str(executable)]
 
@@ -73,17 +75,10 @@ def collect_tier(
             raise ValueError(
                 f"the vitest adapter needs a native Vitest selector for tier {tier}"
             )
-        timeout = settings(config, "adapter_vitest").get("collect_timeout_s", 120)
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, (int, float))
-            or not math.isfinite(timeout)
-            or timeout <= 0
-        ):
-            raise ValueError(
-                "adapter_vitest.collect_timeout_s must be a positive finite number"
-            )
-        with tempfile.TemporaryDirectory(prefix="omp-vitest-collect-") as scratch:
+        timeout = collect_timeout(config, SETTINGS)
+        with tempfile.TemporaryDirectory(
+            prefix="guardrails-vitest-collect-"
+        ) as scratch:
             listing = Path(scratch) / "ids.json"
             argv = [
                 *command(repo, config),
@@ -118,10 +113,11 @@ def collect_tier(
     except (OSError, ValueError, TypeError, subprocess.TimeoutExpired) as error:
         return [
             Finding(
-                RULE,
+                PROPAGATION,
                 f"tiers.{tier}",
                 str(error),
-                "fix the recorded selector, location or Vitest installation and collect again",
+                "fix the tier's selector or location in tests.adapters[].tiers, or the "
+                "Vitest installation, and collect again",
             )
         ]
     return []

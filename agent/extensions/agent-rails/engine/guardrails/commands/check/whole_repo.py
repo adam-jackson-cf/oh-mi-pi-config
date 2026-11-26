@@ -5,17 +5,12 @@ from typing import Any
 
 from guardrails.commands.check.integrity import commit_findings
 from guardrails.context.changes import DiffError, range_finding, staged_range
-from guardrails.context.config.profile import ProfileError
-from guardrails.context.config.repo_config import CHECK_STEPS
+from guardrails.context.config.reader import checker_settings, config_section
+from guardrails.context.config.section_schema import ConfigValueError
+from guardrails.context.config.validator import CHECK_STEPS
 from guardrails.foundation.findings import Finding, config_label
-from guardrails.foundation.inventory import (
-    InventoryError,
-    as_list,
-    config_section,
-    repo_paths,
-    settings,
-)
-from guardrails.toolkit.dispatch import (
+from guardrails.foundation.inventory import InventoryError, as_list, repo_paths
+from guardrails.subcommand.dispatch import (
     config_finding,
     module_names,
     outside_exclusions,
@@ -23,22 +18,22 @@ from guardrails.toolkit.dispatch import (
 )
 
 CHECKER = "check"
-RULE = "PROFILE.complete"
-OPT_IN_STEPS = ("python-test-hygiene",)
+RULE = "CONFIG.complete"
+OPT_IN_STEPS = ("python-subprocess-timeouts",)
 DEFAULT_STEPS = tuple(step for step in CHECK_STEPS if step not in OPT_IN_STEPS)
 STEPS = CHECK_STEPS
 STAGED_DIFFS = {
-    "guardrails.commands.diffs.coverage_ratchet": "TEST.coverage-ratchet",
-    "guardrails.commands.diffs.golden_record": "TEST.golden-change-record",
-    "guardrails.commands.diffs.identity_artefacts": "TEST.identity-artefacts",
-    "guardrails.commands.diffs.growth": "TEST.growth.justified",
+    "guardrails.commands.diff.coverage_ratchet": "TEST.coverage-ratchet",
+    "guardrails.commands.diff.golden_record": "TEST.golden-change-record",
+    "guardrails.commands.diff.identity_artefacts": "TEST.identity-artefacts",
+    "guardrails.commands.diff.growth": "TEST.growth.justified",
 }
 STEP_SETTINGS = {
     "python": (
         "python-quality",
         "python-fanout",
         "python-scalability",
-        "python-test-hygiene",
+        "python-subprocess-timeouts",
     ),
 }
 
@@ -63,7 +58,7 @@ def selected_steps(declared: object) -> tuple[list[str], list[Finding]]:
 
 
 def owned_steps(config: dict[str, Any]) -> tuple[dict[str, list[str]], list[Finding]]:
-    declared = settings(config, CHECKER).get("repo")
+    declared = checker_settings(config, CHECKER).get("repo")
     if declared is None:
         return {}, []
     ownable = [*STEPS, "naming", "structure"]
@@ -114,7 +109,7 @@ def dead_settings(
 
 
 def configured_steps(config: dict[str, Any]) -> tuple[list[str], list[Finding]]:
-    declared = settings(config, CHECKER).get("run")
+    declared = checker_settings(config, CHECKER).get("run")
     steps, findings = selected_steps(declared)
     owned, problems = owned_steps(config)
     findings += problems
@@ -171,7 +166,7 @@ def run_step(repo: Path, config: dict[str, Any], step: str) -> list[Finding]:
         argv.extend(["--event", "staged"])
     try:
         modules = module_names(name, config)
-    except ProfileError as error:
+    except ConfigValueError as error:
         return [config_finding(error)]
     return run_modules(modules, repo, config, argv)
 

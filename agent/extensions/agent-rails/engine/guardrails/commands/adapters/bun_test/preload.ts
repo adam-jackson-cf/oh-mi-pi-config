@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as runner from 'bun:test';
-import { install, type RuntimeGuards } from '../vitest/runtime.ts';
+import { install, type RuntimeGuards } from '../javascript/node_guard/install.ts';
 import { GUARDED_MODULES } from './guarded-modules.ts';
 
 interface PreloadSettings {
@@ -223,7 +223,7 @@ function armRun(recorder: Recorder, settings: PreloadSettings): void {
   const scratch = original.mkdtemp(path.join(path.dirname(settings.journal), '.bun-guard-'));
   const protectedHome = original.homedir();
   redirectHome(scratch);
-  recorder.record({ kind: 'run', tier: settings.tier, runtime: 'bun ' + Bun.version, revision: process.env['OMP_REVISION'] ?? '' });
+  recorder.record({ kind: 'run', tier: settings.tier, runtime: 'bun ' + Bun.version, revision: process.env['GUARDRAILS_REVISION'] ?? '' });
   const violations = install({ tier: settings.tier, events: settings.journal, protectedHome, allowed: [scratch] }, guardBun);
   for (const [name, guarded] of Object.entries(GUARDED_MODULES)) {
     for (const specifier of [name, 'node:' + name]) runner.mock.module(specifier, () => ({ ...guarded, default: guarded }));

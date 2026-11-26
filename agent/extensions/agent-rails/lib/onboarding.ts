@@ -45,7 +45,7 @@ const rulesList = z.object({ rules: z.array(z.object({ id: z.string(), summary: 
 const questionsList = z.object({ questions: z.array(z.object({ key: z.string(), mode: z.enum(["enforced", "shadow"]), shadowable: z.boolean() })) });
 const toolParams = z.object({
 	section: z.enum(SETUP_SECTIONS).describe("the config section: commands, checkers, structure or houseStyle after skill://setup-repo-proofs; tests after skill://test-guidance"),
-	value: z.record(z.string(), z.unknown()).describe("the whole section value, as CONFIG.md and engine/guardrails/data/config-template.json describe it"),
+	value: z.record(z.string(), z.unknown()).describe("the whole section value, as docs/config.md and engine/data/config-template.json describe it"),
 	scope: skillScope.describe("what the skill run covered: {kind: whole}, {kind: changed} or {kind: paths, paths: [...]}"),
 });
 type ToolParams = z.infer<typeof toolParams>;
@@ -60,10 +60,10 @@ export function onboardingInstruction(slug: string, root: string, gaps: string[]
 		"1. Read skill://setup-repo-proofs and run it against this repository. Record what it settles with the agentrails_config tool:",
 		"   - commands: the repository's commit, ci and audit entry points the skill installs, as argv arrays: commit is the check " +
 			"entrypoint its hook runs, ci the entrypoint its CI job runs with the full T1 and T2 suite, audit its dependency audit;",
-		"   - checkers, structure and houseStyle: the settings the engine needs (the extension's CONFIG.md and engine/guardrails/data/config-template.json).",
+		"   - checkers, structure and houseStyle: the settings the engine needs (the extension's docs/config.md and engine/data/config-template.json).",
 		"     Rule IDs come from `guardrails config-check --list-rules`, never from the skill's assets/guardrail-rules.json.",
 		"2. Read skill://test-guidance and run it against this repository. It writes no rails config: translate its tier map, adoption choice and " +
-			"signed plan into the tests section schema (the extension's CONFIG.md, Tests) and record it with the agentrails_config tool.",
+			"signed plan into the tests section schema (the extension's docs/config.md, Tests) and record it with the agentrails_config tool.",
 		`   A draft from \`guardrails init --repo ${root} --out <a file outside the repository>\` may seed these sections.`,
 		"3. Do not edit .git/info/exclude or set core.hooksPath: the extension keeps /.agentrails/ and /.proofs/ out of Git, and /agentrails onboard asks the owner about the hooks path.",
 		"4. When every section is recorded, ask the owner to run /agentrails onboard again: it runs a short Q&A and writes .agentrails/config.json.",

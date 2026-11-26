@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NamedTuple
 
 from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_bytes
 
 HUNK = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@")
+BLOB_TIMEOUT_S = 120
 
 
 class DiffError(Exception):
@@ -50,15 +53,86 @@ def parse_range(argv: list[str]) -> DiffRange:
     return DiffRange(known.base, known.head)
 
 
-def git(repo: Path, *args: str) -> str:
+def git_bytes(
+    repo: Path, *args: str, data: bytes | None = None, timeout: float | None = None
+) -> bytes:
     try:
-        result = run_bytes(["git", "-C", str(repo), *args], check=False)
-    except OSError as error:
+        result = run_bytes(
+            ["git", "-C", str(repo), *args], data=data, check=False, timeout=timeout
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
         raise DiffError(f"cannot run git: {error}") from error
     if result.returncode != 0:
         message = result.stderr.decode(errors="replace").strip()
         raise DiffError(message or f"git {' '.join(args)} failed")
-    return result.stdout.decode(errors="replace")
+    return result.stdout
+
+
+def git(repo: Path, *args: str) -> str:
+    return git_bytes(repo, *args).decode(errors="replace")
+
+
+class TreeEntry(NamedTuple):
+    mode: str
+    kind: str
+    oid: str
+    size: str
+
+
+def tree_entries(repo: Path, head: str) -> dict[str, TreeEntry]:
+    """Every path in head's tree with its mode, object type, object id and size
+    (`git ls-tree -r -l`; the size is "-" for a submodule), in git's order."""
+    entries = {}
+    for entry in git(repo, "ls-tree", "-r", "-l", "-z", head).split("\0"):
+        if entry:
+            metadata, path = entry.split("\t", 1)
+            entries[path] = TreeEntry(*metadata.split())
+    return entries
+
+
+def read_blobs(repo: Path, oids: list[str]) -> dict[str, bytes]:
+    """Each blob's content by object id, read in one `git cat-file --batch` call."""
+    if not oids:
+        return {}
+    output = git_bytes(
+        repo,
+        "cat-file",
+        "--batch",
+        data="".join(oid + "\n" for oid in oids).encode(),
+        timeout=BLOB_TIMEOUT_S,
+    )
+    blobs, offset = {}, 0
+    for oid in oids:
+        end = output.index(b"\n", offset)
+        size = int(output[offset:end].split()[2])
+        blobs[oid] = output[end + 1 : end + 1 + size]
+        offset = end + 2 + size
+    return blobs
+
+
+def changed_paths(repo: Path, base: str, head: str, statuses: str) -> set[str]:
+    """Head-side paths of base..head changes whose status is in `statuses` (git
+    --diff-filter letters); a rename counts as its new path."""
+    tokens = git(
+        repo,
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--name-status",
+        "-z",
+        "--find-renames=50%",
+        "-l0",
+        f"--diff-filter={statuses}",
+        base,
+        head,
+        "--",
+    ).split("\0")
+    found, index = set(), 0
+    while index < len(tokens) and tokens[index]:
+        renamed = tokens[index][0] in {"R", "C"}
+        found.add(tokens[index + (2 if renamed else 1)])
+        index += 3 if renamed else 2
+    return found
 
 
 def changed_files(repo: Path, diff: DiffRange) -> list[Change]:

@@ -9,9 +9,7 @@ pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY = ROOT / "agent/extensions/agent-rails/references"
-CATALOGUE = (
-    ROOT / "agent/extensions/agent-rails/engine/guardrails/data/guardrail-rules.json"
-)
+CATALOGUE = ROOT / "agent/extensions/agent-rails/engine/data/guardrail-rules.json"
 JUDGMENTS = ROOT / "agent/extensions/agent-rails/judgments"
 RULES = ROOT / "agent/extensions/agent-rails/rules"
 THRESHOLDS = JUDGMENTS / "structure-naming/thresholds.json"
@@ -24,7 +22,7 @@ QUESTION = re.compile(r"^question: >-\n((?:  \S.*\n?)+)", re.M)
 
 
 def rule_question(name: str) -> str:
-    path = RULES / f"agent-rails-{name}.md"
+    path = RULES / f"{name}.md"
     assert path.is_file(), path
     frontmatter = FRONTMATTER.match(path.read_text(encoding="utf-8"))
     assert frontmatter, path
@@ -65,7 +63,7 @@ class DeliveryPolicyTests(unittest.TestCase):
     def test_policy_rules_have_exactly_one_valid_status(self) -> None:
         catalogue = json.loads(CATALOGUE.read_text(encoding="utf-8"))
         rules = {
-            row["id"]: {ref["subcommand"] for ref in row.get("reference", [])}
+            row["id"]: {entry["subcommand"] for entry in row.get("implementation", [])}
             for row in catalogue["rules"]
         }
         native_rules = {
@@ -84,9 +82,7 @@ class DeliveryPolicyTests(unittest.TestCase):
                 assert_policy_line(line, rules, native_rules, decisions)
 
     def test_judged_rules_carry_their_guidance_and_question(self) -> None:
-        names = sorted(
-            path.stem.removeprefix("agent-rails-") for path in RULES.glob("*.md")
-        )
+        names = sorted(path.stem for path in RULES.glob("*.md"))
         assert names == [
             "clean-cutovers",
             "flakes",
@@ -96,7 +92,7 @@ class DeliveryPolicyTests(unittest.TestCase):
         for name in names:
             with self.subTest(rule=name):
                 assert "?" in rule_question(name)
-                text = (RULES / f"agent-rails-{name}.md").read_text(encoding="utf-8")
+                text = (RULES / f"{name}.md").read_text(encoding="utf-8")
                 assert "skill://" not in text
 
     def test_style_lists_have_one_canonical_data_home(self) -> None:

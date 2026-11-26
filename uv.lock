@@ -731,10 +731,9 @@ pytest = [
 [package.metadata]
 requires-dist = [
     { name = "ast-grep-py", specifier = "==0.51.0" },
-    { name = "mutmut", marker = "extra == 'mutation'", specifier = "==3.8.1" },
     { name = "pytest", marker = "extra == 'pytest'", specifier = "==9.1.1" },
 ]
-provides-extras = ["pytest", "mutation"]
+provides-extras = ["pytest"]
 
 [[package]]
 name = "hadolint-py"

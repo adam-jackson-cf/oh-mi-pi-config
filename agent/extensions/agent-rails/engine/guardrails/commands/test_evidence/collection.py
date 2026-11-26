@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+from guardrails.context.config.reader import tests_settings
+from guardrails.context.config.section_schema import exempt_tiers
+from guardrails.context.config.suite_files import test_patterns
+from guardrails.foundation.findings import Finding
+from guardrails.foundation.inventory import (
+    InventoryError,
+    as_list,
+    matches_any,
+    name_matches,
+    repo_paths,
+)
+from guardrails.test_report.collect_list import read_ids
+from guardrails.test_report.junit import UsageError, evidence_settings
+
+PROPAGATION = "TEST.failure-propagation"
+SELECTORS = "TEST.tier-selectors"
+DUPLICATE_ID_FIX = "give every test a unique ID so each result maps to one test"
+EMPTY_FIX = "check the tier selector and command; an empty collection never passes"
+
+
+def tier_arguments(argv: list[str]) -> dict[str, list[str]]:
+    lists: dict[str, list[str]] = {}
+    index = 0
+    while index < len(argv):
+        flag, _, inline = argv[index].partition("=")
+        if flag == "--tier":
+            value = inline or (argv[index + 1] if index + 1 < len(argv) else "")
+            index += 0 if inline else 1
+            tier, sep, path = value.partition("=")
+            if not sep or not tier or not path:
+                raise UsageError("--tier takes <tier>=<collect-only list path>")
+            if path in lists.get(tier, []):
+                raise UsageError(f"--tier {tier}={path} given twice")
+            lists.setdefault(tier, []).append(path)
+        index += 1
+    return lists
+
+
+def joined_ids(repo: Path, paths: list[str]) -> list[str] | None:
+    joined: list[str] = []
+    for path in paths:
+        ids = read_ids(repo / path)
+        if ids is None:
+            return None
+        joined.extend(ids)
+    return joined
+
+
+def id_file(test_id: str) -> str:
+    return test_id.split("::", 1)[0]
+
+
+def configured_tiers(config: dict[str, Any]) -> list[str]:
+    tiers = tests_settings(config, "tiers")
+    if not isinstance(tiers, dict):
+        return []
+    return sorted(set(tiers) - exempt_tiers(config))
+
+
+def collection_findings(
+    collections: dict[str, list[str] | None],
+    config: dict[str, Any],
+    test_files: list[str],
+) -> list[Finding]:
+    tiers = configured_tiers(config)
+    found = [
+        Finding(
+            SELECTORS,
+            tier,
+            f"tier {tier} has no collect-only list",
+            f"pass --tier {tier}=<list> from the adapter's tier listing",
+        )
+        for tier in tiers
+        if tier not in collections
+    ]
+    file_tiers: dict[str, set[str]] = {}
+    for tier, ids in sorted(collections.items()):
+        found.extend(tier_list_findings(tier, ids, tiers))
+        if tier in tiers and ids is not None:
+            for test_id in ids:
+                file_tiers.setdefault(id_file(test_id), set()).add(tier)
+    for file, selecting in sorted(file_tiers.items()):
+        if len(selecting) > 1:
+            found.append(
+                Finding(
+                    SELECTORS,
+                    file,
+                    f"selected by tiers {', '.join(sorted(selecting))}",
+                    "make the tier selectors disjoint: one tier per test file",
+                )
+            )
+    if all(ids is not None for ids in collections.values()):
+        found.extend(
+            Finding(
+                SELECTORS,
+                file,
+                "test file is selected by no tier",
+                "move it under a tier location or fix the tier selectors",
+            )
+            for file in test_files
+            if file not in file_tiers
+        )
+    return found
+
+
+def tier_list_findings(
+    tier: str, ids: list[str] | None, tiers: list[str]
+) -> list[Finding]:
+    if tier not in tiers:
+        return [
+            Finding(
+                SELECTORS,
+                tier,
+                f"tier {tier} is not a tests.tiers key",
+                "use a tests.tiers key that no exemption removes",
+            )
+        ]
+    if ids is None:
+        return [
+            Finding(
+                PROPAGATION,
+                tier,
+                f"tier {tier} collect-only list is missing",
+                EMPTY_FIX,
+            )
+        ]
+    found = []
+    if not ids:
+        found.append(
+            Finding(PROPAGATION, tier, f"tier {tier} collected no tests", EMPTY_FIX)
+        )
+    found.extend(
+        Finding(
+            SELECTORS,
+            id_file(test_id),
+            f"{test_id} is collected {count} times in tier {tier}",
+            DUPLICATE_ID_FIX,
+        )
+        for test_id, count in sorted(Counter(ids).items())
+        if count > 1
+    )
+    return found
+
+
+def repository_test_files(repo: Path, config: dict[str, Any]) -> list[str]:
+    patterns = test_patterns(config)
+    exempt = as_list(evidence_settings(config).get("unselected_exempt"))
+    return [
+        path
+        for path in repo_paths(repo)
+        if any(name_matches(path, pattern) for pattern in patterns)
+        and not matches_any(path, exempt)
+        and (repo / path).is_file()
+    ]
+
+
+def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
+    try:
+        lists = tier_arguments(argv)
+    except UsageError as error:
+        return [
+            Finding(
+                SELECTORS, "collection-check", f"usage: {error}", "fix the arguments"
+            )
+        ]
+    collections = {tier: joined_ids(repo, paths) for tier, paths in lists.items()}
+    try:
+        test_files = repository_test_files(repo, config)
+    except InventoryError as error:
+        return [
+            Finding(
+                SELECTORS,
+                "collection-check",
+                f"cannot list test files: {error}",
+                "run inside a git work tree",
+            )
+        ]
+    return collection_findings(collections, config, test_files)

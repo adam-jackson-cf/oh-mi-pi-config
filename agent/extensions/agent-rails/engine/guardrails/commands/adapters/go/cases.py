@@ -4,7 +4,7 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from guardrails.commands.adapters.go.source import (
+from guardrails.commands.adapters.go.syntax import (
     TEST_NAME,
     has_errors,
     parse,

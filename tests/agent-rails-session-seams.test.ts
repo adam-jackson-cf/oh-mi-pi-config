@@ -296,13 +296,13 @@ describe("review on restart", () => {
 	});
 
 	test("failing config checks are in the task; an acknowledged revision asks for no second review", async () => {
-		const h = harness({ guardrailsCommand: ["sh", "-c", "echo 'PROFILE.complete missing'; exit 1", "check"] });
+		const h = harness({ guardrailsCommand: ["sh", "-c", "echo 'CONFIG.complete missing'; exit 1", "check"] });
 		try {
 			h.govern();
 			await changedExtension(h);
 			await h.emit("session_start");
 			const task = messageText(await prompt(h, "work"));
-			assert.ok(task.includes("guardrails check: exit 1") && task.includes("PROFILE.complete missing"), task);
+			assert.ok(task.includes("guardrails check: exit 1") && task.includes("CONFIG.complete missing"), task);
 			await h.tool("agentrails", { acknowledge: true });
 			h.setSession("acknowledged");
 			await h.emit("session_start");

@@ -8,30 +8,25 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters import contract
 from guardrails.foundation.findings import Finding
-from guardrails.toolkit.test_report.junit import (
+from guardrails.test_report.junit import (
+    GUARDS_PROPERTY,
+    REVISION_PROPERTY,
+    RUNTIME_PROPERTY,
+    TIER_PROPERTY,
     Case,
     Dialect,
     Report,
     ReportError,
     as_int,
     as_seconds,
-    parse_report,
 )
 
 JOURNAL_SUFFIX = ".journal.jsonl"
 ENTRY_SUFFIX = ".preload.mjs"
 PRELOAD = Path(__file__).with_name("preload.ts")
-GUARDS_PROPERTY = "omp.guards"
-TIER_GUARDS = {
-    "t1": ("fast-tier", "user-data"),
-    "t2": ("user-data",),
-    "t3": ("user-data",),
-}
-GUARD_RULES = {
-    "fast-tier": "TEST.fast-tier-isolation",
-    "user-data": "TEST.user-data-guard",
-}
+RERUN = "rerun bun test with the adapter's junit-args"
 PLACEHOLDER = re.compile(r"%[sdifjoOp#%]|\$[A-Za-z_][\w.]*")
 FOCUS_REASON = "not run: its file focuses other tests with only"
 
@@ -49,7 +44,7 @@ def write_entry(entry: Path, settings: dict[str, str]) -> None:
 
 
 def junit_arguments(tier: str, report_path: str) -> list[str]:
-    if tier not in TIER_GUARDS:
+    if tier not in contract.TIER_GUARDS:
         raise ValueError(f"unknown Bun tier {tier!r}")
     report = Path(report_path).resolve()
     report.parent.mkdir(parents=True, exist_ok=True)
@@ -273,11 +268,11 @@ class BunDialect(Dialect):
         )
         properties = dict(report.properties)
         if journal.run:
-            properties["omp.tier"] = str(journal.run.get("tier", ""))
-            properties["omp.runtime"] = str(journal.run.get("runtime", ""))
+            properties[TIER_PROPERTY] = str(journal.run.get("tier", ""))
+            properties[RUNTIME_PROPERTY] = str(journal.run.get("runtime", ""))
             revision = str(journal.run.get("revision", ""))
             if revision:
-                properties["omp.revision"] = revision
+                properties[REVISION_PROPERTY] = revision
         properties[GUARDS_PROPERTY] = ",".join(journal.guards)
         declared = {
             key: count - (dropped if key == "tests" else 0)
@@ -293,29 +288,4 @@ DIALECT = BunDialect(name="bun_test", source_suffix=".ts", requires_exit_code=Tr
 
 
 def guard_evidence(report: Path, tier: str) -> list[Finding]:
-    if tier not in TIER_GUARDS:
-        raise ValueError(f"unknown Bun tier {tier!r}")
-    try:
-        parsed = parse_report(report, DIALECT)
-        if parsed.properties.get("omp.tier") != tier:
-            raise ReportError(f"report does not record tier {tier}")
-    except ReportError as error:
-        return [
-            Finding(
-                "TEST.failure-propagation",
-                str(report),
-                str(error),
-                "rerun bun test with the adapter's junit-args",
-            )
-        ]
-    armed = set(parsed.properties.get(GUARDS_PROPERTY, "").split(","))
-    return [
-        Finding(
-            GUARD_RULES[guard],
-            str(report),
-            f"tier {tier} ran without the {guard} guard",
-            "rerun bun test with the adapter's junit-args",
-        )
-        for guard in TIER_GUARDS[tier]
-        if guard not in armed
-    ]
+    return contract.guard_evidence(report, tier, DIALECT, RERUN)

@@ -1,7 +1,7 @@
 # Structure and naming
 
 A path shows its owner and dependency direction; a name says what a thing holds or does, with one name per concept.
-[house-style.json](../engine/guardrails/data/house-style.json) holds the language-neutral word lists,
+[house-style.json](../engine/data/house-style.json) holds the language-neutral word lists,
 `v<N>` patterns and the plural allowlist. Extension-selected [language and tooling packs](../engine/guardrails/foundation/conventions.py)
 own ecosystem casing, fixed names and test layout. Judgment decisions live in `judgments/structure-naming/thresholds.json`;
 every `structure_review()` finding blocks merge.
@@ -22,7 +22,6 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 - Code two siblings need moves to the lowest tier both read, never imported across. Enforced by STRUCT.sibling-isolation (guardrails structure, path-check).
 - A part lives under its one owner; a second user moves it to a shared lower tier. Enforced by STRUCT.single-owner-placement (guardrails structure, path-check).
 - No grab-bag folders (house-style `banned_words`); shared code goes in the lowest tier, named for content. Enforced by NAME.conventions (guardrails naming).
-- Extract candidates when sibling files share a name prefix for one concept (`audit_*`). Enforced by PREFIX.candidates (guardrails prefix-candidates).
 - Files jointly implementing one concept go in a folder named for it (`audit/`). Enforced by STRUCT.prefix-folder (guardrails prefix-folder).
 - Code repeated across folders moves into one shared mechanism. Enforced by STRUCT.overlapping-responsibilities (guardrails responsibility-overlap).
 - Run-time data (definitions, config, templates) stays out of Python code folders. Enforced by STRUCT.runtime-data-placement (guardrails structure, path-check).
@@ -76,4 +75,4 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 - Each restructure leaves build and tests passing, without re-export shims or aliases. Guidance only.
 - Domain folders share a tier and never import each other; move shared parts down. Enforced by STRUCT.sibling-isolation (guardrails structure, path-check).
 - Dissolve grab-bags: a file moves under its one owner, or to the shared tier. Enforced by STRUCT.single-owner-placement (guardrails structure, path-check).
-- Apply [clean cutovers](../rules/agent-rails-clean-cutovers.md) to each move; then delete migration scaffolding. Guidance only.
+- Apply [clean cutovers](../rules/clean-cutovers.md) to each move; then delete migration scaffolding. Guidance only.

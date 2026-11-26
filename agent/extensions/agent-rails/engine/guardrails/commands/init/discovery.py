@@ -21,7 +21,6 @@ GH_TIMEOUT_S = 30
 @dataclass(frozen=True)
 class CiJob:
     workflow: str
-    job_id: str
     name: str
 
 
@@ -105,14 +104,14 @@ def workflow_jobs(workflow: str, text: str) -> list[CiJob]:
         key = JOB_KEY.match(line)
         if key and (indent is None or width == indent):
             indent, child = width, None
-            jobs.append(CiJob(workflow, key.group(2), key.group(2)))
+            jobs.append(CiJob(workflow, key.group(2)))
             continue
         if not jobs or indent is None or width <= indent:
             continue
         child = width if child is None else child
         name = JOB_NAME.match(line)
         if name and width == child:
-            jobs[-1] = CiJob(workflow, jobs[-1].job_id, name.group(1))
+            jobs[-1] = CiJob(workflow, name.group(1))
     return jobs
 
 

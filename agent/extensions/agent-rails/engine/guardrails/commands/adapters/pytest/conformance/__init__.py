@@ -3,23 +3,23 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
-import subprocess
 import sys
-import tempfile
-from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.adapters import conformance, contract
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_text
+from guardrails.test_report.junit import TIER_PROPERTY
 
 if TYPE_CHECKING:
-    from guardrails.toolkit.test_report.junit import Report
+    from guardrails.test_report.junit import Report
 
 PACKAGE = "guardrails.commands.adapters.pytest.conformance"
-CASE_TIMEOUT_S = 300
+DATA_FOLDER = Path(__file__).resolve().parents[5] / "data"
+BINDINGS_FILE = "pytest-conformance-bindings.json"
 PYTEST_INI = "[pytest]\nmarkers =\n    fast: tier 1\n    slow: tier 2\n"
 BASE_CONFIG: dict[str, Any] = {
     "tests": {
@@ -49,21 +49,12 @@ BASE_CONFIG: dict[str, Any] = {
     "checkers": {},
     "exceptions": [],
 }
-FAILED_OUTCOMES = frozenset({"failed", "error"})
 PREREQUISITE = "GUARDRAILS.adapter-prerequisite"
 
 
-@dataclass(frozen=True)
-class CaseResult:
-    case_id: str
-    rule: str
-    passed: bool
-    detail: str
-
-
-def data(name: str) -> dict[str, Any]:
+def bindings() -> dict[str, Any]:
     loaded: dict[str, Any] = json.loads(
-        resources.files(PACKAGE).joinpath(name).read_text(encoding="utf-8")
+        (DATA_FOLDER / BINDINGS_FILE).read_text(encoding="utf-8")
     )
     return loaded
 
@@ -75,11 +66,6 @@ def fixture_source(name: str) -> str:
         .joinpath(name)
         .read_text(encoding="utf-8")
     )
-
-
-def load_cases() -> list[dict[str, Any]]:
-    cases: list[dict[str, Any]] = data("cases.json")["cases"]
-    return cases
 
 
 def build_project(root: Path, case: dict[str, Any], binding: dict[str, Any]) -> str:
@@ -106,36 +92,28 @@ def case_config(binding: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_source(
-    project: Path, config: dict[str, Any], placed: str, case: dict[str, Any]
-) -> tuple[bool, str]:
+    project: conformance.Project, case: dict[str, Any]
+) -> conformance.Verdict:
     from guardrails.commands.adapters.pytest.lint import lint
 
-    rules = sorted({finding.rule_id for finding in lint(project, config, [placed])})
-    reported = case["rule"] in rules
-    return reported == (
-        case["expect"] == "finding"
-    ), f"rules reported: {rules or 'none'}"
+    reported = lint(project.path, project.config, [project.placed])
+    return conformance.source_verdict(case, reported)
 
 
 def check_static_cases(
-    project: Path, placed: str, case: dict[str, Any]
-) -> tuple[bool, str]:
+    project: conformance.Project, case: dict[str, Any]
+) -> conformance.Verdict:
     from guardrails.commands.adapters.pytest.cases import collect
-    from guardrails.toolkit.growth import Snapshot, growth_findings
 
-    collected = collect(placed, (project / placed).read_text(encoding="utf-8"))
-    head = Snapshot({}, dict(collected.behaviours), {})
-    findings = growth_findings(Snapshot({}, {}, {}), head)
-    reported = any(finding.rule_id == case["rule"] for finding in findings)
-    detail = f"behaviours: {dict(collected.behaviours)}"
-    return reported == (case["expect"] == "finding"), detail
+    text = (project.path / project.placed).read_text(encoding="utf-8")
+    return conformance.static_verdict(case, collect(project.placed, text))
 
 
 def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
     from guardrails.commands.adapters.pytest.dialect import DIALECT
     from guardrails.commands.adapters.pytest.invocation import tier_arguments
     from guardrails.commands.adapters.pytest.tiers import package_environment
-    from guardrails.toolkit.test_report.junit import ReportError, parse_report
+    from guardrails.test_report.junit import ReportError, parse_report
 
     home, scratch, report = root / "home", root / "tmp", root / "report.xml"
     home.mkdir()
@@ -153,7 +131,7 @@ def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
     environment.update({
         "HOME": str(home),
         "TMPDIR": str(scratch),
-        "OMP_CONFORMANCE_LIVE_HOME": str(home),
+        "GUARDRAILS_CONFORMANCE_LIVE_HOME": str(home),
     })
     command = [
         sys.executable,
@@ -169,7 +147,7 @@ def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
         command,
         cwd=root / "project",
         env=environment,
-        timeout=CASE_TIMEOUT_S,
+        timeout=conformance.CASE_TIMEOUT_S,
         check=False,
     )
     try:
@@ -182,13 +160,12 @@ def run_tier(root: Path, tier: str) -> tuple[Report | None, str]:
 
 
 def check_run(
-    root: Path, binding: dict[str, Any], case: dict[str, Any]
-) -> tuple[bool, str]:
-    from guardrails.commands.adapters.pytest.dialect import GUARDS_PROPERTY
-    from guardrails.commands.adapters.pytest.invocation import TIER_GUARDS
+    project: conformance.Project, case: dict[str, Any]
+) -> conformance.Verdict:
+    from guardrails.test_report.junit import GUARDS_PROPERTY
 
-    tier = binding.get("tier", "t1")
-    report, note = run_tier(root, tier)
+    tier = binding(case).get("tier", "t1")
+    report, note = run_tier(project.root, tier)
     if report is None or not report.cases:
         return False, note
     cases = report.cases
@@ -197,70 +174,60 @@ def check_run(
     detail = f"{note}; guards {sorted(armed - {''})}; cases: {summary}"
     expect, rule = case["expect"], case["rule"]
     if expect == "finding":
-        flagged = any(
-            item.outcome in FAILED_OUTCOMES and rule in item.reason for item in cases
-        )
-        return flagged, detail
+        return conformance.flagged(cases, rule), detail
     if expect == "clean":
         guarded = (
-            set(TIER_GUARDS[tier]) <= armed
-            and report.properties.get("omp.tier") == tier
+            set(contract.TIER_GUARDS[tier]) <= armed
+            and report.properties.get(TIER_PROPERTY) == tier
         )
         clean = all(
             item.outcome == "passed" and rule not in item.reason for item in cases
         )
         return clean and guarded, detail
-    only = cases[0]
-    return len(cases) == 1 and all(
-        getattr(only, k) == v for k, v in expect.items()
-    ), detail
+    return conformance.matches_record(cases, expect), detail
 
 
 def check_collection(
-    project: Path, config: dict[str, Any], case: dict[str, Any]
-) -> tuple[bool, str]:
+    project: conformance.Project, case: dict[str, Any]
+) -> conformance.Verdict:
     from guardrails.commands.adapters.pytest.tiers import list_tiers
+    from guardrails.test_report.collect_list import read_ids
 
-    out = project.parent / "collections"
-    findings = list_tiers(project, config, ["t1"], out)
-    rules = sorted({finding.rule_id for finding in findings})
-    from guardrails.toolkit.test_report.collection import read_ids
-
+    out = project.root / "collections"
+    reported = list_tiers(project.path, project.config, ["t1"], out)
     ids = read_ids(out / "t1.txt")
-    detail = f"rules reported: {rules or 'none'}; ids: {ids}"
-    if case["expect"] == "finding":
-        return case["rule"] in rules, detail
-    return not findings and ids == case["expect"]["ids"], detail
+    expected = [] if case["expect"] == "finding" else case["expect"]["ids"]
+    return conformance.collection_verdict(case, reported, ids, expected)
 
 
-def run_case(case: dict[str, Any], binding: dict[str, Any]) -> CaseResult:
-    with tempfile.TemporaryDirectory(prefix="omp-conformance-") as scratch:
-        root = Path(scratch).resolve()
-        placed = build_project(root, case, binding)
-        project = root / "project"
-        config = case_config(binding)
-        if case["evidence"] == "source":
-            passed, detail = check_source(project, config, placed, case)
-        elif case["evidence"] == "static-cases":
-            passed, detail = check_static_cases(project, placed, case)
-        elif case["evidence"] == "run-report":
-            passed, detail = check_run(root, binding, case)
-        elif case["evidence"] == "collection":
-            passed, detail = check_collection(project, config, case)
-        else:
-            passed, detail = False, f"unknown evidence kind {case['evidence']!r}"
-    return CaseResult(case["id"], case["rule"], passed, detail)
+def binding(case: dict[str, Any]) -> dict[str, Any]:
+    found: dict[str, Any] = bindings()["cases"].get(case["id"], {})
+    return found
 
 
-def run_conformance(case_ids: list[str] | None = None) -> list[CaseResult]:
-    bindings = data("bindings.json")["cases"]
-    cases = load_cases()
-    known = {case["id"] for case in cases}
-    unknown = sorted(set(case_ids or []) - known)
-    if unknown:
-        raise ValueError(f"unknown conformance case(s): {', '.join(unknown)}")
-    selected = [case for case in cases if not case_ids or case["id"] in case_ids]
-    return [run_case(case, bindings.get(case["id"], {})) for case in selected]
+def build_case(root: Path, case: dict[str, Any]) -> conformance.Project:
+    bound = binding(case)
+    return conformance.Project(
+        root, build_project(root, case, bound), case_config(bound)
+    )
+
+
+HARNESS = conformance.Harness(
+    label="the pytest adapter",
+    prefix="guardrails-conformance-",
+    build=build_case,
+    checks={
+        "source": check_source,
+        "static-cases": check_static_cases,
+        "run-report": check_run,
+        "collection": check_collection,
+    },
+    errors=(),
+)
+
+
+def run_conformance(case_ids: list[str]) -> list[conformance.CaseResult]:
+    return conformance.run_cases(HARNESS, conformance.select_cases(case_ids))
 
 
 def run_cases(case_ids: list[str]) -> list[Finding]:
@@ -274,13 +241,4 @@ def run_cases(case_ids: list[str]) -> list[Finding]:
                 "run guardrails from an environment that installs guardrails[pytest]",
             )
         ]
-    return [
-        Finding(
-            result.rule,
-            f"conformance/{result.case_id}",
-            f"the pytest adapter misclassifies this case ({result.detail})",
-            "fix the adapter until every conformance case passes",
-        )
-        for result in run_conformance(case_ids)
-        if not result.passed
-    ]
+    return conformance.findings(run_conformance(case_ids), HARNESS.label)

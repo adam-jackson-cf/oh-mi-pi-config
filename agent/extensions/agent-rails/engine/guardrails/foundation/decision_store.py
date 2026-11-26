@@ -21,17 +21,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
-from importlib import resources
 from pathlib import Path
 from typing import Any
 
+DATA_FOLDER = Path(__file__).resolve().parents[2] / "data"
 STORE_FILE = "agent-rails/agent-rails.db"
 SCHEMA_FILE = "decision-store.sql"
 BUSY_TIMEOUT_SECONDS = 5.0
 # One pass in PASS_SAMPLE keeps its payload, chosen by hash so the choice is stable.
 PASS_SAMPLE = 10
 TRIGGERS = ("commit", "prove", "pr", "manual")
-JUDGMENT_MODES = ("enforced", "shadow")
+# The line prefix a checker prints when it cannot log; the harness reports it without changing a verdict.
+STORE_ERROR = "decision store: "
 OUTCOME_NAMES = {"yes": "flag", "no": "pass", "escalate": "escalate"}
 DECISION_COLUMNS = (
     "id",
@@ -117,12 +118,7 @@ class DecisionContext:
 
 @cache
 def schema_text() -> str:
-    return (
-        resources
-        .files("guardrails.data")
-        .joinpath(SCHEMA_FILE)
-        .read_text(encoding="utf-8")
-    )
+    return (DATA_FOLDER / SCHEMA_FILE).read_text(encoding="utf-8")
 
 
 def schema_version() -> int:

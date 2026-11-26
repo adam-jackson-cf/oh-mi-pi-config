@@ -206,14 +206,14 @@ class RailsLedger {
 type BashCall = { actions: GitAction[]; executables: string[] };
 const COMMIT_COMPANIONS = ["cd", "pushd", "popd", "true"];
 const READ_ONLY_GIT = /^git (?:status|diff|log|show|rev-parse)\b/;
-// The harness checks: guardrails run from the harness's own reference project (never installed
+// The harness checks: guardrails run from the harness's own engine project (never installed
 // into the repo), over the whole repo, with the repo's .agentrails/config.json as config. Rails
 // append `--repo <worktree>`; the engine finds the main checkout's config itself.
 const guardrailsProject = join(import.meta.dir, "engine");
 const defaultGuardrailsCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "check"];
 const harnessPathCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "path-check"];
 const defaultConfigCheckCommand = ["uv", "run", "--project", guardrailsProject, "guardrails", "config-check"];
-// The judgment registry (engine/workflows.py) as the rails call it: questions, then record.
+// The judgment registry (lib/rails_kernel.py) as the rails call it: questions, then record.
 const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "python", join(import.meta.dir, "lib", "decide.py")];
 // The harness checks run only after commands.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the config has not given the step to it.
@@ -286,7 +286,7 @@ async function structureResultReason(pi: ExecApi, cwd: string, head: string, evi
 		pairs: z.record(z.string(), z.unknown()).optional(), kind_files: z.record(z.string(), z.unknown()).optional(),
 		consumers: z.record(z.string(), z.unknown()).optional(), errors: z.array(z.string()).optional(),
 		thresholds: z.unknown().optional(), version_key: z.string().nullable().optional(),
-		model_reported: z.string().nullable().optional(), model_note: z.string().optional(),
+		model_note: z.string().optional(),
 		prComment: z.string().optional(),
 	}).strict();
 	let result;

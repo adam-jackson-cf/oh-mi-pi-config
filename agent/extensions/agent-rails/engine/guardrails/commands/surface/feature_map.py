@@ -6,9 +6,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import unquote
 
-from guardrails.context.config.profile import approved_exemption
+from guardrails.context.config.reader import checker_settings, tests_settings
+from guardrails.context.config.section_schema import approved_exemption
 from guardrails.foundation.findings import Finding, config_label
-from guardrails.foundation.inventory import as_list, settings, tests_settings
+from guardrails.foundation.inventory import as_list
 
 RULE = "SURFACE.feature-map"
 CHECKER = "feature_map"
@@ -78,7 +79,7 @@ def slug(heading: str) -> str:
     return text.replace(" ", "-")
 
 
-def resolve_link(repo: Path, doc: str, target: str) -> tuple[str | None, str]:
+def resolve_link(doc: str, target: str) -> tuple[str | None, str]:
     path_part, _, anchor = target.partition("#")
     if not path_part:
         return None, anchor
@@ -98,19 +99,19 @@ def resolve_link(repo: Path, doc: str, target: str) -> tuple[str | None, str]:
     return "/".join(parts) or ".", anchor
 
 
-def linked_files(repo: Path, doc: str, text: str) -> set[str]:
+def linked_files(doc: str, text: str) -> set[str]:
     linked = set()
     for target in parse(text).links:
         if SCHEME.match(target):
             continue
-        resolved, _ = resolve_link(repo, doc, target)
+        resolved, _ = resolve_link(doc, target)
         if resolved and resolved != "..":
             linked.add(resolved)
     return linked
 
 
 def index_files(config: dict[str, Any]) -> set[str]:
-    return set(as_list(settings(config, CHECKER).get("index_files")))
+    return set(as_list(checker_settings(config, CHECKER).get("index_files")))
 
 
 def link_findings(repo: Path, doc: str, document: Document) -> list[Finding]:
@@ -119,7 +120,7 @@ def link_findings(repo: Path, doc: str, document: Document) -> list[Finding]:
     for target in document.links:
         if SCHEME.match(target):
             continue
-        resolved, anchor = resolve_link(repo, doc, target)
+        resolved, anchor = resolve_link(doc, target)
         if resolved == ".." or (
             resolved is not None and not (repo / resolved).exists()
         ):

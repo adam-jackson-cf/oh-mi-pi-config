@@ -3,18 +3,16 @@ from __future__ import annotations
 import fnmatch
 import json
 from functools import cache
-from importlib import resources
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
+
+DATA_FOLDER = Path(__file__).resolve().parents[2] / "data"
 
 
 @cache
 def load_pack(name: str) -> dict[str, Any]:
     pack: dict[str, Any] = json.loads(
-        resources
-        .files("guardrails.data")
-        .joinpath("conventions", f"{name}.json")
-        .read_bytes()
+        (DATA_FOLDER / "conventions" / f"{name}.json").read_bytes()
     )
     return pack
 
@@ -63,10 +61,6 @@ def fixed_folder(path: str, name: str) -> bool:
     return any(
         name in pack["fixed_folders"] for pack in (for_path(path), load_pack("tooling"))
     )
-
-
-def all_test_patterns() -> list[str]:
-    return [pattern for pack in packs() for pattern in pack["test_patterns"]]
 
 
 def test_patterns(path: str) -> list[str]:

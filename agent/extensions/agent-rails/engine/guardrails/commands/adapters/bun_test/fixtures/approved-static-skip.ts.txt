@@ -1,2 +1,0 @@
-import { test } from 'bun:test';
-test.skip('waiting for vendor', () => {});

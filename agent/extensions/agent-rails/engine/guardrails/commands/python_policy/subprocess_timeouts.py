@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 
-from guardrails.context.config import adapter_declarations, house_style
-from guardrails.context.config.suite_files import is_test_file
-from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import InventoryError, matches_any
-from guardrails.toolkit.python_rules.scope import (
+from guardrails.checker.python_rules.settings import (
     finding,
     inventory_finding,
     load_settings,
@@ -16,6 +12,11 @@ from guardrails.toolkit.python_rules.scope import (
     python_files,
     read_source,
 )
+from guardrails.commands.python_policy.call_names import import_names, qualified_name
+from guardrails.context.config import house_style
+from guardrails.context.config.suite_files import is_test_source
+from guardrails.foundation.findings import Finding
+from guardrails.foundation.inventory import InventoryError
 
 RULE = "TEST.subprocess-timeouts"
 FIX = "supply a positive timeout; bound async waits with asyncio.wait_for"
@@ -52,30 +53,21 @@ def keyword_timeout(call: ast.Call) -> ast.AST | None:
 
 
 class ProcessWaits(ast.NodeVisitor):
-    def __init__(self) -> None:
-        self.imports: dict[str, str] = {}
+    def __init__(self, imports: dict[str, str]) -> None:
+        self.imports = imports
         self.processes: dict[str, str] = {}
         self.bounded: set[int] = set()
         self.lines: list[int] = []
 
     def name(self, node: ast.AST) -> str:
-        if isinstance(node, ast.Name):
-            return self.imports.get(node.id, node.id)
-        if isinstance(node, ast.Attribute):
-            return f"{self.name(node.value)}.{node.attr}"
-        return ""
-
-    def visit_Import(self, node: ast.Import) -> None:
-        for alias in node.names:
-            self.imports[alias.asname or alias.name] = alias.name
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        for alias in node.names:
-            self.imports[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+        return qualified_name(node, self.imports)
 
     def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         imports, processes = self.imports, self.processes
-        self.imports, self.processes = imports.copy(), processes.copy()
+        self.imports, self.processes = (
+            {**imports, **import_names(node)},
+            processes.copy(),
+        )
         for argument in (
             *node.args.posonlyargs,
             *node.args.args,
@@ -157,22 +149,14 @@ class ProcessWaits(ast.NodeVisitor):
         return positive_timeout(timeout)
 
 
-def is_test_source(path: str, config: dict[str, Any]) -> bool:
-    if PurePosixPath(path).name == "conftest.py":
-        return True
-    return is_test_file(path, config) or matches_any(
-        path, adapter_declarations.locations(config)
-    )
-
-
 def unbounded_lines(tree: ast.AST) -> list[int]:
-    visitor = ProcessWaits()
+    visitor = ProcessWaits(import_names(tree))
     visitor.visit(tree)
     return visitor.lines
 
 
 def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
-    selected = parse_paths("python-test-hygiene", argv)
+    selected = parse_paths("python-subprocess-timeouts", argv)
     try:
         files = python_files(repo, load_settings(config), selected)
     except InventoryError as error:

@@ -19,13 +19,9 @@ from guardrails.context.changes import (
     range_finding,
 )
 from guardrails.context.config.adapter_declarations import tier_locations
+from guardrails.context.config.reader import checker_settings, tests_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import (
-    as_list,
-    matches_any,
-    settings,
-    tests_settings,
-)
+from guardrails.foundation.inventory import as_list, matches_any
 
 COMMENTS = "CODE.no-comments"
 PLACEHOLDERS = "CODE.no-placeholder-bodies"
@@ -276,7 +272,7 @@ def is_test(path: str, config: dict[str, Any]) -> bool:
     ]
     locations.extend(as_list(layout.get("support_dir")))
     locations.extend(as_list(layout.get("fixtures_dir")))
-    locations.extend(as_list(settings(config, "check").get("exclude")))
+    locations.extend(as_list(checker_settings(config, "check").get("exclude")))
     return matches_any(path, locations)
 
 

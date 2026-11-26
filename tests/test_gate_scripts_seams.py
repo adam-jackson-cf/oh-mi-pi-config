@@ -149,7 +149,7 @@ def test_t1_runs_fast_pytest_under_the_guards_and_bun_files_outside_the_seams(
         == [
             "-p",
             "guardrails.commands.adapters.pytest.plugin",
-            "--omp-guard=fast-tier,user-data",
+            "--guardrails-guard=fast-tier,user-data",
             "-m",
             "fast",
         ][-4:]
@@ -179,7 +179,7 @@ def test_t2_runs_only_seams_under_the_user_data_guard_and_writes_both_reports(
     assert pytest_call[-11:] == [
         "-p",
         "guardrails.commands.adapters.pytest.plugin",
-        "--omp-guard=user-data",
+        "--guardrails-guard=user-data",
         "-m",
         "seam",
         "-n",

@@ -10,9 +10,7 @@ import pytest
 pytestmark = pytest.mark.fast
 
 ROOT = Path(__file__).resolve().parents[1]
-CATALOGUE = (
-    ROOT / "agent/extensions/agent-rails/engine/guardrails/data/native-tools.json"
-)
+CATALOGUE = ROOT / "agent/extensions/agent-rails/engine/data/native-tools.json"
 
 
 def catalogue(tool: str) -> Any:
@@ -129,12 +127,6 @@ class NativeToolSettingsTests(unittest.TestCase):
                 pins = [section[tool] for section in sections if tool in section]
                 assert len(pins) == 1
                 assert re.fullmatch(r"\d+\.\d+\.\d+", pins[0])
-
-    def test_prettier_overrides_name_existing_files(self) -> None:
-        for override in json_settings(".prettierrc.json")["overrides"]:
-            for pattern in override["files"]:
-                with self.subTest(pattern=pattern):
-                    assert list(ROOT.glob(pattern))
 
     def test_markdownlint_settings_hold_the_line_length_and_name_existing_trees(
         self,

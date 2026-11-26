@@ -1,4 +1,4 @@
-// Judged rails: one decide() call through the judgment registry (engine/workflows.py, run by
+// Judged rails: one decide() call through the judgment registry (lib/rails_kernel.py, run by
 // lib/decide.py) with the judge transport the omp host supplies, plus owner approvals for escalations.
 import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";

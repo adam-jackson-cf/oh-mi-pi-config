@@ -4,8 +4,8 @@ import ast
 from dataclasses import dataclass
 from typing import Any
 
+from guardrails.context.config.reader import tests_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import tests_settings
 
 RULE = "TEST.no-test-hooks"
 FIX = (

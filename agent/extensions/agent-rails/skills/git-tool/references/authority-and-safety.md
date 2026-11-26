@@ -6,8 +6,8 @@ This runbook applies to every Git action. Merge authority, CI and recovery live 
 ## Repo config
 
 A repo's **config**, when present, is `.agentrails/config.json` in its main checkout, kept out of git and shared by
-its worktrees. [The config contract](../../../CONFIG.md) defines its sections, writers and the
-[`autonomy`](../../../CONFIG.md#autonomy) and [`ci`](../../../CONFIG.md#ci) policy.
+its worktrees. [The config contract](../../../docs/config.md) defines its sections, writers and the
+[`autonomy`](../../../docs/config.md#autonomy) and [`ci`](../../../docs/config.md#ci) policy.
 In a repository with a GitHub origin and no valid config, the rails refuse commits, pushes, PRs and merges
 until the owner runs `/agentrails onboard`; while it onboards, the owner merges the bootstrap PR.
 
@@ -33,10 +33,10 @@ The assigned writer commits, pushes, writes the description and opens the PR. Ma
 
 ## Who writes the config
 
-The repo config holds its policy, commands, checker settings, test profile, exceptions and approvals. It is never
+The repo config holds its policy, commands, checker settings, test settings, exceptions and approvals. It is never
 committed and never part of a PR. Agents never edit it: rails refuse every edit, write, eval or shell write to a
 `.agentrails` path, and re-read the config on every action. Each section has one writer
-([config contract](../../../CONFIG.md#sections-and-writers)):
+([config contract](../../../docs/config.md#sections-and-writers)):
 
 | Sections | Writer |
 | --- | --- |

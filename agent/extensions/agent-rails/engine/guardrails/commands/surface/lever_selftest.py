@@ -12,9 +12,10 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.commands.surface.feature_map import surface
+from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding, config_label
-from guardrails.foundation.inventory import as_list, settings
+from guardrails.foundation.inventory import as_list
 from guardrails.host.process import run_text, start_logged
 
 RULE = "SURFACE.lever-isolation"
@@ -181,7 +182,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     values = surface(config)
     if values is None:
         return []
-    options = settings(config, CHECKER)
+    options = checker_settings(config, CHECKER)
     try:
         lever = shlex.split(str(values.get("lever_command") or ""))
     except ValueError:
@@ -196,7 +197,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 config_label("tests"),
                 "verification_surface needs lever_command, doctor_marker, data_dir_arg and "
                 "evidence_dir_arg",
-                "record them in tests.verification_surface",
+                "set them in tests.verification_surface in .agentrails/config.json",
             )
         ]
     if not hasattr(os, "killpg"):
@@ -208,7 +209,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 "run in CI",
             )
         ]
-    lever_run = DoctorCommand(
+    doctor = DoctorCommand(
         repo,
         [*lever, *as_list(options.get("doctor_args"))],
         data_flag,
@@ -216,11 +217,11 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         options,
     )
     found: list[Finding] = []
-    with tempfile.TemporaryDirectory(prefix="omp-lever-selftest-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="agent-rails-lever-selftest-") as scratch:
         root = Path(scratch).resolve()
-        found.extend(healthy_findings(lever_run, root))
+        found.extend(healthy_findings(doctor, root))
         found.extend(
-            broken_findings(lever_run, root, options.get("failure_env"), doctor_marker)
+            broken_findings(doctor, root, options.get("failure_env"), doctor_marker)
         )
     return found
 
@@ -231,7 +232,7 @@ class DoctorCommand:
     base: list[str]
     data_flag: str
     evidence_flag: str
-    config: dict[str, Any]
+    options: dict[str, Any]
 
     def run(
         self, data: Path, evidence: Path, env: dict[str, str], root: Path
@@ -241,14 +242,14 @@ class DoctorCommand:
             *path_arguments(self.data_flag, data),
             *path_arguments(self.evidence_flag, evidence),
         ]
-        return run_lever(self.repo, argv, env, root, self.config)
+        return run_lever(self.repo, argv, env, root, self.options)
 
 
-def healthy_findings(lever_run: DoctorCommand, root: Path) -> list[Finding]:
+def healthy_findings(doctor: DoctorCommand, root: Path) -> list[Finding]:
     found = []
     healthy_data, healthy_evidence = root / "healthy-data", root / "healthy-evidence"
     healthy_data.mkdir()
-    healthy = lever_run.run(healthy_data, healthy_evidence, repo_environment(), root)
+    healthy = doctor.run(healthy_data, healthy_evidence, repo_environment(), root)
     if healthy.returncode not in (None, 0):
         found.append(
             Finding(
@@ -263,7 +264,7 @@ def healthy_findings(lever_run: DoctorCommand, root: Path) -> list[Finding]:
 
 
 def broken_findings(
-    lever_run: DoctorCommand, root: Path, failure_env: object, doctor_marker: str
+    doctor: DoctorCommand, root: Path, failure_env: object, doctor_marker: str
 ) -> list[Finding]:
     found = []
     broken_evidence = root / "broken-evidence"
@@ -275,7 +276,7 @@ def broken_findings(
     else:
         broken_data = root / "broken-data-is-a-file"
         broken_data.write_text("not a data directory\n", encoding="utf-8")
-    broken = lever_run.run(broken_data, broken_evidence, env, root)
+    broken = doctor.run(broken_data, broken_evidence, env, root)
     if broken.returncode == 0:
         found.append(
             Finding(

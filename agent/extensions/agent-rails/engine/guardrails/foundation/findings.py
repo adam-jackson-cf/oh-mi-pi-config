@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from functools import cache
-from importlib import resources
+from pathlib import Path
 from typing import Any
 
+DATA_FOLDER = Path(__file__).resolve().parents[2] / "data"
 RULE_CATALOGUE = "guardrail-rules.json"
 # Findings about the repo's settings name the config file and the section at fault.
 CONFIG_LABEL = ".agentrails/config.json"
@@ -27,9 +28,7 @@ class Remediation:
 
 @cache
 def catalogue_rules() -> tuple[dict[str, Any], ...]:
-    catalogue = json.loads(
-        resources.files("guardrails.data").joinpath(RULE_CATALOGUE).read_bytes()
-    )
+    catalogue = json.loads((DATA_FOLDER / RULE_CATALOGUE).read_bytes())
     return tuple(catalogue["rules"])
 
 

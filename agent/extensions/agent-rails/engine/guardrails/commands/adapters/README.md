@@ -27,7 +27,7 @@ An adapter does only these six things. No framework is assumed.
 3. **Fast-tier guard.** Provide the hook that blocks process creation and
    network connections across T1 setup, call and teardown
    (`TEST.fast-tier-isolation`).
-4. **Source patterns.** Supply `ast-grep` YAML rules for the framework's mock,
+4. **Source patterns.** Supply `ast-grep` patterns for the framework's mock,
    patch, skip, focus, retry and seed idioms (`TEST.no-self-mocking`,
    `TEST.no-test-hooks`, `TEST.no-evasion`, `TEST.property-seed`). "Owned code"
    means the packages owning the config's `tests.public_entry_points`. For
@@ -52,9 +52,8 @@ adapter. Per-repo values go in the config, never in adapter code.
 ## Conformance spec
 
 The conformance cases are framework-agnostic: each names an input situation and
-the verdict every adapter must produce. The canonical list is the pytest
-adapter's
-[`conformance/cases.json`](pytest/conformance/cases.json).
+the verdict every adapter must produce. The canonical list is the engine's
+[`engine/data/conformance-cases.json`](../../../data/conformance-cases.json).
 It includes, for example:
 
 - a test patches an owned module → `TEST.no-self-mocking`;
@@ -79,7 +78,15 @@ It includes, for example:
 - The adapter lives in the harness from its first repo: under
   `agent/extensions/agent-rails/engine/guardrails/commands/adapters/<framework>/`
   in oh-mi-pi-config, with conformance fixtures as the engine's own tests.
-  The target repository never references it.
+  The target repository never references it. `CATALOGUE` in
+  `guardrails/context/config/adapter_declarations.py` names every adapter and
+  the module that collects its static test cases.
+- Parts two or more adapters use live beside them in `adapters/`: `contract.py`
+  (tier guards, evidence output and guard evidence), `conformance.py` (the
+  shared conformance run), `marker_bindings.py` (marker-read inlining for
+  lint) and `javascript/` (the Vitest and Bun case collector, lint, Stryker
+  normaliser and `node_guard/` runtime). Source patterns are run-time data in
+  `engine/data/<name>-patterns.json`.
 - The harness runs the adapter against the target from outside its tree; JUnit
   and other evidence go to a temporary directory outside the worktree.
 - **Generalisation (rule of two):** keep framework-specific choices that only

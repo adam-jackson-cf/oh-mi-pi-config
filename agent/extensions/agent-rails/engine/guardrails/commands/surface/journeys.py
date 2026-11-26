@@ -10,6 +10,7 @@ from guardrails.commands.surface.feature_map import (
     read,
     surface,
 )
+from guardrails.context.config.reader import checker_settings
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
@@ -18,7 +19,6 @@ from guardrails.foundation.inventory import (
     as_list,
     name_matches,
     repo_paths,
-    settings,
 )
 
 RULE = "SURFACE.journeys"
@@ -26,7 +26,7 @@ CHECKER = "journeys"
 
 
 def lever_references(lever: str, config: dict[str, Any]) -> list[str]:
-    configured = as_list(settings(config, CHECKER).get("lever_references"))
+    configured = as_list(checker_settings(config, CHECKER).get("lever_references"))
     if configured:
         return configured
     try:
@@ -60,7 +60,7 @@ def mapped_paths(repo: Path, map_path: str) -> tuple[set[str], str]:
     for doc in map_documents(repo, map_path):
         text = read(repo / doc)
         texts.append(text)
-        linked |= linked_files(repo, doc, text)
+        linked |= linked_files(doc, text)
     return linked, "\n".join(texts)
 
 
@@ -77,7 +77,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 RULE,
                 config_label("tests"),
                 "verification_surface needs journey_file_pattern and lever_command",
-                "record both in tests.verification_surface",
+                "set both in tests.verification_surface in .agentrails/config.json",
             )
         ]
     try:

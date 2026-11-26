@@ -15,17 +15,23 @@ import pytest
 from _pytest.junitxml import xml_key
 from _pytest.subtests import SubtestReport
 
+from guardrails.commands.adapters.contract import GUARDS, USER_DATA
 from guardrails.commands.adapters.pytest import guards
-from guardrails.commands.adapters.pytest.dialect import (
-    GUARDS_PROPERTY,
-    SUBTEST_PROPERTIES,
-)
+from guardrails.commands.adapters.pytest.dialect import SUBTEST_PROPERTIES
 from guardrails.host.process import run_text
+from guardrails.test_report.junit import (
+    EXIT_CODE_PROPERTY,
+    GUARDS_PROPERTY,
+    REVISION_PROPERTY,
+    RUNTIME_PROPERTY,
+    TIER_PROPERTY,
+    WALL_PROPERTY,
+)
 
 VIOLATIONS = pytest.StashKey[dict[str, list[str]]]()
 STARTED = pytest.StashKey[float]()
 XDG_VARIABLES = ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME")
-PROTECTED_HOME = "omp_protected_home"
+PROTECTED_HOME = "guardrails_protected_home"
 
 
 class WorkerNode(Protocol):
@@ -36,17 +42,20 @@ class WorkerNode(Protocol):
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("guardrails")
     group.addoption(
-        "--omp-guard",
+        "--guardrails-guard",
         action="append",
         default=[],
         metavar="GUARD",
-        help=f"arm a tier guard ({', '.join(guards.GUARDS)}); repeat or comma-separate",
+        help=f"arm a tier guard ({', '.join(GUARDS)}); repeat or comma-separate",
     )
     group.addoption(
-        "--omp-tier", default=None, metavar="TIER", help="profile tier of this run"
+        "--guardrails-tier",
+        default=None,
+        metavar="TIER",
+        help="tier of this run (t1, t2, t3) from tests.tiers",
     )
     group.addoption(
-        "--omp-collect-out",
+        "--guardrails-collect-out",
         default=None,
         metavar="FILE",
         help="write collected files and node IDs as JSON",
@@ -56,13 +65,15 @@ def pytest_addoption(parser: pytest.Parser) -> None:
 def armed_guards(config: pytest.Config) -> frozenset[str]:
     names = {
         name.strip()
-        for value in config.getoption("--omp-guard")
+        for value in config.getoption("--guardrails-guard")
         for name in value.split(",")
         if name.strip()
     }
-    unknown = sorted(names - set(guards.GUARDS))
+    unknown = sorted(names - set(GUARDS))
     if unknown:
-        raise pytest.UsageError(f"unknown --omp-guard value(s): {', '.join(unknown)}")
+        raise pytest.UsageError(
+            f"unknown --guardrails-guard value(s): {', '.join(unknown)}"
+        )
     return frozenset(names)
 
 
@@ -77,10 +88,10 @@ class GuardSession:
     def start(self) -> None:
         protected = None
         allowed = [str(self.config.rootpath)]
-        if guards.USER_DATA in self.armed:
+        if USER_DATA in self.armed:
             protected = real_home(self.config)
             self.protected_home = protected
-            self.temporary_home = tempfile.mkdtemp(prefix="omp-guarded-home-")
+            self.temporary_home = tempfile.mkdtemp(prefix="guardrails-guarded-home-")
             allowed.extend([self.temporary_home, tempfile.gettempdir()])
             basetemp = self.config.getoption("basetemp", None)
             if basetemp:
@@ -146,7 +157,7 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[STARTED] = time.monotonic()
     tally = SubtestTally()
     config.stash[SUBTESTS_KEY] = tally
-    config.pluginmanager.register(tally, "omp-subtest-tally")
+    config.pluginmanager.register(tally, "guardrails-subtest-tally")
     armed = armed_guards(config)
     if armed:
         session = GuardSession(config, armed)
@@ -218,11 +229,11 @@ def revision(root: Path) -> str | None:
 def run_properties(config: pytest.Config, exit_status: int) -> dict[str, str]:
     session = config.stash.get(SESSION_KEY, None)
     values = {
-        "omp.tier": config.getoption("--omp-tier"),
-        "omp.runtime": f"python {platform.python_version()}",
-        "omp.revision": revision(config.rootpath),
-        "omp.wall_s": f"{time.monotonic() - config.stash[STARTED]:.3f}",
-        "omp.exit_code": str(int(exit_status)),
+        TIER_PROPERTY: config.getoption("--guardrails-tier"),
+        RUNTIME_PROPERTY: f"python {platform.python_version()}",
+        REVISION_PROPERTY: revision(config.rootpath),
+        WALL_PROPERTY: f"{time.monotonic() - config.stash[STARTED]:.3f}",
+        EXIT_CODE_PROPERTY: str(int(exit_status)),
         GUARDS_PROPERTY: ",".join(sorted(session.armed)) if session else "",
         **{
             SUBTEST_PROPERTIES[key]: str(count)
@@ -242,7 +253,7 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
 
 def pytest_collection_finish(session: pytest.Session) -> None:
-    target = session.config.getoption("--omp-collect-out")
+    target = session.config.getoption("--guardrails-collect-out")
     if not target:
         return
     items = [[str(Path(item.path).resolve()), item.nodeid] for item in session.items]
