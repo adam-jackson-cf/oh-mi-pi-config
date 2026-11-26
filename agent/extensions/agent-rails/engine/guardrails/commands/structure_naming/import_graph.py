@@ -27,7 +27,6 @@ OWNER = "STRUCT.single-owner-placement"
 SIBLING = "STRUCT.sibling-isolation"
 DIRECTION = "STRUCT.dependency-direction"
 LANGUAGE_NAMES = {"python": "Python", "typescript": "TypeScript", "go": "Go"}
-TSCONFIG = "tsconfig.json"
 GO_MOD = "go.mod"
 
 Key = tuple[str, str]
@@ -119,8 +118,11 @@ def script_components(relative: PurePosixPath) -> tuple[str, ...]:
 class Reader:
     repo: Path
     settings: ImportSettings
-    tsconfigs: dict[str, modules.TsConfig] = field(default_factory=dict)
     go_modules: dict[str, str] = field(default_factory=dict)
+    scripts: modules.ScriptResolver = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.scripts = modules.ScriptResolver(self.files, self.text)
 
     @property
     def files(self) -> RepoFiles:
@@ -135,11 +137,6 @@ class Reader:
     def relative(self, path: str) -> PurePosixPath | None:
         root = self.settings.root
         return PurePosixPath(path).relative_to(root) if matches(path, root) else None
-
-    def tsconfig(self, path: str) -> modules.TsConfig:
-        if path not in self.tsconfigs:
-            self.tsconfigs[path] = modules.tsconfig(path, self.text(path))
-        return self.tsconfigs[path]
 
     def go_module(self, path: str) -> str:
         if path not in self.go_modules:
@@ -156,11 +153,10 @@ class Reader:
 
     def script_edges(self, path: str) -> list[Edge]:
         tree = self.source(path)
-        nearest_config = modules.nearest(path, TSCONFIG, self.files)
-        config = None if nearest_config is None else self.tsconfig(nearest_config)
+        self.scripts.importer_config(path)  # an unreadable tsconfig fails every file
         found = []
         for item in typescript.imports(tree):
-            target = modules.resolve_specifier(path, item.specifier, self.files, config)
+            target = self.scripts.resolve(path, item.specifier)
             relative = None if target is None else self.relative(target)
             if target is not None and relative is not None:
                 found.append(

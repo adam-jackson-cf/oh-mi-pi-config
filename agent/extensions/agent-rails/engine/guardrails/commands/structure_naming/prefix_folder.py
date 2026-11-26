@@ -35,7 +35,6 @@ RULE = "STRUCT.prefix-folder"
 HISTORY_COMMITS = 200
 MAX_SOURCE_BYTES = 400_000
 FEATURES = ("import_edge", "shared_reader", "co_change", "prefix_is_domain_word")
-TSCONFIG = "tsconfig.json"
 SCRIPT_CLASSES = frozenset({"class_declaration", "class"})
 SCRIPT_NAMED_TYPES = {
     "javascript": SCRIPT_CLASSES,
@@ -343,7 +342,7 @@ def script_links(
         root = trees[path]
         if root is None:
             continue
-        found = modules.nearest(path, TSCONFIG, configs)
+        found = modules.nearest(path, modules.TSCONFIG, configs)
         config = configs[found] if found is not None else None
         edges[path] = {
             target
@@ -425,7 +424,7 @@ def sources(
         found
         for path in members
         if language != "python"
-        and (found := modules.nearest(path, TSCONFIG, tracked)) is not None
+        and (found := modules.nearest(path, modules.TSCONFIG, tracked)) is not None
     }
     files = [
         path
@@ -466,7 +465,7 @@ def evidence_of(
     configs = {
         path: modules.tsconfig(path, text)
         for path, text in texts.items()
-        if PurePosixPath(path).name == TSCONFIG
+        if PurePosixPath(path).name == modules.TSCONFIG
     }
     trees = {
         path: parsed(path, text) for path, text in texts.items() if path not in configs

@@ -4,8 +4,8 @@ import importlib.util
 import json
 import posixpath
 import re
-from collections.abc import Container
-from dataclasses import dataclass
+from collections.abc import Callable, Container
+from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -22,6 +22,7 @@ JSON_STRING = r'("(?:[^"\\]|\\.)*")'
 JSONC_COMMENT = re.compile(JSON_STRING + r"|//[^\n]*|/\*.*?\*/", re.DOTALL)
 JSONC_TRAILING_COMMA = re.compile(JSON_STRING + r"|,(?=\s*[}\]])")
 MODULE_DIRECTIVE = re.compile(r"^\s*module\s+(\S+)", re.MULTILINE)
+TSCONFIG = "tsconfig.json"
 
 
 def python_edges(imports: list[PythonImport], module: str, package: str) -> list[str]:
@@ -178,6 +179,34 @@ def resolve_specifier(
         (path for base in bases if (path := script_file(base, tracked)) is not None),
         None,
     )
+
+
+@dataclass
+class ScriptResolver:
+    """Resolves TypeScript and JavaScript import specifiers to tracked files.
+
+    Each importer reads its nearest tsconfig.json, parsed once per file.
+    """
+
+    tracked: Container[str]
+    read: Callable[[str], str]
+    configs: dict[str, TsConfig] = field(default_factory=dict)
+
+    def config(self, path: str) -> TsConfig:
+        if path not in self.configs:
+            self.configs[path] = tsconfig(path, self.read(path))
+        return self.configs[path]
+
+    def config_path(self, importer: str) -> str | None:
+        return nearest(importer, TSCONFIG, self.tracked)
+
+    def importer_config(self, importer: str) -> TsConfig | None:
+        found = self.config_path(importer)
+        return None if found is None else self.config(found)
+
+    def resolve(self, importer: str, specifier: str) -> str | None:
+        config = self.importer_config(importer)
+        return resolve_specifier(importer, specifier, self.tracked, config)
 
 
 def go_module_path(text: str) -> str:

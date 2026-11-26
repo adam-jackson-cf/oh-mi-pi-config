@@ -26,6 +26,8 @@ from guardrails.context.config.reader import tests_settings
 from guardrails.context.config.suite_files import adapter_suite, in_suite
 from guardrails.foundation.findings import Finding, Remediation, remediation
 from guardrails.foundation.inventory import normalized_path, repo_paths
+from guardrails.foundation.source.modules import ScriptResolver, folder_of, joined
+from guardrails.foundation.source.tree import SourceError
 
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
@@ -112,27 +114,17 @@ def owned_path(path: str, roots: tuple[str, ...]) -> bool:
     )
 
 
-def module_path(path: str, module: str) -> str:
-    return (
-        posixpath.normpath(posixpath.join(posixpath.dirname(path), module))
-        if module.startswith(".")
-        else module
-    )
-
-
-def owned_origin(path: str, origin: str, roots: tuple[str, ...]) -> bool:
+def owned_origin(path: str, origin: str, owned: Owned) -> bool:
     module = origin.split("#", 1)[0]
     if module.startswith("."):
-        resolved = module_path(path, module)
-        return not resolved.startswith("../") and owned_path(resolved, roots)
+        relative = joined(folder_of(path), module)
+        return relative is not None and owned_path(relative, owned.roots)
+    target = owned.scripts.resolve(path, module)
+    if target is not None:
+        return owned_path(target, owned.roots)
     return any(
-        module == root
-        or module.startswith(root + "/")
-        or (
-            root.startswith("src/")
-            and (module == root[4:] or module.startswith(root[4:] + "/"))
-        )
-        for root in roots
+        module == root or module.startswith(root + "/")
+        for root in owned.roots
         if root != "."
     )
 
@@ -184,10 +176,18 @@ def mock_origin(node: SgNode, aliases: Mapping[str, str]) -> str | None:
 
 
 @dataclass(frozen=True)
+class Owned:
+    """The owned folders and package names, and how imports reach them."""
+
+    roots: tuple[str, ...]
+    scripts: ScriptResolver
+
+
+@dataclass(frozen=True)
 class Site:
     path: str
     aliases: Mapping[str, str]
-    roots: tuple[str, ...]
+    owned: Owned
     seeded: bool
     vocabulary: Vocabulary
 
@@ -228,7 +228,7 @@ def hook_violation(node: SgNode, site: Site) -> str | None:
 def mock_assignment_violation(node: SgNode, site: Site) -> str | None:
     left = node.field("left")
     origin = mock_origin(left, site.aliases) if left is not None else None
-    if origin and owned_origin(site.path, origin, site.roots):
+    if origin and owned_origin(site.path, origin, site.owned):
         return origin
     return None
 
@@ -241,7 +241,7 @@ def mock_call_violation(node: SgNode, site: Site) -> str | None:
     ):
         return None
     origin = mock_origin(args[0], site.aliases)
-    return origin if origin and owned_origin(site.path, origin, site.roots) else None
+    return origin if origin and owned_origin(site.path, origin, site.owned) else None
 
 
 def evasion_violation(node: SgNode, site: Site) -> str | None:
@@ -311,7 +311,7 @@ def file_findings(
     path: str,
     source: str,
     patterns: list[Pattern],
-    owned: tuple[str, ...],
+    owned: Owned,
     vocabulary: Vocabulary,
 ) -> list[Finding]:
     from ast_grep_py import SgRoot
@@ -409,7 +409,7 @@ def in_import(node: SgNode) -> bool:
 
 
 def referenced_keys(
-    path: str, node: SgNode, aliases: Mapping[str, str]
+    path: str, node: SgNode, aliases: Mapping[str, str], scripts: ScriptResolver
 ) -> set[tuple[str, str]]:
     origin = qualified(node, aliases)
     if "#" in origin:
@@ -418,22 +418,21 @@ def referenced_keys(
         module, _, symbol = origin.rpartition(".")
     else:
         return set()
-    resolved = module_path(path, module)
-    candidates = {
-        resolved,
-        *(resolved + suffix for suffix in SUFFIXES),
-        *(resolved + "/index" + suffix for suffix in SUFFIXES),
-    }
-    return {(owner, symbol) for owner in candidates}
+    owner = scripts.resolve(path, module)
+    return set() if owner is None else {(owner, symbol)}
 
 
-def record_uses(
-    path: str,
-    root: SgNode,
-    test: bool,
-    definitions: Definitions,
-    uses: dict[tuple[str, str], set[bool]],
-) -> None:
+@dataclass(frozen=True)
+class Tally:
+    """Production definitions and whether tests (True) or production (False) use each."""
+
+    definitions: Definitions
+    uses: dict[tuple[str, str], set[bool]]
+    scripts: ScriptResolver
+
+
+def record_uses(path: str, root: SgNode, test: bool, tally: Tally) -> None:
+    definitions, uses = tally.definitions, tally.uses
     aliases = imports(root)
     for node in walk(root):
         if node.kind() not in REFERENCE_KINDS or in_import(node):
@@ -449,7 +448,7 @@ def record_uses(
             )
             if not within:
                 uses[local_key].add(test)
-        for key in referenced_keys(path, node, aliases):
+        for key in referenced_keys(path, node, aliases, tally.scripts):
             if key in definitions:
                 uses[key].add(test)
 
@@ -468,14 +467,15 @@ def hook_findings(
     sources: dict[str, str],
     config: dict[str, Any],
     reported: set[str],
-    roots: tuple[str, ...],
+    owned: Owned,
     adapter: str,
 ) -> list[Finding]:
     trees = {path: parse(path, text) for path, text in sources.items()}
-    definitions = production_definitions(trees, config, roots, adapter)
+    definitions = production_definitions(trees, config, owned.roots, adapter)
     uses: dict[tuple[str, str], set[bool]] = {key: set() for key in definitions}
+    tally = Tally(definitions, uses, owned.scripts)
     for path, root in trees.items():
-        record_uses(path, root, is_test(path, config, adapter), definitions, uses)
+        record_uses(path, root, is_test(path, config, adapter), tally)
     public = public_symbols(config)
     return [
         Finding(
@@ -491,6 +491,25 @@ def hook_findings(
     ]
 
 
+def tsconfig_findings(scripts: ScriptResolver, paths: list[str]) -> list[Finding]:
+    found = []
+    for path in sorted({
+        config for path in paths if (config := scripts.config_path(path)) is not None
+    }):
+        try:
+            scripts.config(path)
+        except (OSError, UnicodeError, SourceError) as error:
+            found.append(
+                Finding(
+                    "TEST.no-test-hooks",
+                    path,
+                    f"cannot read tsconfig to resolve imports: {error}",
+                    "repair tsconfig.json before running adapter lint",
+                )
+            )
+    return found
+
+
 def lint(
     repo: Path,
     config: dict[str, Any],
@@ -498,7 +517,10 @@ def lint(
     vocabulary: Vocabulary,
 ) -> list[Finding]:
     adapter = vocabulary.adapter
-    all_paths = source_files(repo, [])
+    repo_files = [
+        path for raw in repo_paths(repo) if (path := normalized_path(repo, raw))
+    ]
+    all_paths = source_files(repo, repo_files)
     selected = set(source_files(repo, paths)) if paths else set(all_paths)
     roots = owned_roots(config, repo)
     sources = {}
@@ -538,6 +560,13 @@ def lint(
                     "repair JavaScript/TypeScript syntax before running adapter lint",
                 )
             )
+    scripts = ScriptResolver(
+        set(repo_files), lambda path: (repo / path).read_text(encoding="utf-8")
+    )
+    unreadable = tsconfig_findings(scripts, sorted(sources))
+    if unreadable:
+        return apply_exceptions(findings + unreadable, config)
+    owned = Owned(roots, scripts)
     patterns = load_patterns()
     production = set()
     for path in sorted(selected):
@@ -555,9 +584,9 @@ def lint(
                 path,
                 sources[path],
                 [item for item in patterns if item.scope == scope],
-                roots,
+                owned,
                 vocabulary,
             )
         )
-    findings.extend(hook_findings(sources, config, production, roots, adapter))
+    findings.extend(hook_findings(sources, config, production, owned, adapter))
     return apply_exceptions(findings, config)

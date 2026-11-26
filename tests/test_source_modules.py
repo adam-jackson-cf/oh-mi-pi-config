@@ -136,6 +136,31 @@ class TypeScriptResolutionTests(unittest.TestCase):
                 modules.tsconfig("tsconfig.json", text)
 
 
+class ScriptResolverTests(unittest.TestCase):
+    def test_each_importer_reads_its_nearest_tsconfig_once(self) -> None:
+        files = {
+            "tsconfig.json": '{"compilerOptions": {"baseUrl": "."}}',
+            "web/tsconfig.json": '{"compilerOptions": {"paths": {"@/*": ["src/*"]}}}',
+            "web/src/util.ts": "",
+            "web/src/app.ts": "",
+            "lib/core.ts": "",
+            "server/main.ts": "",
+        }
+        reads: list[str] = []
+
+        def read(path: str) -> str:
+            reads.append(path)
+            return files[path]
+
+        scripts = modules.ScriptResolver(set(files), read)
+        assert scripts.resolve("web/src/app.ts", "@/util") == "web/src/util.ts"
+        assert scripts.resolve("web/src/app.ts", "./util.js") == "web/src/util.ts"
+        assert scripts.resolve("server/main.ts", "lib/core") == "lib/core.ts"
+        assert scripts.resolve("web/src/app.ts", "lib/core") is None
+        assert scripts.resolve("web/src/app.ts", "react") is None
+        assert sorted(reads) == ["tsconfig.json", "web/tsconfig.json"]
+
+
 class GoModuleTests(unittest.TestCase):
     def test_module_path_from_go_mod(self) -> None:
         assert modules.go_module_path("// c\nmodule example.com/app\n\ngo 1.22\n") == (
