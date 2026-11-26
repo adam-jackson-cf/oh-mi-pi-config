@@ -14,6 +14,9 @@
     "package_marker": {
       "__init__.py": "https://docs.python.org/3/reference/import.html#regular-packages"
     },
+    "stub_extension": {
+      ".pyi": "https://typing.python.org/en/latest/spec/distributing.html#stub-files"
+    },
     "class": {
       "PascalCase": "https://peps.python.org/pep-0008/#class-names"
     },
@@ -61,6 +64,7 @@
   "file": ["snake_case"],
   "directory": ["snake_case"],
   "package_marker": "__init__.py",
+  "stub_extension": ".pyi",
   "class": ["PascalCase"],
   "function": ["snake_case"],
   "framework_symbols": [

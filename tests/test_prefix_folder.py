@@ -22,6 +22,7 @@ from test_agentrails_fixture import config, write_config
 from guardrails.commands.structure_naming import prefix_folder
 from guardrails.context import changes
 from guardrails.foundation.findings import catalogue_rules, remediations
+from guardrails.foundation.source import tree
 from guardrails.foundation.source.tree import parse
 
 FIXTURE = json.loads(
@@ -209,12 +210,11 @@ class ImportGraphTests(unittest.TestCase):
             "tools/helpers.py": "",
             "b/main.py": "import helpers\n",
         }
-        found: dict[str, list[prefix_folder.Import] | None] = {
-            path: prefix_folder.imports(parse(path, text))
-            for path, text in sources.items()
+        trees: dict[str, tree.SgNode | None] = {
+            path: parse(path, text) for path, text in sources.items()
         }
-        found["broken.py"] = None
-        graph = prefix_folder.ImportGraph(found)
+        trees["broken.py"] = None
+        graph = prefix_folder.python_links(trees)
         assert {
             path: sorted(found) for path, found in graph.edges.items() if found
         } == {
@@ -222,7 +222,6 @@ class ImportGraphTests(unittest.TestCase):
             "b/main.py": ["tools/helpers.py"],
             "c/use.py": ["c/helpers.py"],
             "pkg/sub/main.py": [
-                "pkg/__init__.py",
                 "pkg/sub/__init__.py",
                 "pkg/sub/util.py",
                 "pkg/util.py",
@@ -230,6 +229,21 @@ class ImportGraphTests(unittest.TestCase):
         }
         assert "broken.py" not in graph.edges
         assert prefix_folder.domain_words("broken.py", None) == set()
+
+    def test_a_docstring_cpython_cannot_decode_skips_the_file(self) -> None:
+        texts: dict[str, str | None] = {
+            "pkg/__init__.py": "",
+            "pkg/order_a.py": '"""\\x"""\nimport pkg.order_b\n',
+            "pkg/order_b.py": '"""Orders."""\nimport pkg.order_a\n',
+            "pkg/order_c.py": None,
+        }
+        evidence = prefix_folder.evidence_of("python", texts, [])
+        assert evidence.graph.edges == {
+            "pkg/__init__.py": set(),
+            "pkg/order_b.py": {"pkg/order_a.py"},
+        }
+        assert evidence.words["pkg/order_a.py"] == set()
+        assert evidence.words["pkg/order_b.py"] == {"order"}
 
     def test_script_imports_resolve_relative_and_tsconfig_paths(self) -> None:
         texts = {

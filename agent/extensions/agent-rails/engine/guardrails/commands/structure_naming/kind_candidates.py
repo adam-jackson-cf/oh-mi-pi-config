@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import os.path
-import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from guardrails.commands.structure_naming.scan_scope import (
     is_test_path,
@@ -23,6 +21,11 @@ from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.source import modules, python
+from guardrails.foundation.source.tree import SourceError, line, named, parse
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.kind-candidates"
@@ -54,8 +57,6 @@ KIND_WORDS = (
 )
 MAX_SYMBOLS = 12
 MAX_IMPORTERS = 3
-DEFINITION = re.compile(r"(?:async\s+)?(def|class)\s+([A-Za-z_]\w*)")
-Import = tuple[int, int, str, list[str], str]
 
 
 def forms(word: str) -> set[str]:
@@ -95,27 +96,34 @@ def owned(paths: list[str]) -> list[str]:
     return [path for path in paths if not excluded(path, skills)]
 
 
-def parsed(source: str) -> ast.Module | None:
+def parsed(path: str, source: str) -> SgNode | None:
+    """The tree of a Python file; an unparseable file is skipped (None): it proposes no
+    candidate and gives no import edges."""
     try:
-        return ast.parse(source)
-    except (SyntaxError, ValueError):
+        root = parse(path, source)
+        python.body_docstring(root)
+        for node in python.members(root):
+            python.body_docstring(node.field("body"))
+    except SourceError:
         return None
+    return root
 
 
-def first_line(doc: str | None) -> str:
-    for line in (doc or "").strip().splitlines():
-        if line.strip():
-            return line.strip()[:200]
+def first_line(doc: str) -> str:
+    for text in doc.strip().splitlines():
+        if text.strip():
+            return text.strip()[:200]
     return ""
 
 
-def signature_of(node: ast.stmt, lines: list[str]) -> str:
-    body = getattr(node, "body", [])
-    start = node.lineno - 1
-    end = body[0].lineno - 1 if body else start + 1
-    if body and body[0].lineno - 1 <= start:
+def signature_of(node: SgNode, lines: list[str]) -> str:
+    body = node.field("body")
+    statements = [] if body is None else named(body)
+    start = line(node) - 1
+    end = line(statements[0]) - 1 if statements else start + 1
+    if statements and line(statements[0]) - 1 <= start:
         end = start + 1
-    text = " ".join(line.strip() for line in lines[start : max(end, start + 1)])
+    text = " ".join(text.strip() for text in lines[start : max(end, start + 1)])
     depth = 0
     for index, character in enumerate(text):
         if character in "([{":
@@ -127,21 +135,16 @@ def signature_of(node: ast.stmt, lines: list[str]) -> str:
     return text[:300]
 
 
-def definitions(source: str, tree: ast.Module | None) -> list[dict[str, str]]:
-    if tree is None:
-        return [
-            {"signature": line.rstrip().rstrip(":"), "doc": ""}
-            for line in source.splitlines()
-            if DEFINITION.match(line)
-        ]
+def definitions(source: str, root: SgNode | None) -> list[dict[str, str]]:
+    if root is None:
+        return []
     lines = source.splitlines()
     return [
         {
             "signature": signature_of(node, lines),
-            "doc": first_line(ast.get_docstring(node)),
+            "doc": first_line(python.body_docstring(node.field("body"))),
         }
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        for node in python.members(root)
     ]
 
 
@@ -149,101 +152,30 @@ def line_at(lines: list[str], number: int) -> str:
     return lines[number - 1].strip()[:240] if 0 < number <= len(lines) else ""
 
 
-def imports_of(source: str, tree: ast.Module | None) -> list[Import]:
-    if tree is None:
-        return []
-    lines = source.splitlines()
-    found: list[Import] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            found.extend(
-                (node.lineno, 0, alias.name, [], line_at(lines, node.lineno))
-                for alias in node.names
-            )
-        elif isinstance(node, ast.ImportFrom):
-            names = [alias.name for alias in node.names]
-            found.append((
-                node.lineno,
-                node.level or 0,
-                node.module or "",
-                names,
-                line_at(lines, node.lineno),
-            ))
-    return found
-
-
 class TreeModel:
     def __init__(self, paths: list[str], sources: dict[str, str]) -> None:
         self.sources = sources
         self.python = sorted(path for path in paths if path.endswith(".py"))
-        self.packages = {
-            os.path.dirname(path)
-            for path in paths
-            if os.path.basename(path) == "__init__.py"
-        }
-        self.trees = {path: parsed(sources.get(path, "")) for path in self.python}
-        self.modules: dict[str, set[str]] = defaultdict(set)
-        for path in self.python:
-            parts = path[:-3].split("/")
-            if parts[-1] == "__init__":
-                parts = parts[:-1]
-            for index in range(len(parts)):
-                parent = "/".join(path.split("/")[:index])
-                if index == 0 or parent not in self.packages:
-                    self.modules[".".join(parts[index:])].add(path)
+        self.trees = {path: parsed(path, sources.get(path, "")) for path in self.python}
+        index = modules.PythonIndex(self.python)
         self.graph: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for importer in self.python:
+            root = self.trees[importer]
+            if root is None:
+                continue
+            lines = sources.get(importer, "").splitlines()
             seen: set[str] = set()
-            for _, level, module, names, text in imports_of(
-                sources.get(importer, ""), self.trees[importer]
-            ):
-                for target in sorted(self.resolve(importer, level, module, names)):
-                    if target != importer and target not in seen:
+            for item in python.imports(root):
+                for target in index.resolve(importer, item):
+                    if target not in seen:
                         seen.add(target)
-                        self.graph[target].append((importer, text))
-
-    def relative(
-        self, importer: str, level: int, module: str, names: list[str]
-    ) -> set[str]:
-        base = os.path.dirname(importer).split("/") if os.path.dirname(importer) else []
-        if level > 1:
-            base = base[: len(base) - (level - 1)] if level - 1 <= len(base) else []
-        stem = "/".join(base + (module.split(".") if module else []))
-        candidates = [stem] + [f"{stem}/{name}" if stem else name for name in names]
-        return {
-            target
-            for candidate in candidates
-            for target in (candidate + ".py", candidate + "/__init__.py")
-            if target in self.sources or target in self.python
-        }
-
-    def resolve(
-        self, importer: str, level: int, module: str, names: list[str]
-    ) -> set[str]:
-        if level:
-            return self.relative(importer, level, module, names)
-        targets: set[str] = set()
-        for name in [module] + (
-            [f"{module}.{item}" for item in names] if names else []
-        ):
-            hits = self.modules.get(name, set())
-            if len(hits) > 1:
-                common = {
-                    hit: len(
-                        os.path.commonprefix([hit.split("/"), importer.split("/")])
-                    )
-                    for hit in hits
-                }
-                best = max(common.values())
-                hits = {hit for hit, size in common.items() if size == best}
-            targets |= hits
-        return targets
+                        self.graph[target].append((importer, line_at(lines, item.line)))
 
     def eligible(self) -> list[str]:
         return [
             path
             for path in self.python
-            if os.path.basename(path) != "__init__.py"
+            if os.path.basename(path) != modules.package_marker()
             and os.path.dirname(path)
             and os.path.dirname(path).split("/")[-1].lower() in KIND_FORMS
             and definitions(self.sources.get(path, ""), self.trees[path])
@@ -251,10 +183,10 @@ class TreeModel:
 
     def state(self, path: str) -> dict[str, Any]:
         source = self.sources.get(path, "")
-        tree = self.trees[path]
+        root = self.trees[path]
         symbols = [
             item["signature"] + (f"  # {item['doc']}" if item["doc"] else "")
-            for item in definitions(source, tree)[:MAX_SYMBOLS]
+            for item in definitions(source, root)[:MAX_SYMBOLS]
         ]
         folder = os.path.dirname(path)
         importers = sorted(
@@ -265,7 +197,7 @@ class TreeModel:
                 item[0],
             ),
         )[:MAX_IMPORTERS]
-        doc = (ast.get_docstring(tree) or "").strip()[:600] if tree is not None else ""
+        doc = python.body_docstring(root).strip()[:600] if root is not None else ""
         return {
             "file": {"path": path, "docstring": doc, "symbols": symbols},
             "folder": folder,
@@ -294,11 +226,11 @@ def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str
         for path in paths
         if path.endswith(".py") and entries[path].kind == "blob"
     ]
-    tree = dict.fromkeys(paths, "")
+    found = dict.fromkeys(paths, "")
     blobs = read_blobs(repo, sorted({oid for _, oid in want}))
     for path, oid in want:
-        tree[path] = blobs[oid].decode("utf-8", "replace")
-    return tree
+        found[path] = blobs[oid].decode("utf-8", "replace")
+    return found
 
 
 def exempt(path: str, config: dict[str, Any]) -> bool:

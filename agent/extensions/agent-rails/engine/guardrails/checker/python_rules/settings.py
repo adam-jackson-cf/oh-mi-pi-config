@@ -17,6 +17,8 @@ from guardrails.foundation.inventory import (
     normalized_path,
     repo_paths,
 )
+from guardrails.foundation.source.python import cpython_module
+from guardrails.foundation.source.tree import SourceError, read
 
 CHECKER = "python"
 BUNDLED_EXCLUSIONS = (
@@ -134,14 +136,10 @@ class Source:
 
 def read_source(repo: Path, relpath: str) -> Source:
     try:
-        text = (repo / relpath).read_text(encoding="utf-8")
-        return Source(relpath, text, ast.parse(text, filename=relpath))
-    except UnicodeDecodeError as error:
-        return Source(relpath, error=f"could not decode source: {error.reason}")
-    except SyntaxError as error:
-        return Source(
-            relpath, error=f"line {error.lineno or 1}: could not parse: {error.msg}"
-        )
+        text = read(repo, relpath)
+        return Source(relpath, text, cpython_module(relpath, text))
+    except SourceError as error:
+        return Source(relpath, error=str(error))
 
 
 def finding(

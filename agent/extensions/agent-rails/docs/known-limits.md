@@ -20,6 +20,12 @@ What the rails do not catch or measure today.
   as unreadable. tree-sitter also accepts a few Python errors CPython rejects (a repeated keyword
   argument); the parser adds CPython's argument-order check, which keeps the measured Python results
   identical on 57,016 definitions in 8 repositories.
+- tree-sitter-python in the pinned ast-grep-py 0.51.0 rejects Python 3.13 type-parameter defaults
+  (`class Box[T = int]:`, `def f[T = int]()`, `type X[T = int] = list[T]`). The engine reads Python
+  through tree-sitter, so such a file is unparseable: `CODE.no-comments`, `PYS000` from the
+  naming and layout checks, and `FANOUT.general` report it, and the prefix-folder, overlap and
+  candidate proposers skip it. The PYQ, PYS and `TEST.subprocess-timeouts` checks read CPython's
+  own tree (they compare `ast.unparse` text with configured annotations) and accept it.
 - The tree-sitter TSX and JavaScript grammars reject a bare `&` in JSX text
   (`<span>Findings & annotations</span>`), which React accepts. Such a file gets a blocking
   "cannot parse source" finding from the bun_test and vitest adapters and is unreadable to the

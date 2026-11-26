@@ -1,13 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import re
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import cache
 from itertools import combinations
-from os.path import commonprefix
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -40,7 +39,6 @@ SCRIPT_NAMED_TYPES = {
     "typescript": SCRIPT_CLASSES
     | {"abstract_class_declaration", "interface_declaration", "type_alias_declaration"},
 }
-Import = tuple[int, list[str], list[str]]
 
 
 MODIFIERS = frozenset({
@@ -68,7 +66,6 @@ MODIFIERS = frozenset({
 })
 BUNDLE_MANIFEST = "SKILL.md"
 MIN_PREFIX = 3
-PACKAGE_MARKER = "__init__.py"
 
 
 def singular(word: str) -> str:
@@ -122,7 +119,7 @@ def groups(
 ) -> list[dict[str, Any]]:
     siblings: dict[str, list[str]] = defaultdict(list)
     for path in owned(paths, language):
-        if PurePosixPath(path).name != PACKAGE_MARKER and not (
+        if PurePosixPath(path).name != modules.package_marker() and not (
             is_test_file(path, config) or is_test_path(path)
         ):
             siblings[PurePosixPath(path).parent.as_posix()].append(path)
@@ -170,11 +167,18 @@ def measured() -> list[str]:
     ]
 
 
-def parsed(path: str, source: str) -> tree.SgNode | None:
+def parsed(path: str, source: str | None) -> tree.SgNode | None:
+    """The tree of a member's source; a file that does not decode, parse, or (for Python)
+    hold docstrings CPython can read is skipped: it gives no import edges or words."""
+    if source is None:
+        return None
     try:
-        return tree.parse(path, source)
+        root = tree.parse(path, source)
+        if tree.language_of(path) == "python":
+            docstrings(root)
     except tree.SourceError:
         return None
+    return root
 
 
 def camel_words(name: str) -> list[str]:
@@ -198,15 +202,7 @@ def type_names(root: tree.SgNode, kinds: frozenset[str]) -> list[str]:
 
 
 def docstrings(root: tree.SgNode) -> list[str]:
-    bodies = [
-        root,
-        *(node.field("body") for node in tree.of_kinds(root, python.DOCUMENTED)),
-    ]
-    return [
-        str(ast.literal_eval(tree.named(statement)[0].text()))
-        for body in bodies
-        if body is not None and (statement := python.docstring(body)) is not None
-    ]
+    return [python.docstring_text(statement) for statement in python.docstrings(root)]
 
 
 def domain_words(path: str, root: tree.SgNode | None) -> set[str]:
@@ -223,26 +219,6 @@ def domain_words(path: str, root: tree.SgNode | None) -> set[str]:
     return words_of(comments, type_names(root, kinds))
 
 
-def imports(root: tree.SgNode) -> list[Import]:
-    found: list[Import] = []
-    for item in python.imports(root):
-        if item.statement == "import":
-            found.append((0, item.module.split("."), []))
-            continue
-        module = item.module.split(".") if item.module else []
-        found.append((item.level, module, [name for name in item.names if name != "*"]))
-    return found
-
-
-def folder(path: str) -> str:
-    parent = PurePosixPath(path).parent.as_posix()
-    return "" if parent == "." else parent
-
-
-def marker(directory: str) -> str:
-    return f"{directory}/__init__.py" if directory else "__init__.py"
-
-
 class Links:
     def __init__(self, edges: dict[str, set[str]]) -> None:
         self.edges = edges
@@ -252,85 +228,17 @@ class Links:
                 self.importers[target].add(source)
 
 
-class ImportGraph(Links):
-    def __init__(self, found: dict[str, list[Import] | None]) -> None:
-        self.files = set(found)
-        self.by_suffix: dict[tuple[str, ...], list[str]] = defaultdict(list)
-        for path in sorted(found):
-            parts = path[:-3].split("/")
-            if parts[-1] == "__init__":
-                parts = parts[:-1]
-            for index in range(len(parts)):
-                self.by_suffix[tuple(parts[index:])].append(path)
-        edges: dict[str, set[str]] = {}
-        for path in sorted(found):
-            listed = found[path]
-            if listed is None:
-                continue
-            targets: set[str] = set()
-            for level, module, names in listed:
-                targets.update(self.resolve(level, module, names, path))
-            edges[path] = targets - {path}
-        super().__init__(edges)
-
-    def top_level(self, path: str) -> bool:
-        package = PurePosixPath(path).name == "__init__.py"
-        directory = folder(folder(path)) if package else folder(path)
-        return marker(directory) not in self.files
-
-    def absolute(self, parts: list[str], importer: str) -> str | None:
-        found = self.by_suffix.get(tuple(parts), [])
-        if len(parts) == 1:
-            found = [
-                path
-                for path in found
-                if folder(path) == folder(importer) or self.top_level(path)
-            ]
-        if len(found) <= 1:
-            return found[0] if found else None
-        same = [path for path in found if folder(path) == folder(importer)]
-        if len(same) == 1:
-            return same[0]
-        return max(found, key=lambda path: (len(commonprefix([path, importer])), path))
-
-    def relative(
-        self, level: int, module: list[str], names: list[str], importer: str
-    ) -> list[str]:
-        base = folder(importer).split("/") if folder(importer) else []
-        if level - 1 > len(base):
-            return []
-        base = base[: len(base) - (level - 1)]
-
-        def find(parts: list[str]) -> str | None:
-            stem = "/".join(base + parts)
-            for candidate in (
-                stem + ".py",
-                (stem + "/" if stem else "") + "__init__.py",
-            ):
-                if candidate in self.files:
-                    return candidate
-            return None
-
-        found = [target for name in names if (target := find(module + [name]))]
-        owner = find(module) if module else None
-        return found + ([owner] if owner else [])
-
-    def resolve(
-        self, level: int, module: list[str], names: list[str], importer: str
-    ) -> list[str]:
-        if level:
-            return self.relative(level, module, names, importer)
-        found = [
+def python_links(trees: dict[str, tree.SgNode | None]) -> Links:
+    index = modules.PythonIndex(trees)
+    return Links({
+        path: {
             target
-            for name in names
-            if (target := self.absolute(module + [name], importer))
-        ]
-        for length in range(len(module), 0, -1):
-            target = self.absolute(module[:length], importer)
-            if target:
-                found.append(target)
-                break
-        return found
+            for item in python.imports(root)
+            for target in index.resolve(path, item)
+        }
+        for path, root in sorted(trees.items())
+        if root is not None
+    })
 
 
 def script_links(
@@ -416,7 +324,7 @@ def head_paths(
 
 def sources(
     repo: Path, paths: list[str], entries: dict[str, Any], language: str
-) -> dict[str, str]:
+) -> dict[str, str | None]:
     members = owned(paths, language)
     tracked = set(paths)
     configs = {
@@ -431,13 +339,18 @@ def sources(
         if entries[path].kind == "blob" and entries[path].mode != "120000"
     ]
     blobs = read_blobs(repo, sorted({entries[path].oid for path in files}))
-    texts = {}
+    texts: dict[str, str | None] = {}
     for path in files:
         data = blobs.get(entries[path].oid, b"")
-        texts[path] = (
-            data.decode("utf-8", "replace") if len(data) < MAX_SOURCE_BYTES else ""
-        )
+        texts[path] = decoded(path, data) if len(data) < MAX_SOURCE_BYTES else ""
     return texts
+
+
+def decoded(path: str, data: bytes) -> str | None:
+    try:
+        return tree.decode(path, data)
+    except tree.SourceError:
+        return None
 
 
 def history(repo: Path, head: str) -> list[set[str]]:
@@ -459,10 +372,10 @@ def history(repo: Path, head: str) -> list[set[str]]:
 
 
 def evidence_of(
-    language: str, texts: dict[str, str], commits: list[set[str]]
+    language: str, texts: Mapping[str, str | None], commits: list[set[str]]
 ) -> Evidence:
     configs = {
-        path: modules.tsconfig(path, text)
+        path: modules.tsconfig(path, text or "")
         for path, text in texts.items()
         if PurePosixPath(path).name == modules.TSCONFIG
     }
@@ -470,12 +383,7 @@ def evidence_of(
         path: parsed(path, text) for path, text in texts.items() if path not in configs
     }
     graph = (
-        ImportGraph({
-            path: None if root is None else imports(root)
-            for path, root in trees.items()
-        })
-        if language == "python"
-        else script_links(trees, configs)
+        python_links(trees) if language == "python" else script_links(trees, configs)
     )
     return Evidence(
         graph,

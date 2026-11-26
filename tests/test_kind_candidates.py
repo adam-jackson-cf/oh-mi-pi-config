@@ -87,17 +87,36 @@ class KindTreeTests(unittest.TestCase):
             "def one(a,\n        b) -> dict[str, int]:\n    '''\n\n    First line.\n"
             "    '''\n    return {}\ndef two(): return 1\n"
         )
-        assert kind_candidates.definitions(source, kind_candidates.parsed(source)) == [
+        root = kind_candidates.parsed("m.py", source)
+        assert kind_candidates.definitions(source, root) == [
             {"signature": "def one(a, b) -> dict[str, int]", "doc": "First line."},
             {"signature": "def two()", "doc": ""},
         ]
-        broken = "def f(): pass\nclass Broken(\n"
-        assert kind_candidates.definitions(broken, kind_candidates.parsed(broken)) == [
-            {"signature": "def f(): pass", "doc": ""},
-            {"signature": "class Broken(", "doc": ""},
-        ]
-        assert kind_candidates.imports_of(broken, None) == []
         assert kind_candidates.line_at(["a"], 5) == ""
+
+    def test_an_unparseable_file_is_skipped(self) -> None:
+        tree = {
+            "app/models/broken.py": "def f(): pass\nclass Broken(\n",
+            "app/models/escape.py": '"""\\x"""\ndef f(): pass\n',
+            "app/models/fine.py": "def g(): pass\n",
+            "app/views.py": "from app.models import broken, escape, fine\n",
+            "app/models/user.py": "import app.models.fine\nclass Broken(\n",
+        }
+        assert kind_candidates.parsed("x.py", tree["app/models/broken.py"]) is None
+        assert kind_candidates.parsed("x.py", tree["app/models/escape.py"]) is None
+        model = kind_candidates.model_of(tree)
+        assert model.eligible() == ["app/models/fine.py"]
+        assert dict(model.graph) == {
+            "app/models/broken.py": [
+                ("app/views.py", "from app.models import broken, escape, fine")
+            ],
+            "app/models/escape.py": [
+                ("app/views.py", "from app.models import broken, escape, fine")
+            ],
+            "app/models/fine.py": [
+                ("app/views.py", "from app.models import broken, escape, fine")
+            ],
+        }
 
     def test_imports_resolve_relative_levels_and_the_nearest_same_named_module(
         self,
@@ -116,9 +135,6 @@ class KindTreeTests(unittest.TestCase):
         }
         graph = kind_candidates.model_of(tree).graph
         assert dict(graph) == {
-            "app/util/__init__.py": [
-                ("app/models/deep/x.py", "from ...util import helpers")
-            ],
             "app/util/helpers.py": [
                 ("app/models/deep/x.py", "from ...util import helpers"),
                 ("app/views.py", "import app.util.helpers"),
@@ -165,7 +181,6 @@ class KindCandidatesCommandTests(unittest.TestCase):
             [
                 sys.executable,
                 "-I",
-                "-S",
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                 "from guardrails.commands.cli import main; raise SystemExit(main())",

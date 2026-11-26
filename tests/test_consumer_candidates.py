@@ -60,30 +60,47 @@ class ConsumerCandidateTests(unittest.TestCase):
 
 @pytest.mark.fast
 class ImportReadingTests(unittest.TestCase):
-    def test_unparseable_source_falls_back_to_import_lines(self) -> None:
-        source = "import a.b, c as d\nfrom ..x import (y, z as w)\ndef broken(:\n"
-        assert consumer_candidates.parse_imports(source) == [
-            ("a.b", [], 0, 1, "import a.b"),
-            ("c", [], 0, 1, "import c"),
-            ("x", ["y", "z"], 2, 2, "from ..x import (y, z as w)"),
+    def test_import_lines_keep_their_written_form(self) -> None:
+        source = "import a.b, c as d\nfrom ..x import (y, z as w)\n"
+        found = consumer_candidates.reading("m.py", source)
+        assert found is not None
+        assert [text for _, text in found.imports] == [
+            "import a.b",
+            "import c",
+            "from ..x import y, z",
         ]
+
+    def test_an_unparseable_file_is_skipped(self) -> None:
+        assert consumer_candidates.reading("m.py", "import a\ndef broken(:\n") is None
+        assert consumer_candidates.reading("m.py", "PATH = '\\x'\n") is None
+        assert consumer_candidates.reading("m.py", '"""\\x"""\n') is None
+        tree = {
+            "pkg/__init__.py": "",
+            "pkg/tool.py": "if __name__ == '__main__':\n    pass\n",
+            "pkg/broken.py": "import pkg.tool\nif __name__ == '__main__':\n    x(\n",
+        }
+        assert [path for path, _ in consumer_candidates.propose(tree)] == [
+            "pkg/tool.py"
+        ]
+        tree["pkg/__init__.py"] = '"""\\x"""\n'
+        (found,) = consumer_candidates.consumer_candidates(tree, {"pkg/tool.py"}, {})
+        assert found["state"]["package"] == {"name": "pkg"}
 
     def test_only_literal_import_module_calls_count_as_imports(self) -> None:
         source = (
-            "import importlib\nimportlib.import_module('.plugins')\n"
-            "__import__(name)\nimport_module()\nf()()\nprint('x')\n"
+            "import importlib\nfrom importlib import import_module as load\n"
+            "importlib.import_module('.plugins')\nload('pkg.extra')\n"
+            "__import__(name)\nimport_module()\nother.import_module('x')\n"
+            "f()()\nprint('x')\n"
         )
-        assert consumer_candidates.parse_imports(source) == [
-            ("importlib", [], 0, 1, "import importlib"),
-            ("plugins", [], 0, 2, "import_module('.plugins')"),
+        found = consumer_candidates.reading("m.py", source)
+        assert found is not None
+        assert [(item.module, item.level, text) for item, text in found.imports] == [
+            ("importlib", 0, "import importlib"),
+            ("importlib", 0, "from importlib import import_module"),
+            ("plugins", 1, "import_module('.plugins')"),
+            ("pkg.extra", 0, "load('pkg.extra')"),
         ]
-
-    def test_relative_imports_climb_one_folder_per_extra_dot(self) -> None:
-        assert consumer_candidates.resolve("a/b/c.py", "x", ["y", "*"], 2) == {
-            "a.x",
-            "a.x.y",
-        }
-        assert consumer_candidates.resolve("a/b/c.py", "", ["y"], 1) == {"a.b", "a.b.y"}
 
     def test_manifests_name_setup_pyproject_and_poetry_scripts(self) -> None:
         setup = "[options.entry_points]\nconsole_scripts =\n    tool = pkg.cli:main\n"
@@ -145,7 +162,6 @@ class ConsumerCandidatesCommandTests(unittest.TestCase):
             [
                 sys.executable,
                 "-I",
-                "-S",
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                 "from guardrails.commands.cli import main; raise SystemExit(main())",

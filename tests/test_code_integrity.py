@@ -249,6 +249,24 @@ class IntegrityCodeTests(IntegrityCase):
             ("CODE.no-comments", "frozen/case.py")
         ]
 
+    def test_relative_imports_of_a_module_named_mock_are_product_code(self) -> None:
+        findings = self.check({
+            "src/shop/mock.py": "def build():\n    return 1\n",
+            "src/shop/use.py": "from .mock import build\nfrom . import mock\n",
+            "src/shop/real.py": "from unittest import mock\n",
+        })
+        assert [(item.rule_id, item.path) for item in findings] == [
+            ("CODE.no-product-mocks", "src/shop/real.py")
+        ]
+
+    def test_a_byte_order_mark_does_not_make_python_unreadable(self) -> None:
+        assert self.check({"src/marked.py": "\N{BYTE ORDER MARK}x = 1\n"}) == []
+
+    def test_unparseable_python_is_one_finding_at_its_line(self) -> None:
+        (found,) = self.check({"src/broken.py": "x = 1\ndef f(:\n"})
+        assert (found.rule_id, found.path) == ("CODE.no-comments", "src/broken.py")
+        assert found.message.startswith("line 2: cannot parse src/broken.py as python")
+
     def test_mock_words_in_strings_and_comments_do_not_count_as_imports(self) -> None:
         findings = self.check({
             "src/a.ts": "const text = \"import sinon from 'sinon'; vi.mock('x')\";\n"

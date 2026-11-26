@@ -380,6 +380,55 @@ class SettingsTests(unittest.TestCase):
         assert {("FANOUT.general", "src/shop/hub.py")} == rules_at(findings)
         assert "shop.cli, shop.orders, shop.process" in findings[0].message
 
+    def test_fanout_counts_literal_dynamic_imports(self) -> None:
+        source = (
+            "import importlib\n\nimportlib.import_module('shop.orders')\n"
+            "__import__('shop.process')\nimportlib.import_module(name)\n"
+        )
+        repo = ShopRepo(
+            self, {"src/shop/hub.py": source}, {"fanout": {"architectural_max": 1}}
+        )
+        (found,) = repo.run("fanout")
+        assert "(shop.orders, shop.process)" in found.message
+
+    def test_fanout_reports_a_relative_import_above_the_top_package(self) -> None:
+        repo = ShopRepo(self, {"src/shop/hub.py": "from .. import orders\n"})
+        (found,) = repo.run("fanout")
+        assert found.path == "src/shop/hub.py"
+        assert "line 1: attempted relative import beyond top-level package" in (
+            found.message
+        )
+
+    def test_relative_imports_name_first_party_modules_not_the_stdlib(self) -> None:
+        files = {
+            "src/shop/subprocess.py": "def run(args):\n    return args\n",
+            "src/shop/sync.py": (
+                "from .subprocess import run\n\n\ndef sync():\n    return run(['x'])\n"
+            ),
+            "src/shop/direct.py": (
+                "from subprocess import run\n\n\ndef go():\n"
+                "    return run(['x'], check=False)\n"
+            ),
+            "src/shop/analysis/proc.py": (
+                "from ..subprocess import run\n\n\ndef scan():\n    return run(['ls'])\n"
+            ),
+        }
+        repo = ShopRepo(self, files)
+        quality_rules = rules_at(repo.run("quality"))
+        assert ("PYQ220", "src/shop/direct.py") in quality_rules
+        assert ("PYQ220", "src/shop/sync.py") not in quality_rules
+        assert ("PYS252", "src/shop/analysis/proc.py") not in rules_at(
+            repo.run("scalability")
+        )
+
+    def test_a_byte_order_mark_does_not_make_source_unreadable(self) -> None:
+        repo = ShopRepo(self, {"src/shop/marked.py": "\N{BYTE ORDER MARK}VALUE = 1\n"})
+        for checker in CHECKERS:
+            with self.subTest(checker=checker):
+                assert all(
+                    item.path != "src/shop/marked.py" for item in repo.run(checker)
+                )
+
     def test_fanout_root_packages_default_to_public_entry_point_packages(self) -> None:
         source = "import shop.orders\nimport shop.process\n"
         settings = {"fanout": {"architectural_max": 1}}

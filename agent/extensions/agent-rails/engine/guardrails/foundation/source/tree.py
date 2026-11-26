@@ -19,13 +19,16 @@ GRAMMARS = {
     ".cjs": "javascript",
 }
 EMPTY_TOKENS = frozenset({"raw_string_literal_content"})
+BYTE_ORDER_MARK = "\N{BYTE ORDER MARK}"
 KEYWORD_ARGUMENTS = frozenset({"keyword_argument"})
 
 Span = tuple[int, int]
 
 
 class SourceError(ValueError):
-    pass
+    def __init__(self, message: str, line: int | None = None) -> None:
+        super().__init__(message)
+        self.line = line
 
 
 @dataclass(frozen=True)
@@ -42,6 +45,14 @@ def structure_languages() -> dict[str, Any]:
         (DATA_FOLDER / "structure-languages.json").read_bytes()
     )
     return data
+
+
+@cache
+def language_pack(language: str) -> dict[str, Any]:
+    """The convention pack structure-languages.json names as a language's source."""
+    source = structure_languages()["languages"][language]["source"]
+    pack: dict[str, Any] = json.loads((DATA_FOLDER.parents[1] / source).read_bytes())
+    return pack
 
 
 def languages() -> dict[str, tuple[str, ...]]:
@@ -85,6 +96,23 @@ def grammar(path: str) -> str:
     return GRAMMARS.get(PurePosixPath(path).suffix, source_language(path))
 
 
+def decode(path: str, data: bytes) -> str:
+    """The source text of a file's bytes: UTF-8 with any leading byte-order mark removed,
+    as Python, TypeScript and Go compilers read it."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SourceError(
+            f"could not decode {path} as UTF-8: {error.reason}"
+        ) from error
+    return text.removeprefix(BYTE_ORDER_MARK)
+
+
+def read(folder: Path, path: str) -> str:
+    """The source text of the file at a path under a folder."""
+    return decode(path, (folder / path).read_bytes())
+
+
 def missing(node: SgNode) -> bool:
     return (
         node.parent() is not None and node.is_leaf() and node.kind() not in EMPTY_TOKENS
@@ -108,8 +136,9 @@ def parse(path: str, source: str) -> SgNode:
         or (argument_order_error(root) if language == "python" else None)
     )
     if broken is not None:
+        at = line(broken)
         raise SourceError(
-            f"cannot parse {path} as {language}: line {line(broken)} is not valid"
+            f"cannot parse {path} as {language}: line {at} is not valid", at
         )
     return root
 

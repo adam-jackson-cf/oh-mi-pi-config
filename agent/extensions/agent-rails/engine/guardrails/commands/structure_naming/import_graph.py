@@ -16,7 +16,7 @@ from guardrails.foundation.inventory import (
     repo_paths,
 )
 from guardrails.foundation.source import go, modules, python, typescript
-from guardrails.foundation.source.tree import SourceError, language_of, parse
+from guardrails.foundation.source.tree import SourceError, language_of, parse, read
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -91,10 +91,6 @@ def first(components: tuple[str, ...]) -> str | None:
     return components[0] if components else None
 
 
-def python_module(package: str, relative: PurePosixPath | None) -> str:
-    return ".".join([package, *relative.with_suffix("").parts]) if relative else package
-
-
 def python_components(module: str, package: str) -> tuple[str, ...]:
     return tuple(module.removeprefix(f"{package}.").split("."))
 
@@ -128,7 +124,7 @@ class Reader:
         return RepoFiles(self.repo)
 
     def text(self, path: str) -> str:
-        return (self.repo / path).read_bytes().decode()
+        return read(self.repo, path)
 
     def source(self, path: str) -> SgNode:
         return parse(path, self.text(path))
@@ -145,8 +141,14 @@ class Reader:
                 raise SourceError(f"{path}: {error}") from error
         return self.go_modules[path]
 
+    def python_module(self, path: str, package: str) -> modules.PythonModule:
+        relative = self.relative(path)
+        if relative is None:
+            return modules.PythonModule(package, is_package=False)
+        return modules.python_module(relative.as_posix(), package)
+
     def python_edges(self, path: str, package: str) -> list[Edge]:
-        module = python_module(package, self.relative(path))
+        module = self.python_module(path, package)
         edges = modules.python_edges(python.imports(self.source(path)), module, package)
         return [python_edge(edge, package) for edge in edges]
 
@@ -214,7 +216,7 @@ class Reader:
         if language == "python":
             if package is None:
                 return None
-            module = python_module(package, relative).removesuffix(".__init__")
+            module = modules.python_module(relative.as_posix(), package).name
             return Unit(("python", module), python_components(module, package), path)
         if language == "typescript":
             return Unit(("typescript", path), script_components(relative), path)

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import ast
-import io
 import re
-import tokenize
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from guardrails.context.changes import (
     Change,
@@ -22,6 +19,10 @@ from guardrails.context.config.adapter_declarations import tier_locations
 from guardrails.context.config.reader import checker_settings, tests_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.source import modules, python, tree
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 
 COMMENTS = "CODE.no-comments"
 PLACEHOLDERS = "CODE.no-placeholder-bodies"
@@ -113,6 +114,9 @@ SLASH = {
     ".prisma",
 }
 HTML = {".html", ".htm", ".xml", ".svg", ".md", ".markdown", ".mdx"}
+DECLARERS = frozenset({"typing", "typing_extensions", "abc"})
+CLASSES = frozenset({"class_definition"})
+FUNCTIONS = frozenset({"function_definition"})
 MOCK_MODULES = {
     "mock",
     "pytest_mock",
@@ -276,175 +280,147 @@ def is_test(path: str, config: dict[str, Any]) -> bool:
     return matches_any(path, locations)
 
 
-def add_comment_findings(
-    text: str, path: str, added: set[int], findings: list[Finding]
-) -> None:
-    for token in tokenize.generate_tokens(io.StringIO(text).readline):
-        if (
-            token.type == tokenize.COMMENT
-            and token.start[0] in added
-            and not DIRECTIVE.match(token.string[1:].strip())
-            and not (token.start[0] == 1 and token.string.startswith("#!"))
-        ):
-            findings.append(finding(COMMENTS, path, token.start[0], "added comment"))
+def added_lines(node: SgNode, added: set[int]) -> list[int]:
+    return sorted(added.intersection(python.statement_lines(node)))
 
 
-def declaration_names(tree: ast.Module) -> dict[str, str]:
+def comment_findings_of(root: SgNode, path: str, added: set[int]) -> list[Finding]:
+    return [
+        finding(COMMENTS, path, tree.line(node), "added comment")
+        for node in root.find_all(kind="comment")
+        if tree.line(node) in added
+        and not DIRECTIVE.match(node.text()[1:].strip())
+        and not (tree.line(node) == 1 and node.text().startswith("#!"))
+    ]
+
+
+def declaration_names(found: list[python.PythonImport]) -> dict[str, str]:
     names = {
         "Protocol": "Protocol",
         "abstractmethod": "abstractmethod",
         "overload": "overload",
     }
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module in {
-            "typing",
-            "typing_extensions",
-            "abc",
-        }:
-            names.update(
-                (alias.asname or alias.name, alias.name) for alias in node.names
-            )
+    for item in found:
+        if item.statement == "from" and not item.level and item.module in DECLARERS:
+            names.update(zip(item.bindings, item.names, strict=True))
     return names
 
 
-def protocol_members(tree: ast.Module, names: dict[str, str]) -> set[int]:
+def protocol_members(root: SgNode, names: dict[str, str]) -> set[int]:
     members: set[int] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and any(
-            (isinstance(base, ast.Name) and names.get(base.id) == "Protocol")
-            or (isinstance(base, ast.Attribute) and base.attr == "Protocol")
-            for base in node.bases
+    for node in tree.of_kinds(root, CLASSES):
+        bases = node.field("superclasses")
+        if bases is not None and any(
+            (base.kind() == "identifier" and names.get(base.text()) == "Protocol")
+            or (
+                base.kind() == "attribute"
+                and (attribute := base.field("attribute")) is not None
+                and attribute.text() == "Protocol"
+            )
+            for base in tree.named(bases)
         ):
-            members.update(id(child) for child in node.body)
+            members.update(
+                start(member) for member in python.members(node.field("body"))
+            )
     return members
 
 
-def docstring_findings(tree: ast.Module, path: str, added: set[int]) -> list[Finding]:
-    findings: list[Finding] = []
-    for node in ast.walk(tree):
-        if (
-            isinstance(
-                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-            )
-            and node.body
-        ):
-            first = node.body[0]
-            if (
-                isinstance(first, ast.Expr)
-                and isinstance(first.value, ast.Constant)
-                and isinstance(first.value.value, str)
-            ):
-                findings.extend(
-                    finding(COMMENTS, path, line, "added docstring")
-                    for line in sorted(
-                        added.intersection(
-                            range(first.lineno, (first.end_lineno or first.lineno) + 1)
-                        )
-                    )
-                )
-    return findings
+def start(node: SgNode) -> int:
+    return node.range().start.index
+
+
+def docstring_findings(root: SgNode, path: str, added: set[int]) -> list[Finding]:
+    return [
+        finding(COMMENTS, path, number, "added docstring")
+        for statement in python.docstrings(root)
+        for number in added_lines(statement, added)
+    ]
+
+
+def placeholder_statement(item: SgNode) -> bool:
+    kind = item.kind()
+    if kind == "pass_statement":
+        return True
+    values = tree.named(item)
+    if kind == "expression_statement":
+        return len(values) == 1 and values[0].kind() == "ellipsis"
+    if kind != "raise_statement" or not values:
+        return False
+    raised = values[0]
+    if raised.kind() == "call":
+        raised = raised.field("function") or raised
+    return raised.kind() == "identifier" and raised.text() == "NotImplementedError"
 
 
 def placeholder_finding(
-    node: ast.FunctionDef | ast.AsyncFunctionDef,
-    path: str,
-    added: set[int],
-    names: dict[str, str],
+    node: SgNode, path: str, added: set[int], names: dict[str, str]
 ) -> Finding | None:
     decorators = {
         names.get(name, name)
-        for item in node.decorator_list
-        for name in [ast.unparse(item).split("(")[0].split(".")[-1]]
+        for text in python.decorators(node)
+        for name in [text.split("(")[0].split(".")[-1].strip()]
     }
-    body = node.body
-    if (
-        body
-        and isinstance(body[0], ast.Expr)
-        and isinstance(body[0].value, ast.Constant)
-        and isinstance(body[0].value.value, str)
-    ):
-        body = body[1:]
-    if len(body) != 1 or decorators.intersection({"abstractmethod", "overload"}):
+    body = node.field("body")
+    statements = [] if body is None else tree.named(body)
+    if body is not None and python.docstring(body) is not None:
+        statements = statements[1:]
+    if len(statements) != 1 or decorators.intersection({"abstractmethod", "overload"}):
         return None
-    item = body[0]
-    placeholder = isinstance(item, ast.Pass) or (
-        isinstance(item, ast.Expr)
-        and isinstance(item.value, ast.Constant)
-        and item.value.value is Ellipsis
-    )
-    if isinstance(item, ast.Raise):
-        exc = item.exc.func if isinstance(item.exc, ast.Call) else item.exc
-        placeholder |= isinstance(exc, ast.Name) and exc.id == "NotImplementedError"
-    if placeholder and added.intersection(
-        range(item.lineno, (item.end_lineno or item.lineno) + 1)
-    ):
-        return finding(PLACEHOLDERS, path, item.lineno, "placeholder function body")
+    item = statements[0]
+    lines = added_lines(item, added)
+    if placeholder_statement(item) and lines:
+        return finding(PLACEHOLDERS, path, tree.line(item), "placeholder function body")
     return None
 
 
-def mock_import_finding(node: ast.AST, path: str) -> Finding | None:
-    names: list[str] = []
-    if isinstance(node, ast.Import):
-        names = [alias.name for alias in node.names]
-    elif isinstance(node, ast.ImportFrom):
-        names = [
-            node.module or "",
-            *(
-                (node.module + "." + alias.name) if node.module else alias.name
-                for alias in node.names
-            ),
-        ]
+def mock_import_finding(item: python.PythonImport, path: str) -> Finding | None:
+    if item.level:
+        return None
+    names = [item.module]
+    if item.statement == "from":
+        names.extend(f"{item.module}.{name}" for name in item.names)
     if any(
         name == module or name.startswith(module + ".")
         for name in names
         for module in MOCK_MODULES
     ):
-        return finding(
-            MOCKS,
-            path,
-            getattr(node, "lineno", 1),
-            "mock library imported in product code",
-        )
+        return finding(MOCKS, path, item.line, "mock library imported in product code")
     return None
 
 
 def python_findings(
     text: str, path: str, added: set[int], config: dict[str, Any]
 ) -> list[Finding]:
-    findings: list[Finding] = []
     try:
-        add_comment_findings(text, path, added, findings)
-        tree = ast.parse(text, filename=path)
-    except (SyntaxError, tokenize.TokenError, IndentationError) as error:
-        return [
-            *findings,
-            finding(
-                COMMENTS,
-                path,
-                getattr(error, "lineno", 1) or 1,
-                f"cannot tokenize/parse Python: {error}",
-            ),
-        ]
-    names = declaration_names(tree)
-    protocol_methods = protocol_members(tree, names)
-    findings.extend(docstring_findings(tree, path, added))
-    product = not is_test(path, config)
-    for node in ast.walk(tree):
-        lines = range(
-            getattr(node, "lineno", 0), (getattr(node, "end_lineno", 0) or 0) + 1
+        root = tree.parse(path, text)
+    except tree.SourceError as error:
+        return [finding(COMMENTS, path, error.line or 1, str(error))]
+    found_imports = python.imports(root)
+    names = declaration_names(found_imports)
+    protocol_methods = protocol_members(root, names)
+    findings = [
+        *comment_findings_of(root, path, added),
+        *docstring_findings(root, path, added),
+    ]
+    if not path.endswith(modules.stub_extension()):
+        for node in tree.of_kinds(root, FUNCTIONS):
+            if start(node) in protocol_methods:
+                continue
+            placeholder = placeholder_finding(node, path, added, names)
+            if placeholder is not None:
+                findings.append(placeholder)
+    if not is_test(path, config):
+        ends: dict[int, int] = {}
+        for node in tree.of_kinds(root, python.IMPORT_KINDS):
+            ends[tree.line(node)] = max(
+                ends.get(tree.line(node), 0), tree.end_line(node)
+            )
+        findings.extend(
+            mock
+            for item in found_imports
+            if added.intersection(range(item.line, ends[item.line] + 1))
+            and (mock := mock_import_finding(item, path)) is not None
         )
-        if not added.intersection(lines):
-            continue
-        found = []
-        if (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and not path.endswith(".pyi")
-            and id(node) not in protocol_methods
-        ):
-            found.append(placeholder_finding(node, path, added, names))
-        if product:
-            found.append(mock_import_finding(node, path))
-        findings.extend(item for item in found if item is not None)
     return findings
 
 
@@ -453,7 +429,7 @@ def inspect(
 ) -> list[Finding]:
     if not added:
         return []
-    if path.endswith((".py", ".pyi")):
+    if tree.language_of(path) == "python":
         return python_findings(text, path, added, config)
     comments, code = lex(text, path)
     findings = comment_findings(comments, path, added - parser_directives(text, path))

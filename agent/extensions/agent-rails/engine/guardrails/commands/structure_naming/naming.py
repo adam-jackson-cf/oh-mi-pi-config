@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import re
 from collections.abc import Set
 from pathlib import Path, PurePosixPath
@@ -20,6 +19,7 @@ from guardrails.foundation.inventory import (
     normalized_path,
     path_prefixes,
 )
+from guardrails.foundation.source import python, tree
 
 CONVENTIONS = "NAME.conventions"
 TEST_FILES = "NAME.test-files"
@@ -194,12 +194,11 @@ def test_file_findings(path: str, config: dict[str, Any]) -> list[Finding]:
 def symbol_findings(repo: Path, path: str, options: dict[str, Any]) -> list[Finding]:
     if conventions.for_path(path)["name"] != "python":
         return []
-    source = repo / path
-    if not source.is_file():
+    if not (repo / path).is_file():
         return []
     try:
-        tree = ast.parse(source.read_bytes(), filename=path)
-    except (OSError, SyntaxError, ValueError) as error:
+        root = tree.parse(path, tree.read(repo, path))
+    except (OSError, tree.SourceError) as error:
         return [
             Finding(
                 "PYS000",
@@ -211,21 +210,22 @@ def symbol_findings(repo: Path, path: str, options: dict[str, Any]) -> list[Find
     rules = conventions.load_pack("python")
     allowed = set(as_list(options.get("symbol_exceptions", {}).get(path)))
     found = []
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            continue
-        if node.name in allowed or any(
-            re.fullmatch(p, node.name) for p in rules["framework_symbols"]
+    for node in tree.of_kinds(root, python.DOCUMENTED):
+        name = python.name_of(node)
+        if (
+            not name
+            or name in allowed
+            or any(re.fullmatch(p, name) for p in rules["framework_symbols"])
         ):
             continue
         casings = (
-            rules["class"] if isinstance(node, ast.ClassDef) else rules["function"]
+            rules["class"] if node.kind() == "class_definition" else rules["function"]
         )
-        if not house_style.matches_casing(node.name, casings):
+        if not house_style.matches_casing(name, casings):
             found.append(
                 convention(
                     path,
-                    f"line {node.lineno}: symbol '{node.name}' is not {casing_label(casings)}",
+                    f"line {tree.line(node)}: symbol '{name}' is not {casing_label(casings)}",
                     "use PascalCase classes and snake_case functions",
                 )
             )

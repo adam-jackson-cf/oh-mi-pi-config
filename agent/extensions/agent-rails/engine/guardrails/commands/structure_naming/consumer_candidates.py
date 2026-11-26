@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import re
 import tomllib
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from guardrails.commands.structure_naming.scan_scope import (
     is_test_path,
@@ -22,6 +22,10 @@ from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.source import modules, python, tree
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.consumer-candidates"
@@ -73,10 +77,8 @@ UI_APP_MARKERS = frozenset({"dash", "gradio", "rich_live", "streamlit", "textual
 MANIFESTS = frozenset({"pyproject.toml", "setup.cfg", "setup.py"})
 MAX_SOURCE_BYTES = 1_500_000
 STATE_LINES = 60
-REGEX_IMPORT = re.compile(
-    r"^\s*(from\s+(\.*)([\w.]*)\s+import\s+([\w, ()*]+)|import\s+([\w., ]+))", re.M
-)
-Import = tuple[str, list[str], int, int, str]
+STRING_KINDS = frozenset({"string", "concatenated_string"})
+Import = tuple[python.PythonImport, str]
 
 
 def parent(path: str) -> str:
@@ -101,7 +103,7 @@ def excluded(path: str, tree: dict[str, str]) -> bool:
 
 
 def has_init(tree: dict[str, str], folder: str) -> bool:
-    return bool(folder) and join(folder, "__init__.py") in tree
+    return bool(folder) and join(folder, modules.package_marker()) in tree
 
 
 def package_dirs(tree: dict[str, str], path: str) -> tuple[str | None, str | None]:
@@ -119,186 +121,102 @@ def package_dirs(tree: dict[str, str], path: str) -> tuple[str | None, str | Non
     return nearest, top
 
 
-def module_names(tree: dict[str, str], path: str) -> set[str]:
-    stem = path[:-3]
-    if stem == "__init__" or stem.endswith("/__init__"):
-        stem = stem[:-9]
-    names = {stem.replace("/", ".")}
-    if has_init(tree, parent(path)):
-        top = parent(path)
-        while has_init(tree, parent(top)):
-            top = parent(top)
-        base = parent(top)
-        names.add((stem[len(base) + 1 :] if base else stem).replace("/", "."))
-    return {name for name in names if name}
+def import_text(item: python.PythonImport) -> str:
+    if item.statement == "import":
+        return f"import {item.module}"
+    return f"from {'.' * item.level}{item.module} import {', '.join(item.names)}"
 
 
-def regex_imports(source: str) -> list[Import]:
-    found: list[Import] = []
-    for match in REGEX_IMPORT.finditer(source):
-        line = source[: match.start()].count("\n") + 1
-        if match.group(5):
-            for name in match.group(5).split(","):
-                bare = name.strip().split(" as ")[0].strip()
-                if bare:
-                    found.append((bare, [], 0, line, "import " + bare))
+def parse_imports(root: SgNode) -> list[Import]:
+    found = [(item, import_text(item)) for item in python.imports(root)]
+    found.extend(
+        (item, f"{callee.rpartition('.')[2]}({'.' * item.level + item.module!r})")
+        for callee, item in python.dynamic_imports(root)
+    )
+    return sorted(found, key=lambda entry: entry[0].line)
+
+
+def string_literals(root: SgNode) -> list[str]:
+    """The path-like and dotted string literals of a file, docstrings excepted."""
+    docs = {
+        tree.named(statement)[0].range().start.index
+        for statement in python.docstrings(root)
+    }
+    found = []
+    for node in tree.of_kinds(root, STRING_KINDS):
+        parent_node = node.parent()
+        if (
+            (parent_node is not None and parent_node.kind() in STRING_KINDS)
+            or node.range().start.index in docs
+            or not python.text_literal(node)
+        ):
             continue
-        names = [
-            item.strip().split(" as ")[0]
-            for item in match.group(4).strip("() ").split(",")
-            if item.strip()
-        ]
-        found.append((
-            match.group(3),
-            names,
-            len(match.group(2)),
-            line,
-            match.group(0).strip(),
-        ))
+        value = str(python.literal_value(node.text())).strip()
+        if value.endswith(".py") or DOTTED.match(value):
+            found.append(value)
     return found
 
 
-def dynamic_import(node: ast.Call) -> Import | None:
-    function = node.func
-    name = (
-        function.attr
-        if isinstance(function, ast.Attribute)
-        else function.id
-        if isinstance(function, ast.Name)
-        else ""
-    )
-    if name not in {"import_module", "__import__"} or not node.args:
-        return None
-    target = node.args[0]
-    if not isinstance(target, ast.Constant) or not isinstance(target.value, str):
-        return None
-    return (target.value.lstrip("."), [], 0, node.lineno, f"{name}({target.value!r})")
+@dataclass(frozen=True)
+class Reading:
+    imports: list[Import]
+    literals: list[str]
+    docstring: str
 
 
-def parse_imports(source: str) -> list[Import]:
+def reading(path: str, source: str) -> Reading | None:
+    """The syntax a proposer reads from a Python file. An unparseable file (tree-sitter
+    rejects it, or CPython rejects one of its string literals or its docstring) is
+    skipped: it is no candidate, imports nothing and names no path."""
     try:
-        tree = ast.parse(source)
-    except (SyntaxError, ValueError):
-        return regex_imports(source)
-    found: list[Import] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            found.extend(
-                (alias.name, [], 0, node.lineno, "import " + alias.name)
-                for alias in node.names
-            )
-        elif isinstance(node, ast.ImportFrom):
-            names = [alias.name for alias in node.names]
-            text = (
-                f"from {'.' * node.level}{node.module or ''} import {', '.join(names)}"
-            )
-            found.append((node.module or "", names, node.level, node.lineno, text))
-        elif isinstance(node, ast.Call) and (dynamic := dynamic_import(node)):
-            found.append(dynamic)
-    return sorted(found, key=lambda item: item[3])
+        root = tree.parse(path, source)
+        return Reading(
+            parse_imports(root), string_literals(root), python.body_docstring(root)
+        )
+    except tree.SourceError:
+        return None
 
 
-def resolve(importer: str, module: str, names: list[str], level: int) -> set[str]:
-    if level:
-        base = parent(importer)
-        for _ in range(level - 1):
-            base = parent(base)
-        module = ".".join(part for part in (base.replace("/", "."), module) if part)
-    found = {module} if module else set()
-    found.update(
-        f"{module}.{name}" if module else name for name in names if name != "*"
-    )
-    return found
+def readings(files: dict[str, str]) -> dict[str, Reading]:
+    return {
+        path: found
+        for path, text in files.items()
+        if path.endswith(".py") and (found := reading(path, text)) is not None
+    }
 
 
 class ImportIndex:
-    def __init__(self, tree: dict[str, str]) -> None:
+    def __init__(self, tree: dict[str, str], read: dict[str, Reading]) -> None:
         self.tree = tree
-        python = [path for path in tree if path.endswith(".py")]
-        self.by_name: dict[str, set[str]] = {}
-        for path in python:
-            for name in module_names(tree, path):
-                self.by_name.setdefault(name, set()).add(path)
-        self.roots = {
-            parent(top) for path in python if (top := package_dirs(tree, path)[1])
-        }
-        self.raw: dict[str, list[Import]] = {}
+        self.index = modules.PythonIndex(path for path in tree if path.endswith(".py"))
+        self.raw = {path: found.imports for path, found in read.items()}
         self.imported_by: dict[str, set[str]] = {}
-        for path in python:
-            self.raw[path] = parse_imports(tree[path])
-            for target in self.targets(path) - {path}:
-                self.imported_by.setdefault(target, set()).add(path)
+        for path, found in self.raw.items():
+            for item, _ in found:
+                for target in self.index.resolve(path, item):
+                    self.imported_by.setdefault(target, set()).add(path)
 
-    def targets(self, path: str) -> set[str]:
-        hits: set[str] = set()
-        folder = parent(path)
-        for module, names, level, _, _ in self.raw[path]:
-            for name in resolve(path, module, names, level):
-                hits |= self.by_name.get(name, set())
-                if not level:
-                    hits |= self.file_hits(name.replace(".", "/"), folder)
-        return hits
-
-    def file_hits(self, relative: str, folder: str) -> set[str]:
-        hits = set()
-        for root in {folder, "", "src"} | self.roots:
-            full = join(root, relative)
-            for candidate in (full + ".py", full + "/__init__.py"):
-                if candidate in self.tree:
-                    hits.add(candidate)
-        return hits
+    def module_names(self, path: str) -> list[str]:
+        return self.index.names.get(path, [])
 
 
 DOTTED = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$")
 
 
-def docstring_nodes(tree: ast.Module) -> set[int]:
-    found = set()
-    for node in ast.walk(tree):
-        if isinstance(
-            node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
-        ):
-            body = node.body
-            if (
-                body
-                and isinstance(body[0], ast.Expr)
-                and isinstance(body[0].value, ast.Constant)
-            ):
-                found.add(id(body[0].value))
-    return found
-
-
-def string_literals(source: str) -> list[str]:
-    try:
-        tree = ast.parse(source)
-    except (SyntaxError, ValueError):
-        return []
-    docs = docstring_nodes(tree)
-    return [
-        node.value.strip()
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and id(node) not in docs
-        and (node.value.strip().endswith(".py") or DOTTED.match(node.value.strip()))
-    ]
-
-
 class PathReferences:
-    def __init__(self, tree: dict[str, str]) -> None:
-        self.tree = tree
+    def __init__(self, index: ImportIndex, read: dict[str, Reading]) -> None:
+        self.index = index
         self.literals = {
-            path: found
-            for path in tree
-            if path.endswith(".py")
-            and not is_test_path(path)
-            and (found := string_literals(tree[path]))
+            path: found.literals
+            for path, found in read.items()
+            if not is_test_path(path) and found.literals
         }
 
     def referenced(self, path: str) -> bool:
+        tree = self.index.tree
         name = PurePosixPath(path).name
-        top = package_dirs(self.tree, path)[1] or parent(path)
-        dotted = module_names(self.tree, path)
+        top = package_dirs(tree, path)[1] or parent(path)
+        dotted = set(self.index.module_names(path))
         for source, literals in self.literals.items():
             if source == path:
                 continue
@@ -366,16 +284,16 @@ def features(
     tree = index.tree
     nearest, top = package_dirs(tree, path)
     top_name = PurePosixPath(top).name if top else None
-    imports = index.raw.get(path) or parse_imports(tree[path])
+    imports = index.raw[path]
     own = [
         text
-        for module, _, level, _, text in imports
-        if level or (top_name and (module.split(".")[0] if module else "") == top_name)
+        for item, text in imports
+        if item.level or (top_name and item.module.split(".")[0] == top_name)
     ]
     ui = sorted({
-        module.split(".")[0]
-        for module, _, level, _, _ in imports
-        if not level and module and module.split(".")[0] in UI_LIBRARIES
+        item.module.split(".")[0]
+        for item, _ in imports
+        if not item.level and item.module.split(".")[0] in UI_LIBRARIES
     })
     markers = run_markers(tree[path])
     name = PurePosixPath(path).name
@@ -389,11 +307,11 @@ def features(
         "ui_libs": ui,
         "ui_app_marker": any(marker in UI_APP_MARKERS for marker in markers),
         "in_project_scripts": any(
-            scripts.get(module) for module in module_names(tree, path)
+            scripts.get(module) for module in index.module_names(path)
         ),
         "dunder_main": name == "__main__.py",
         "test_path": is_test_path(path),
-        "imports": [item[4] for item in imports],
+        "imports": [text for _, text in imports],
     }
 
 
@@ -411,19 +329,16 @@ def proposer_score(found: dict[str, Any]) -> float:
 
 
 def candidate_path(tree: dict[str, str], path: str) -> bool:
-    if not path.endswith(".py") or PurePosixPath(path).name == "__init__.py":
+    if not path.endswith(".py") or PurePosixPath(path).name == modules.package_marker():
         return False
     if excluded(path, tree) or path.split("/")[0] in ROOT_NON_PACKAGE:
         return False
     return bool(package_dirs(tree, path)[0])
 
 
-def docstring_line(source: str) -> str:
-    try:
-        doc = ast.get_docstring(ast.parse(source))
-    except (SyntaxError, ValueError):
-        doc = None
-    return (doc or "").strip().split("\n")[0].strip()
+def docstring_line(found: Reading | None) -> str:
+    doc = "" if found is None else found.docstring
+    return doc.strip().split("\n")[0].strip()
 
 
 def consumer_state(
@@ -431,7 +346,7 @@ def consumer_state(
 ) -> dict[str, Any]:
     package: dict[str, str] = {"name": found["package_name"] or "(none)"}
     init = found["package_init"]
-    description = docstring_line(tree.get(init, "")) if init else ""
+    description = docstring_line(reading(init, tree.get(init, ""))) if init else ""
     if description:
         package["description"] = description
     return {
@@ -454,12 +369,13 @@ def unused(facts: dict[str, Any]) -> bool:
 
 
 def propose(tree: dict[str, str]) -> list[tuple[str, dict[str, Any]]]:
-    index = ImportIndex(tree)
+    read = readings(tree)
+    index = ImportIndex(tree, read)
     scripts = project_scripts(tree)
-    references = PathReferences(tree)
+    references = PathReferences(index, read)
     found = []
     for path in sorted(tree):
-        if not candidate_path(tree, path):
+        if path not in read or not candidate_path(tree, path):
             continue
         facts = features(index, path, scripts)
         facts["referenced_by_path"] = references.referenced(path)
