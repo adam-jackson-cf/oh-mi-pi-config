@@ -419,6 +419,16 @@ class PrefixFolderCommandTests(unittest.TestCase):
             }
         ]
 
+    def test_go_has_no_candidates_because_the_rule_does_not_apply_to_it(self) -> None:
+        head_files = {
+            "svc/order_store.go": "package svc\n\nfunc Save() {}\n",
+            "svc/order_view.go": "package svc\n\nfunc Show() { Save() }\n",
+        }
+        repo, _, head = self.repository({"head": head_files})
+        assert prefix_folder.cluster_candidates(repo, head, "go", {}) == []
+        with pytest.raises(ValueError, match="no definition for shell"):
+            prefix_folder.cluster_candidates(repo, head, "shell", {})
+
     def test_unreadable_commits_are_a_finding(self) -> None:
         repo, base, _ = self.repository(FIXTURE["cases"][0])
         (finding,) = prefix_folder.run(repo, {}, ["--base", base, "--head", "missing"])

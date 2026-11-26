@@ -38,7 +38,7 @@
       },
       "typescript": {
         "module": "the file",
-        "edges": "static import and export-from specifiers, import() and require() with a string literal; relative specifiers resolve against the importer's folder, then tsconfig compilerOptions.paths and baseUrl from the nearest tsconfig.json; a specifier tries the file, the TypeScript source for a .js specifier, the listed extensions and index files; bare package specifiers are third-party and ignored; type-only imports count",
+        "edges": "static import and export-from specifiers, import() and require() with a string literal or a template literal without substitutions; relative specifiers resolve against the importer's folder, then tsconfig compilerOptions.paths and baseUrl from the nearest tsconfig.json; a specifier tries the file, the TypeScript source for a .js specifier, the listed extensions and index files; bare package specifiers are third-party and ignored; type-only imports count",
         "source": "https://www.typescriptlang.org/docs/handbook/modules/reference.html#module-resolution"
       },
       "go": {

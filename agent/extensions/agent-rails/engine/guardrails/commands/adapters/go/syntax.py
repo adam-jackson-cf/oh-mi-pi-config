@@ -20,12 +20,6 @@ VERSION_ELEMENT = re.compile(r"^v\d+$")
 WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
 
 
-def parse(text: str) -> SgNode:
-    from ast_grep_py import SgRoot
-
-    return SgRoot(text, "go").root()
-
-
 def walk(node: SgNode) -> Iterator[SgNode]:
     yield node
     for item in named(node):

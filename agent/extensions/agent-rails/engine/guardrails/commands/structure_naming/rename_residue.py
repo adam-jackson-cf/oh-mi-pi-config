@@ -7,12 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming import typescript
 from guardrails.context.changes import DiffError, git, git_bytes
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
-from guardrails.foundation.source import go
+from guardrails.foundation.source import go, typescript
 from guardrails.foundation.source.tree import (
     SourceError,
     grammar,

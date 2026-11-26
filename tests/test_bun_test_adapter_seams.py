@@ -26,6 +26,7 @@ from guardrails.commands.adapters.bun_test.dialect import (
     guard_evidence,
     junit_arguments,
 )
+from guardrails.commands.adapters.bun_test.lint import lint as bun_lint
 from guardrails.commands.adapters.conformance import load_cases
 from guardrails.commands.test_evidence import propagation
 from guardrails.test_report.collect_list import read_ids
@@ -69,6 +70,46 @@ def run_tier(repo: Path, report: Path, tier: str, *selector: str) -> int:
         timeout=300,
         check=False,
     ).returncode
+
+
+class BunSourceLintTests(unittest.TestCase):
+    def test_jsx_in_js_tests_parses_and_required_owned_modules_are_owned(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = bun_repository(
+                Path(scratch),
+                {
+                    "shop/core.js": "exports.checkout = () => 1;\n",
+                    "tests/app.test.js": (
+                        "import { mock, test, expect } from 'bun:test';\n"
+                        "const core = require('../shop/core');\n"
+                        "mock.module('../shop/core', () => ({}));\n"
+                        "core.checkout = () => 2;\n"
+                        "test('renders', () => { expect(<p>{core.checkout()}</p>).toBeTruthy(); });\n"
+                    ),
+                },
+            )
+            run_text(["git", "init", "-q", str(repo)], check=True, timeout=60)
+            repo_config = {
+                "tests": {
+                    "public_entry_points": {"shop/core.js": ["checkout"]},
+                    "adapters": [
+                        {"name": "bun_test", "tiers": {"t1": {"location": "tests"}}}
+                    ],
+                }
+            }
+            found = bun_lint(repo, repo_config, [])
+            assert [(item.rule_id, item.message) for item in found] == [
+                (
+                    "TEST.no-self-mocking",
+                    "line 3: owned code is mocked: ../shop/core",
+                ),
+                (
+                    "TEST.no-self-mocking",
+                    "line 4: owned import is replaced: ../shop/core.checkout",
+                ),
+            ]
 
 
 class BunRunTests(unittest.TestCase):

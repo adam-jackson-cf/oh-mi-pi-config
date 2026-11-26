@@ -20,6 +20,11 @@ What the rails do not catch or measure today.
   as unreadable. tree-sitter also accepts a few Python errors CPython rejects (a repeated keyword
   argument); the parser adds CPython's argument-order check, which keeps the measured Python results
   identical on 57,016 definitions in 8 repositories.
+- The tree-sitter TSX and JavaScript grammars reject a bare `&` in JSX text
+  (`<span>Findings & annotations</span>`), which React accepts. Such a file gets a blocking
+  "cannot parse source" finding from the bun_test and vitest adapters and is unreadable to the
+  structure rules. ast-grep-py 0.51.3, the newest release on 2026-11-26, still rejects it; the engine
+  pins 0.51.0. Writing `&amp;` or `{"&"}` avoids it.
 - The structure-naming candidate proposers (`kind-candidates`, `consumer-candidates`, `name-pairs`)
   propose Python only: their judgments were measured on Python cases.
 - `structure-naming/same_thing` judges only the name pairs `name-pairs` proposes (alias, head noun,

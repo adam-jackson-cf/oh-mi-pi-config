@@ -4,8 +4,7 @@ import re
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from guardrails.commands.structure_naming import typescript
-from guardrails.foundation.source import go, python
+from guardrails.foundation.source import go, python, typescript
 from guardrails.foundation.source.tree import (
     Definition,
     Span,

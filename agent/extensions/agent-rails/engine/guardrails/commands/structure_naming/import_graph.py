@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming import typescript
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import structure_settings
 from guardrails.foundation.findings import Finding
@@ -16,7 +15,7 @@ from guardrails.foundation.inventory import (
     matches_any,
     repo_paths,
 )
-from guardrails.foundation.source import go, modules, python
+from guardrails.foundation.source import go, modules, python, typescript
 from guardrails.foundation.source.tree import SourceError, language_of, parse
 
 if TYPE_CHECKING:

@@ -18,10 +18,11 @@ from guardrails.checker.growth import Snapshot, growth_findings
 from guardrails.commands.adapters.go.cases import collect
 from guardrails.commands.adapters.go.mutation import normalise
 from guardrails.commands.adapters.go.packages import build_arguments
-from guardrails.commands.adapters.go.syntax import imports, parse
+from guardrails.commands.adapters.go.syntax import imports
 from guardrails.commands.adapters.go.tiers import flag_value, listed_names, top_level
 from guardrails.commands.adapters.go.toolchain import package_patterns
 from guardrails.context.config.adapter_declarations import installed
+from guardrails.foundation.source import tree
 
 pytestmark = pytest.mark.fast
 
@@ -44,7 +45,7 @@ def stream(*lines: str) -> str:
 
 
 def source(path: str, text: str) -> go_lint.Source:
-    root = parse(text)
+    root = tree.tolerant_tree(text, "go")
     return go_lint.Source(path, root, imports(root))
 
 

@@ -8,15 +8,12 @@ from typing import TYPE_CHECKING, Any
 from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
-from guardrails.commands.adapters.pytest.syntax import (
-    import_map,
-    pattern_root,
-    string_value,
-)
+from guardrails.commands.adapters.pytest.syntax import import_map, string_value
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import tests_settings
 from guardrails.context.config.suite_files import Suite, adapter_suite, in_suite
 from guardrails.foundation.findings import Finding, Remediation, remediation
+from guardrails.foundation.source.tree import tolerant_tree
 
 if TYPE_CHECKING:
     from guardrails.foundation.source.tree import Config, SgNode
@@ -167,8 +164,8 @@ def file_findings(
     path: str, source: str, patterns: list[Pattern], owned: frozenset[str]
 ) -> list[Finding]:
     roots = {
-        False: pattern_root(source),
-        True: pattern_root(inline_bindings(source, "python")),
+        False: tolerant_tree(source, "python"),
+        True: tolerant_tree(inline_bindings(source, "python"), "python"),
     }
     imports = import_map(path, source)
     findings: list[Finding] = []

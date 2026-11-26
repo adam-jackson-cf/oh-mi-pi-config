@@ -11,7 +11,6 @@ from os.path import commonprefix
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure_naming import typescript
 from guardrails.commands.structure_naming.scan_scope import (
     is_test_path,
     is_vendored_path,
@@ -28,7 +27,7 @@ from guardrails.context.config.reader import checker_settings
 from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
-from guardrails.foundation.source import modules, python, tree
+from guardrails.foundation.source import modules, python, tree, typescript
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.prefix-folder"
@@ -502,6 +501,12 @@ def clusters(
 def cluster_candidates(
     repo: Path, head: str, language: str, config: dict[str, Any]
 ) -> list[dict[str, Any]]:
+    """Every prefix cluster of a language with its pair features; none for a language
+    structure-languages.json lists the rule as not applying to."""
+    if language in tree.not_applicable(RULE):
+        return []
+    if language not in contracts():
+        raise ValueError(f"{RULE} has no definition for {language}")
     paths, entries = head_paths(repo, head, excluded_paths(config))
     evidence = evidence_of(
         language, sources(repo, paths, entries, language), history(repo, head)

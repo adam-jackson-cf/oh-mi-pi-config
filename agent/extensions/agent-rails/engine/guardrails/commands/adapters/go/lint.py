@@ -17,7 +17,6 @@ from guardrails.commands.adapters.go.syntax import (
     first_parameter,
     go_files,
     imports,
-    parse,
     string_value,
     test_functions,
     walk,
@@ -312,7 +311,9 @@ def marker_reads(source: Source) -> list[tuple[SgNode, str]]:
             "production code reads a test marker from the environment or test flags "
             f"({snippet(node)})",
         )
-        for node in walk(parse(inline_bindings(source.root.text(), "go")))
+        for node in walk(
+            tree.tolerant_tree(inline_bindings(source.root.text(), "go"), "go")
+        )
         if (value := string_value(node)) is not None
         and MARKER.match(value)
         and marker_read(node, source)

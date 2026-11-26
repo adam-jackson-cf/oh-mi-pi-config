@@ -333,9 +333,3 @@ def import_map(path: str, source: str) -> dict[str, str]:
         for local, target, _ in import_aliases(statement)
         if not target.startswith(".")
     }
-
-
-def pattern_root(source: str) -> SgNode:
-    from ast_grep_py import SgRoot
-
-    return SgRoot(source, "python").root()

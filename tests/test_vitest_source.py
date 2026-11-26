@@ -39,12 +39,21 @@ def ownership(
     sources: dict[str, str] | None = None, roots: tuple[str, ...] = ROOTS
 ) -> lint.Owned:
     files = sources or {}
-    return lint.Owned(roots, ScriptResolver(set(files), files.__getitem__))
+    return lint.Owned(roots, {}, ScriptResolver(set(files), files.__getitem__))
 
 
-def hooks(sources: dict[str, str]) -> list[Finding]:
+SHOP = {"shop/core.ts": "export function checkout() {} export class Basket {}"}
+SHOP_API = {
+    "shop/core.ts": "export function checkout() {} export function inspect() {}"
+}
+
+
+def hooks(files: dict[str, str]) -> list[Finding]:
+    sources = {
+        path: text for path, text in files.items() if path.endswith(cases.SUFFIXES)
+    }
     return lint.hook_findings(
-        sources, REPO_CONFIG, {"shop/core.ts"}, ownership(sources), "vitest"
+        sources, REPO_CONFIG, {"shop/core.ts"}, ownership(files), "vitest"
     )
 
 
@@ -59,7 +68,7 @@ def findings(
         if rule.scope
         == ("tests" if lint.is_test(path, repo_config, "vitest") else "production")
     ]
-    return lint.file_findings(path, source, rules, ownership(), VITEST)
+    return lint.file_findings(path, source, rules, ownership(SHOP), VITEST)
 
 
 class StaticCases(unittest.TestCase):
@@ -427,10 +436,150 @@ class SourceLint(unittest.TestCase):
             "tests/case.test.ts",
             "import * as core from '../src/core'; core.run = replacement;",
             rules,
-            ownership(roots=(".", "owned-app")),
+            ownership({"src/core.ts": "export let run = 1"}, (".", "owned-app")),
             VITEST,
         )
         assert [item.rule_id for item in owned] == ["TEST.no-self-mocking"]
+
+
+class ImportFormTests(unittest.TestCase):
+    """Every import form the shared TypeScript reader sees reaches the adapter."""
+
+    def test_require_dynamic_import_and_import_equals_uses_are_test_only(self) -> None:
+        for test in [
+            "const { inspect } = require('../shop/core'); inspect();",
+            "const core = require('../shop/core'); core.inspect();",
+            "const view = require('../shop/core').inspect; view();",
+            "const { inspect } = await import('../shop/core'); inspect();",
+            "import core = require('../shop/core'); core.inspect();",
+        ]:
+            with self.subTest(test=test):
+                found = hooks({**SHOP_API, "tests/case.test.ts": test})
+                assert [item.message.split(": ", 1)[1] for item in found] == [
+                    "production symbol 'inspect' is used only by tests"
+                ]
+
+    def test_a_require_binding_alone_is_not_a_use(self) -> None:
+        files = {
+            **SHOP_API,
+            "shop/consumer.ts": "const { inspect: view } = require('./core');",
+            "tests/case.test.ts": "import { inspect } from '../shop/core'; inspect();",
+        }
+        assert len(hooks(files)) == 1
+
+    def test_uses_through_export_from_barrels_reach_the_definition(self) -> None:
+        for barrel in [
+            "export { inspect } from './core';",
+            "export { inspect as look } from './core';",
+            "export * from './core';",
+        ]:
+            name = "look" if "look" in barrel else "inspect"
+            test = f"import {{ {name} }} from '../shop'; {name}();"
+            with self.subTest(barrel=barrel):
+                files = {
+                    **SHOP_API,
+                    "shop/index.ts": barrel,
+                    "tests/case.test.ts": test,
+                }
+                found = hooks(files)
+                assert [item.path for item in found] == ["shop/core.ts"]
+                assert "'inspect'" in found[0].message
+                files["shop/consumer.ts"] = f"import {{ {name} }} from '.'; {name}();"
+                assert hooks(files) == []
+
+    def test_mocks_of_require_and_import_equals_bindings_are_owned(self) -> None:
+        for source in [
+            "const core = require('../shop/core'); core.checkout = replacement;",
+            "import core = require('../shop/core'); vi.spyOn(core, 'checkout');",
+            "const { Basket } = await import('../shop/core'); vi.mocked(new Basket());",
+        ]:
+            with self.subTest(source=source):
+                assert [item.rule_id for item in findings(source)] == [
+                    "TEST.no-self-mocking"
+                ]
+
+    def test_hash_aliases_are_specifiers_not_separators(self) -> None:
+        files = {
+            "tsconfig.json": '{"compilerOptions": {"paths": {"#shop/*": ["shop/*"]}}}',
+            **SHOP_API,
+            "tests/case.test.ts": "import { inspect } from '#shop/core'; inspect();",
+        }
+        assert [item.path for item in hooks(files)] == ["shop/core.ts"]
+        rules = [rule for rule in lint.load_patterns() if rule.scope == "tests"]
+        found = lint.file_findings(
+            "tests/case.test.ts",
+            "import { checkout } from '#shop/core'; vi.mocked(checkout);",
+            rules,
+            ownership(files),
+            VITEST,
+        )
+        assert [item.message.split(": ", 1)[1] for item in found] == [
+            "owned code is mocked: #shop/core#checkout"
+        ]
+
+    def test_owned_package_names_decide_mocks_and_uses_alike(self) -> None:
+        files = {
+            "packages/shop/package.json": '{"name": "@shop/core"}',
+            "packages/shop/src/index.ts": "export function checkout() {} export function inspect() {}",
+            "tests/case.test.ts": "import { inspect } from '@shop/core/src/index'; inspect();",
+        }
+        owned = lint.Owned(
+            ("packages/shop",),
+            {"@shop/core": "packages/shop"},
+            ScriptResolver(set(files), files.__getitem__),
+        )
+        rules = [rule for rule in lint.load_patterns() if rule.scope == "tests"]
+        mocked = lint.file_findings(
+            "tests/case.test.ts",
+            "vi.mock('@shop/core/src/index'); vi.mock('@shop/core');",
+            rules,
+            owned,
+            VITEST,
+        )
+        assert [item.message.split(": ", 1)[1] for item in mocked] == [
+            "owned code is mocked: @shop/core/src/index",
+            "owned code is mocked: @shop/core",
+        ]
+        sources = {path: text for path, text in files.items() if path.endswith(".ts")}
+        found = lint.hook_findings(
+            sources, REPO_CONFIG, {"packages/shop/src/index.ts"}, owned, "vitest"
+        )
+        assert ["'inspect'" in item.message for item in found] == [True]
+
+    def test_a_folder_name_alone_is_not_an_owned_package(self) -> None:
+        files = {
+            **SHOP_API,
+            "tests/case.test.ts": "import { inspect } from 'shop/core'; inspect();",
+        }
+        assert hooks(files) == []
+        assert findings("vi.mock('shop/core');") == []
+
+
+class JavaScriptSourceTests(unittest.TestCase):
+    def test_jsx_in_a_js_file_collects_with_the_javascript_grammar(self) -> None:
+        result = cases.collect(
+            "tests/app.test.js",
+            "test('renders', () => { expect(render(<App />)).toBeTruthy(); });",
+        )
+        assert [case.selector for case in result.cases] == [
+            "tests/app.test.js::renders"
+        ]
+
+    def test_missing_tokens_are_parse_errors(self) -> None:
+        with pytest.raises(cases.CollectionError, match="line 1"):
+            cases.collect("tests/case.test.ts", "test('x', () => { foo(1; });")
+
+    def test_titles_decode_javascript_escapes(self) -> None:
+        result = cases.collect(
+            "tests/case.test.ts",
+            r"test('smile \u{1F600}', () => {}); test('a\d `b`', () => {});"
+            " test(`plain`, () => {});",
+        )
+        assert list(result.behaviours.values()) == [
+            "smile " + chr(0x1F600),
+            "ad `b`",
+            "plain",
+        ]
 
 
 class PatternContract(unittest.TestCase):

@@ -5,7 +5,6 @@ from collections.abc import Collection, Iterable
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure_naming import typescript
 from guardrails.commands.structure_naming.package_placement import (
     DATA_SUFFIXES,
     ENTRY_POINT,
@@ -19,6 +18,7 @@ from guardrails.commands.structure_naming.package_placement import (
 )
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.source import typescript
 from guardrails.foundation.source.modules import folder_of, joined
 from guardrails.foundation.source.tree import SourceError, languages
 

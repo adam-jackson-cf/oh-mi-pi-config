@@ -11,9 +11,9 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.structure_naming import typescript
-from guardrails.commands.structure_naming.typescript import ScriptImport
+from guardrails.foundation.source import typescript
 from guardrails.foundation.source.tree import parse
+from guardrails.foundation.source.typescript import Binding, ScriptImport
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -44,21 +44,78 @@ other("./not-an-import");
 """
 
 
+def bound(
+    specifier: str, imported: str | None, local: str | None, form: typescript.Form
+) -> Binding:
+    return Binding(specifier, imported, local, form, False)
+
+
 class ImportTests(unittest.TestCase):
     def test_static_dynamic_and_require_imports_with_string_literals(self) -> None:
         root: SgNode = parse("m.ts", IMPORTS)
         assert typescript.imports(root) == [
-            ScriptImport("./a", 1, True),
-            ScriptImport("../b.js", 2, False),
-            ScriptImport("@x/y", 3, False),
-            ScriptImport("./side", 4, False),
-            ScriptImport("fs", 5, False),
-            ScriptImport("./all", 6, False),
-            ScriptImport("./x", 7, False),
-            ScriptImport("./t", 8, True),
-            ScriptImport("./dyn", 10, False),
-            ScriptImport("./req", 11, False),
+            ScriptImport("./a", 1, True, (Binding("./a", "A", "A", "named", True),)),
+            ScriptImport(
+                "../b.js",
+                2,
+                False,
+                (
+                    bound("../b.js", "default", "b", "default"),
+                    Binding("../b.js", "C", "C", "named", True),
+                    bound("../b.js", "d", "e", "named"),
+                ),
+            ),
+            ScriptImport("@x/y", 3, False, (bound("@x/y", None, "ns", "namespace"),)),
+            ScriptImport("./side", 4, False, ()),
+            ScriptImport("fs", 5, False, (bound("fs", None, "fs", "import-equals"),)),
+            ScriptImport(
+                "./all", 6, False, (bound("./all", None, None, "export-from"),)
+            ),
+            ScriptImport("./x", 7, False, (bound("./x", "x", "x", "export-from"),)),
+            ScriptImport(
+                "./t", 8, True, (Binding("./t", "T", "T", "export-from", True),)
+            ),
+            ScriptImport("./dyn", 10, False, (bound("./dyn", None, "m", "dynamic"),)),
+            ScriptImport("./req", 11, False, (bound("./req", None, "r", "require"),)),
+            ScriptImport(
+                "./template", 14, False, (bound("./template", None, "o", "require"),)
+            ),
         ]
+
+    def test_require_and_import_bindings_read_destructuring_and_members(self) -> None:
+        source = (
+            "const { a, b: c, d = 1, ...rest } = require('./m');\n"
+            "const helper = require('./h').helper;\n"
+            "const { k } = await import('./k');\n"
+            "const p = (await import('./p')).value;\n"
+            "import x = require('./x');\n"
+            "export { y as z, default as w } from './y';\n"
+            "export * as all from './all';\n"
+            "require('./side');\n"
+            "load(require('./argument'));\n"
+        )
+        found = {
+            item.specifier: item.bindings
+            for item in typescript.imports(parse("m.ts", source))
+        }
+        assert found == {
+            "./m": (
+                bound("./m", "a", "a", "require"),
+                bound("./m", "b", "c", "require"),
+                bound("./m", "d", "d", "require"),
+            ),
+            "./h": (bound("./h", "helper", "helper", "require"),),
+            "./k": (bound("./k", "k", "k", "dynamic"),),
+            "./p": (bound("./p", "value", "p", "dynamic"),),
+            "./x": (bound("./x", None, "x", "import-equals"),),
+            "./y": (
+                bound("./y", "y", "z", "export-from"),
+                bound("./y", "default", "w", "export-from"),
+            ),
+            "./all": (bound("./all", None, "all", "export-from"),),
+            "./side": (),
+            "./argument": (),
+        }
 
     def test_javascript_and_tsx_imports(self) -> None:
         source = "import React from 'react'\nconst x = require('./x')\n"
@@ -67,6 +124,38 @@ class ImportTests(unittest.TestCase):
                 assert [
                     item.specifier for item in typescript.imports(parse(path, source))
                 ] == ["react", "./x"]
+
+
+def literal_value(text: str) -> str | None:
+    root = parse("m.js", f"x = {text};\n")
+    assignment = root.find(kind="assignment_expression")
+    assert assignment is not None
+    return typescript.literal(assignment.field("right"))
+
+
+class LiteralTests(unittest.TestCase):
+    def test_javascript_escapes(self) -> None:
+        face = chr(0x1F600)
+        cases = {
+            r"'\u{1F600}'": face,
+            r"'\uD83D\uDE00'": face,
+            r"'\x41\u0042'": "AB",
+            r"'a\d'": "ad",
+            r"'\a\q\8'": "aq8",
+            r"'\n\t\0'": "\n\t\0",
+            r"'\101'": "A",
+            r"""'it\'s \"quoted\"'""": 'it\'s "quoted"',
+            "'line\\\ncontinued'": "linecontinued",
+            r"`plain \`tick\` \u{41}`": "plain `tick` A",
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                assert literal_value(text) == expected
+
+    def test_dynamic_and_invalid_values_are_not_literals(self) -> None:
+        for text in ("`a${b}`", "name", "1", r"'\u{110000}'"):
+            with self.subTest(text=text):
+                assert literal_value(text) is None
 
 
 DEFINITIONS = """@sealed

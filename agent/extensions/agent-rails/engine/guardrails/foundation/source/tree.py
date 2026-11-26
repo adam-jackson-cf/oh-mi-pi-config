@@ -51,6 +51,14 @@ def languages() -> dict[str, tuple[str, ...]]:
     }
 
 
+def not_applicable(rule_id: str) -> dict[str, dict[str, str]]:
+    """The languages a structure rule does not apply to, each with its reason."""
+    found: dict[str, dict[str, str]] = structure_languages()["not_applicable"].get(
+        rule_id, {}
+    )
+    return found
+
+
 def rule_definitions(rule_id: str) -> dict[str, dict[str, Any]]:
     data = structure_languages()
     rule = data["rules"][rule_id]
@@ -83,11 +91,17 @@ def missing(node: SgNode) -> bool:
     )
 
 
-def parse(path: str, source: str) -> SgNode:
+def tolerant_tree(source: str, language: str) -> SgNode:
+    """The syntax tree of source in a grammar, keeping error nodes, for pattern scans of
+    text that need not parse (such as source with bindings inlined)."""
     from ast_grep_py import SgRoot
 
+    return SgRoot(source, language).root()
+
+
+def parse(path: str, source: str) -> SgNode:
     language = grammar(path)
-    root = SgRoot(source, language).root()
+    root = tolerant_tree(source, language)
     broken = (
         root.find(kind="ERROR")
         or next((node for node in root.find_all(regex="^$") if missing(node)), None)

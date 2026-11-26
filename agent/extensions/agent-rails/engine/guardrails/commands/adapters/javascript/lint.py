@@ -2,22 +2,19 @@ from __future__ import annotations
 
 import json
 import posixpath
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Container, Iterator, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from guardrails.commands.adapters.javascript.cases import (
     SUFFIXES,
-    CollectionError,
+    Imported,
     api_name,
     arguments,
     children,
     imports,
-    language,
-    parse,
-    qualified,
-    string,
+    origin,
     walk,
 )
 from guardrails.commands.adapters.marker_bindings import inline_bindings
@@ -26,8 +23,8 @@ from guardrails.context.config.reader import tests_settings
 from guardrails.context.config.suite_files import adapter_suite, in_suite
 from guardrails.foundation.findings import Finding, Remediation, remediation
 from guardrails.foundation.inventory import normalized_path, repo_paths
-from guardrails.foundation.source.modules import ScriptResolver, folder_of, joined
-from guardrails.foundation.source.tree import SourceError
+from guardrails.foundation.source import tree, typescript
+from guardrails.foundation.source.modules import ScriptResolver, joined, script_file
 
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
@@ -84,16 +81,9 @@ def is_test(path: str, config: dict[str, Any], adapter: str) -> bool:
     return in_suite(path, adapter_suite(config, adapter))
 
 
-def owned_roots(config: dict[str, Any], repo: Path) -> tuple[str, ...]:
-    entries = tests_settings(config, "public_entry_points") or {}
-    roots = set()
-    for raw in entries if isinstance(entries, dict) else ():
-        path = str(raw).replace("\\", "/")
-        if path.endswith(SUFFIXES):
-            roots.add(posixpath.dirname(path) or ".")
-        else:
-            roots.add(path.rstrip("/"))
-    package_names = set(roots)
+def package_folders(repo: Path) -> dict[str, str]:
+    """Each package.json name in the repository, with the folder holding it."""
+    found = {}
     for raw in repo_paths(repo):
         manifest = normalized_path(repo, raw)
         if (
@@ -103,9 +93,22 @@ def owned_roots(config: dict[str, Any], repo: Path) -> tuple[str, ...]:
         ):
             continue
         data = json.loads((repo / manifest).read_text(encoding="utf-8"))
-        if isinstance(data, dict) and data.get("name") in package_names:
-            roots.add(posixpath.dirname(manifest) or ".")
-    return tuple(sorted(roots))
+        if isinstance(data, dict) and isinstance(data.get("name"), str):
+            found[data["name"]] = posixpath.dirname(manifest) or "."
+    return found
+
+
+def owned_roots(config: dict[str, Any], packages: Mapping[str, str]) -> tuple[str, ...]:
+    entries = tests_settings(config, "public_entry_points") or {}
+    roots = set()
+    for raw in entries if isinstance(entries, dict) else ():
+        path = str(raw).replace("\\", "/")
+        if path.endswith(SUFFIXES):
+            roots.add(posixpath.dirname(path) or ".")
+        else:
+            roots.add(path.rstrip("/"))
+    named = {folder for name, folder in packages.items() if name in roots}
+    return tuple(sorted(roots | named))
 
 
 def owned_path(path: str, roots: tuple[str, ...]) -> bool:
@@ -114,26 +117,42 @@ def owned_path(path: str, roots: tuple[str, ...]) -> bool:
     )
 
 
-def owned_origin(path: str, origin: str, owned: Owned) -> bool:
-    module = origin.split("#", 1)[0]
-    if module.startswith("."):
-        relative = joined(folder_of(path), module)
-        return relative is not None and owned_path(relative, owned.roots)
-    target = owned.scripts.resolve(path, module)
-    if target is not None:
-        return owned_path(target, owned.roots)
-    return any(
-        module == root or module.startswith(root + "/")
-        for root in owned.roots
-        if root != "."
-    )
+def owned_packages(
+    packages: Mapping[str, str], roots: tuple[str, ...]
+) -> dict[str, str]:
+    return {
+        name: folder for name, folder in packages.items() if owned_path(folder, roots)
+    }
+
+
+def package_target(specifier: str, owned: Owned) -> str | None:
+    """The path a bare specifier names inside an owned package, by package name."""
+    for name, folder in owned.packages.items():
+        if specifier == name or specifier.startswith(name + "/"):
+            base = joined(folder, specifier[len(name) :].lstrip("/") or ".")
+            if base is None:
+                return None
+            return script_file(base, owned.scripts.tracked) or base
+    return None
+
+
+def owned_target(path: str, specifier: str, owned: Owned) -> str | None:
+    """The file or package path an import specifier names: through the resolver, then
+    as an owned package name. Mocks and symbol uses both decide ownership by it."""
+    target = owned.scripts.resolve(path, specifier)
+    return target if target is not None else package_target(specifier, owned)
+
+
+def owned_origin(path: str, found: Imported, owned: Owned) -> bool:
+    target = owned_target(path, found.module, owned)
+    return target is not None and owned_path(target, owned.roots)
 
 
 def object_pairs(node: SgNode | None) -> dict[str, SgNode | None]:
     if node is None or node.kind() != "object":
         return {}
     return {
-        (string(key) or key.text()): item.field("value")
+        (typescript.literal(key) or key.text()): item.field("value")
         for item in children(node)
         if item.kind() == "pair" and (key := item.field("key")) is not None
     }
@@ -149,16 +168,17 @@ def integer_seed(node: SgNode | None) -> bool:
     return type(value) is int
 
 
-def mock_origin(node: SgNode, aliases: Mapping[str, str]) -> str | None:
-    value = string(node)
+def mock_origin(node: SgNode, aliases: Mapping[str, Imported]) -> Imported | None:
+    value = typescript.literal(node)
     if value is not None:
-        return value
+        return Imported(value, None)
     function = node.field("function") if node.kind() == "call_expression" else None
     if function is not None and (
         function.kind() == "import" or api_name(function, aliases) == "import"
     ):
         args = arguments(node)
-        return string(args[0]) if args else None
+        module = typescript.literal(args[0]) if args else None
+        return None if module is None else Imported(module, None)
     if node.kind() == "new_expression":
         constructor = node.field("constructor")
         return mock_origin(constructor, aliases) if constructor is not None else None
@@ -170,23 +190,24 @@ def mock_origin(node: SgNode, aliases: Mapping[str, str]) -> str | None:
         "subscript_expression",
     }:
         head = head.field("object")
-    if head is not None and head.kind() == "identifier" and head.text() in aliases:
-        return qualified(node, aliases) or None
+    if head is not None and head.kind() == "identifier":
+        return origin(node, aliases)
     return None
 
 
 @dataclass(frozen=True)
 class Owned:
-    """The owned folders and package names, and how imports reach them."""
+    """The owned folders, the owned packages by name, and how imports reach them."""
 
     roots: tuple[str, ...]
+    packages: Mapping[str, str]
     scripts: ScriptResolver
 
 
 @dataclass(frozen=True)
 class Site:
     path: str
-    aliases: Mapping[str, str]
+    aliases: Mapping[str, Imported]
     owned: Owned
     seeded: bool
     vocabulary: Vocabulary
@@ -200,16 +221,9 @@ HOOK_DECLARATIONS = frozenset({
     "required_parameter",
     "optional_parameter",
 })
-PROPERTY_RUNNERS = frozenset({
-    "fast-check.assert",
-    "fast-check.check",
-    "fast-check#assert",
-    "fast-check#check",
-})
-GLOBAL_CONFIGURATION = frozenset({
-    "fast-check.configureGlobal",
-    "fast-check#configureGlobal",
-})
+PROPERTY_MODULE = "fast-check"
+PROPERTY_RUNNERS = frozenset({("assert",), ("check",)})
+GLOBAL_CONFIGURATION = ("configureGlobal",)
 
 
 def environment_violation(node: SgNode, site: Site) -> str | None:
@@ -227,9 +241,9 @@ def hook_violation(node: SgNode, site: Site) -> str | None:
 
 def mock_assignment_violation(node: SgNode, site: Site) -> str | None:
     left = node.field("left")
-    origin = mock_origin(left, site.aliases) if left is not None else None
-    if origin and owned_origin(site.path, origin, site.owned):
-        return origin
+    found = mock_origin(left, site.aliases) if left is not None else None
+    if found is not None and owned_origin(site.path, found, site.owned):
+        return found.label()
     return None
 
 
@@ -240,8 +254,10 @@ def mock_call_violation(node: SgNode, site: Site) -> str | None:
         or not args
     ):
         return None
-    origin = mock_origin(args[0], site.aliases)
-    return origin if origin and owned_origin(site.path, origin, site.owned) else None
+    found = mock_origin(args[0], site.aliases)
+    if found is not None and owned_origin(site.path, found, site.owned):
+        return found.label()
+    return None
 
 
 def evasion_violation(node: SgNode, site: Site) -> str | None:
@@ -260,16 +276,21 @@ def evasion_violation(node: SgNode, site: Site) -> str | None:
     return None
 
 
+def property_call(found: Imported | None, paths: Container[tuple[str, ...]]) -> bool:
+    return (
+        found is not None and found.module == PROPERTY_MODULE and found.path() in paths
+    )
+
+
 def property_violation(node: SgNode, site: Site) -> str | None:
-    origin = qualified(node.field("function"), site.aliases)
-    if origin not in PROPERTY_RUNNERS:
+    found = origin(node.field("function"), site.aliases)
+    if found is None or not property_call(found, PROPERTY_RUNNERS):
         return None
     args = arguments(node)
     options = object_pairs(args[1]) if len(args) > 1 else {}
     explicit = options.get("seed")
-    return (
-        None if integer_seed(explicit) or (explicit is None and site.seeded) else origin
-    )
+    seeded = integer_seed(explicit) or (explicit is None and site.seeded)
+    return None if seeded else found.label()
 
 
 VIOLATIONS: dict[str, Callable[[SgNode, Site], str | None]] = {
@@ -289,10 +310,12 @@ def violation(pattern: Pattern, node: SgNode, site: Site) -> str | None:
     return check(node, site)
 
 
-def configured_seeds(root: SgNode, aliases: Mapping[str, str]) -> list[int]:
+def configured_seeds(root: SgNode, aliases: Mapping[str, Imported]) -> list[int]:
     configured = []
     for node in root.find_all({"rule": {"kind": "call_expression"}}):
-        if qualified(node.field("function"), aliases) in GLOBAL_CONFIGURATION:
+        if property_call(
+            origin(node.field("function"), aliases), {GLOBAL_CONFIGURATION}
+        ):
             args = arguments(node)
             parent = node.parent()
             grandparent = parent.parent() if parent is not None else None
@@ -314,10 +337,10 @@ def file_findings(
     owned: Owned,
     vocabulary: Vocabulary,
 ) -> list[Finding]:
-    from ast_grep_py import SgRoot
-
-    root = parse(path, source)
-    inlined = SgRoot(inline_bindings(source, "typescript"), language(path)).root()
+    root = tree.parse(path, source)
+    inlined = tree.tolerant_tree(
+        inline_bindings(source, "typescript"), tree.grammar(path)
+    )
     aliases = imports(root)
     configured = configured_seeds(root, aliases)
     site = Site(path, aliases, owned, False, vocabulary)
@@ -353,6 +376,11 @@ DECLARATION_KINDS = frozenset({
     "function_declaration",
     "class_declaration",
     "variable_declarator",
+})
+BINDING_PATTERNS = frozenset({
+    "object_pattern",
+    "pair_pattern",
+    "object_assignment_pattern",
 })
 REFERENCE_KINDS = frozenset({
     "identifier",
@@ -399,36 +427,87 @@ def production_definitions(
     return definitions
 
 
+def import_statement(node: SgNode) -> bool:
+    return node.kind() == "import_statement" or (
+        node.kind() == "export_statement" and node.field("source") is not None
+    )
+
+
+def load_binding(node: SgNode) -> bool:
+    """Whether node is a name a require() or import() declarator binds."""
+    child, parent = node, node.parent()
+    while parent is not None and parent.kind() in BINDING_PATTERNS:
+        child, parent = parent, parent.parent()
+    return (
+        parent is not None
+        and parent.kind() == "variable_declarator"
+        and typescript.same(parent.field("name"), child)
+        and typescript.load_call(parent.field("value")) is not None
+    )
+
+
 def in_import(node: SgNode) -> bool:
+    """Whether node names a binding of an import rather than a use of it."""
     ancestor = node.parent()
     while ancestor is not None:
-        if ancestor.kind() == "import_statement":
+        if import_statement(ancestor):
             return True
         ancestor = ancestor.parent()
-    return False
-
-
-def referenced_keys(
-    path: str, node: SgNode, aliases: Mapping[str, str], scripts: ScriptResolver
-) -> set[tuple[str, str]]:
-    origin = qualified(node, aliases)
-    if "#" in origin:
-        module, symbol = origin.split("#", 1)
-    elif "." in origin:
-        module, _, symbol = origin.rpartition(".")
-    else:
-        return set()
-    owner = scripts.resolve(path, module)
-    return set() if owner is None else {(owner, symbol)}
+    return load_binding(node)
 
 
 @dataclass(frozen=True)
 class Tally:
-    """Production definitions and whether tests (True) or production (False) use each."""
+    """Production definitions, whether tests (True) or production (False) use each,
+    the export-from re-exports of every file, and how imports reach owned code."""
 
     definitions: Definitions
     uses: dict[tuple[str, str], set[bool]]
-    scripts: ScriptResolver
+    reexports: Mapping[str, list[typescript.Binding]]
+    owned: Owned
+
+
+def reexported(
+    key: tuple[str, str], tally: Tally, seen: frozenset[tuple[str, str]]
+) -> tuple[str, str] | None:
+    path, symbol = key
+    for binding in tally.reexports.get(path, []):
+        if binding.local == symbol and binding.imported is not None:
+            imported = binding.imported
+        elif binding.local is None and binding.imported is None and symbol != "default":
+            imported = symbol
+        else:
+            continue
+        target = owned_target(path, binding.specifier, tally.owned)
+        found = None if target is None else defined(target, imported, tally, seen)
+        if found is not None:
+            return found
+    return None
+
+
+def defined(
+    path: str,
+    symbol: str,
+    tally: Tally,
+    seen: frozenset[tuple[str, str]] = frozenset(),
+) -> tuple[str, str] | None:
+    """The definition a module export names, through export-from re-exports."""
+    key = (path, symbol)
+    if key in tally.definitions:
+        return key
+    return None if key in seen else reexported(key, tally, seen | {key})
+
+
+def referenced_keys(
+    path: str, node: SgNode, aliases: Mapping[str, Imported], tally: Tally
+) -> set[tuple[str, str]]:
+    found = origin(node, aliases)
+    symbol = None if found is None else found.symbol()
+    if found is None or symbol is None:
+        return set()
+    owner = owned_target(path, found.module, tally.owned)
+    key = None if owner is None else defined(owner, symbol, tally)
+    return set() if key is None else {key}
 
 
 def record_uses(path: str, root: SgNode, test: bool, tally: Tally) -> None:
@@ -448,9 +527,8 @@ def record_uses(path: str, root: SgNode, test: bool, tally: Tally) -> None:
             )
             if not within:
                 uses[local_key].add(test)
-        for key in referenced_keys(path, node, aliases, tally.scripts):
-            if key in definitions:
-                uses[key].add(test)
+        for key in referenced_keys(path, node, aliases, tally):
+            uses[key].add(test)
 
 
 def public_symbols(config: dict[str, Any]) -> set[tuple[str, str]]:
@@ -470,10 +548,19 @@ def hook_findings(
     owned: Owned,
     adapter: str,
 ) -> list[Finding]:
-    trees = {path: parse(path, text) for path, text in sources.items()}
+    trees = {path: tree.parse(path, text) for path, text in sources.items()}
     definitions = production_definitions(trees, config, owned.roots, adapter)
     uses: dict[tuple[str, str], set[bool]] = {key: set() for key in definitions}
-    tally = Tally(definitions, uses, owned.scripts)
+    reexports = {
+        path: [
+            binding
+            for site in typescript.imports(root)
+            for binding in site.bindings
+            if binding.form == "export-from"
+        ]
+        for path, root in trees.items()
+    }
+    tally = Tally(definitions, uses, reexports, owned)
     for path, root in trees.items():
         record_uses(path, root, is_test(path, config, adapter), tally)
     public = public_symbols(config)
@@ -498,7 +585,7 @@ def tsconfig_findings(scripts: ScriptResolver, paths: list[str]) -> list[Finding
     }):
         try:
             scripts.config(path)
-        except (OSError, UnicodeError, SourceError) as error:
+        except (OSError, UnicodeError, tree.SourceError) as error:
             found.append(
                 Finding(
                     "TEST.no-test-hooks",
@@ -508,6 +595,46 @@ def tsconfig_findings(scripts: ScriptResolver, paths: list[str]) -> list[Finding
                 )
             )
     return found
+
+
+def readable_sources(
+    repo: Path,
+    paths: list[str],
+    config: dict[str, Any],
+    adapter: str,
+    roots: tuple[str, ...],
+) -> tuple[dict[str, str], list[Finding]]:
+    """The test and owned sources that read and parse, and a finding for each other."""
+    sources = {}
+    findings = []
+    for path in paths:
+        test = is_test(path, config, adapter)
+        if not test and not owned_path(path, roots):
+            continue
+        rule = "TEST.no-evasion" if test else "TEST.no-test-hooks"
+        try:
+            source = (repo / path).read_text(encoding="utf-8")
+            tree.parse(path, source)
+            sources[path] = source
+        except (OSError, UnicodeError) as error:
+            findings.append(
+                Finding(
+                    rule,
+                    path,
+                    f"cannot read source for AST analysis: {error}",
+                    "restore readable UTF-8 TypeScript/JavaScript source before running adapter lint",
+                )
+            )
+        except tree.SourceError as error:
+            findings.append(
+                Finding(
+                    rule,
+                    path,
+                    f"cannot parse source for AST analysis: {error}",
+                    "repair JavaScript/TypeScript syntax before running adapter lint",
+                )
+            )
+    return sources, findings
 
 
 def lint(
@@ -522,51 +649,16 @@ def lint(
     ]
     all_paths = source_files(repo, repo_files)
     selected = set(source_files(repo, paths)) if paths else set(all_paths)
-    roots = owned_roots(config, repo)
-    sources = {}
-    findings = []
-    for path in all_paths:
-        if not is_test(path, config, adapter) and not owned_path(path, roots):
-            continue
-        try:
-            source = (repo / path).read_text(encoding="utf-8")
-            parse(path, source)
-            sources[path] = source
-        except (OSError, UnicodeError) as error:
-            rule = (
-                "TEST.no-evasion"
-                if is_test(path, config, adapter)
-                else "TEST.no-test-hooks"
-            )
-            findings.append(
-                Finding(
-                    rule,
-                    path,
-                    f"cannot read source for AST analysis: {error}",
-                    "restore readable UTF-8 TypeScript/JavaScript source before running adapter lint",
-                )
-            )
-        except CollectionError as error:
-            rule = (
-                "TEST.no-evasion"
-                if is_test(path, config, adapter)
-                else "TEST.no-test-hooks"
-            )
-            findings.append(
-                Finding(
-                    rule,
-                    path,
-                    f"cannot parse source for AST analysis: {error}",
-                    "repair JavaScript/TypeScript syntax before running adapter lint",
-                )
-            )
+    packages = package_folders(repo)
+    roots = owned_roots(config, packages)
+    sources, findings = readable_sources(repo, all_paths, config, adapter, roots)
     scripts = ScriptResolver(
         set(repo_files), lambda path: (repo / path).read_text(encoding="utf-8")
     )
     unreadable = tsconfig_findings(scripts, sorted(sources))
     if unreadable:
         return apply_exceptions(findings + unreadable, config)
-    owned = Owned(roots, scripts)
+    owned = Owned(roots, owned_packages(packages, roots), scripts)
     patterns = load_patterns()
     production = set()
     for path in sorted(selected):
