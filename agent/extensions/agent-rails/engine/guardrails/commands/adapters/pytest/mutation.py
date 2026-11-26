@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-import ast
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.source.python import defined, last_token
+from guardrails.foundation.source.tree import end_line, line, named, parse
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 
 TOOL = "mutmut"
 RULE = "TEST.mutation-sensitivity"
@@ -43,24 +47,27 @@ def status(exit_code: object) -> str:
     return STATUS_BY_EXIT.get(exit_code, "incomplete")
 
 
-def spans(source: str) -> dict[tuple[str | None, str], tuple[int, int]]:
-    tree = ast.parse(source)
+def spans(path: str, source: str) -> dict[tuple[str | None, str], tuple[int, int]]:
     found: dict[tuple[str | None, str], tuple[int, int]] = {}
-    functions = (ast.FunctionDef, ast.AsyncFunctionDef)
-    for node in tree.body:
-        if isinstance(node, functions):
-            found[(None, node.name)] = span(node)
-        elif isinstance(node, ast.ClassDef):
-            for child in node.body:
-                if isinstance(child, functions):
-                    found[(node.name, child.name)] = span(child)
+    for statement in named(parse(path, source)):
+        node = defined(statement)
+        name = node.field("name")
+        body = node.field("body")
+        if name is None or body is None:
+            continue
+        if node.kind() == "function_definition":
+            found[(None, name.text())] = span(statement, node)
+        elif node.kind() == "class_definition":
+            for member in named(body):
+                method = defined(member)
+                method_name = method.field("name")
+                if method.kind() == "function_definition" and method_name is not None:
+                    found[(name.text(), method_name.text())] = span(member, method)
     return found
 
 
-def span(node: ast.stmt) -> tuple[int, int]:
-    decorators = getattr(node, "decorator_list", [])
-    start = min([node.lineno, *(item.lineno for item in decorators)])
-    return start, node.end_lineno or node.lineno
+def span(statement: SgNode, node: SgNode) -> tuple[int, int]:
+    return line(statement), end_line(last_token(node))
 
 
 def unit(name: str) -> tuple[str | None, str]:
@@ -78,8 +85,8 @@ def file_mutants(repo: Path, meta: Path) -> list[dict[str, Any]]:
     try:
         data = json.loads(meta.read_text(encoding="utf-8"))
         source = (repo / source_path).read_text(encoding="utf-8")
-        found = spans(source)
-    except (OSError, ValueError, SyntaxError) as error:
+        found = spans(source_path, source)
+    except (OSError, ValueError) as error:
         raise MutmutError(
             f"cannot read {meta} or its source {source_path}: {error}"
         ) from error

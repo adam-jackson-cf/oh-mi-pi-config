@@ -299,6 +299,23 @@ class CheckerTests(CheckerCase):
         for module in (layout, path_check):
             assert self.package_placement(module) == {data}
 
+    def test_typescript_and_go_placement_reach_both_checkers(self) -> None:
+        self.write("web/src/app.ts", 'import config from "./config.json";\n')
+        self.write("web/src/config.json", "{}")
+        self.write("web/src/settings.json", "{}")
+        self.write("web/package.json", '{"bin": "src/tools/run/cli.js"}')
+        self.write("web/src/tools/run/cli.js")
+        self.write("svc/go.mod", "module example.com/svc\n")
+        self.write("svc/cmd/api/main.go", "package main\n")
+        self.write("svc/internal/gen/main.go", "package main\n")
+        expected = {
+            ("STRUCT.runtime-data-placement", "web/src/settings.json"),
+            ("STRUCT.entry-point-placement", "web/src/tools/run/cli.js"),
+            ("STRUCT.entry-point-placement", "svc/internal/gen/main.go"),
+        }
+        for module in (layout, path_check):
+            assert self.package_placement(module) == expected
+
     def test_package_placement_judges_only_added_paths(self) -> None:
         self.write("src/orders/engine/legacy.yaml")
         self.commit_all("legacy data")

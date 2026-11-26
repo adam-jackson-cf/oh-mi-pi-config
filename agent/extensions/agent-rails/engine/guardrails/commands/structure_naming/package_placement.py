@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import PurePosixPath
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import TYPE_CHECKING, Any
 
 from guardrails.context.config.adapter_declarations import tier_locations
 from guardrails.context.config.reader import tests_settings
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.source.modules import folder_of
+from guardrails.foundation.source.tree import SourceError, parse
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 
 RUNTIME_DATA = "STRUCT.runtime-data-placement"
 ENTRY_POINT = "STRUCT.entry-point-placement"
@@ -33,11 +38,13 @@ BUNDLE_MANIFESTS = frozenset({"SKILL.md", "pyproject.toml", "setup.cfg", "setup.
 TOP_TIER_DEPTH = 1
 
 
-class PackageTree:
-    def __init__(self, inventory: Iterable[str]) -> None:
-        python = conventions.load_pack("python")
-        marker, extensions = python["package_marker"], tuple(python["extensions"])
-        self.packages: set[str] = set()
+class CodeTree:
+    def __init__(
+        self,
+        inventory: Iterable[str],
+        extensions: tuple[str, ...],
+        manifests: frozenset[str],
+    ) -> None:
         self.code: set[str] = set()
         self.bundles: set[str] = set()
         for path in inventory:
@@ -45,9 +52,7 @@ class PackageTree:
             folder = pure.parent.as_posix()
             if folder == ".":
                 continue
-            if pure.name == marker:
-                self.packages.add(folder)
-            if pure.name in BUNDLE_MANIFESTS:
+            if pure.name in manifests:
                 self.bundles.add(folder)
             elif pure.name.endswith(extensions):
                 self.code.add(folder)
@@ -60,6 +65,18 @@ class PackageTree:
             if folder in self.bundles:
                 return None
         return None
+
+
+class PackageTree(CodeTree):
+    def __init__(self, inventory: Iterable[str]) -> None:
+        python = conventions.load_pack("python")
+        paths = list(inventory)
+        super().__init__(paths, tuple(python["extensions"]), BUNDLE_MANIFESTS)
+        self.packages = {
+            PurePosixPath(path).parent.as_posix()
+            for path in paths
+            if PurePosixPath(path).name == python["package_marker"]
+        } - {"."}
 
     def root(self, folder: str) -> str:
         current = PurePosixPath(folder)
@@ -83,20 +100,56 @@ def held_by_tests(path: str, config: dict[str, Any]) -> bool:
     return matches_any(path, [*holders, *locations])
 
 
+class Sources:
+    def __init__(self, root: Path, inventory: Iterable[str]) -> None:
+        self.root = root
+        self.folders: dict[str, list[str]] = {}
+        for path in inventory:
+            self.folders.setdefault(folder_of(path), []).append(path)
+        self.trees: dict[str, SgNode] = {}
+
+    def beside(self, folder: str, extensions: tuple[str, ...]) -> list[str]:
+        return [
+            path for path in self.folders.get(folder, []) if path.endswith(extensions)
+        ]
+
+    def text(self, path: str) -> str:
+        try:
+            return (self.root / path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            raise SourceError(f"cannot read {path}: {error}") from error
+
+    def tree(self, path: str) -> SgNode:
+        if path not in self.trees:
+            self.trees[path] = parse(path, self.text(path))
+        return self.trees[path]
+
+
+def unreadable(rule: str, path: str, error: SourceError) -> Finding:
+    return Finding(
+        rule,
+        path,
+        str(error),
+        "fix the file so it reads and parses; the placement check reads it",
+    )
+
+
+def data_finding(path: str, folder: str) -> Finding:
+    return Finding(
+        RUNTIME_DATA,
+        path,
+        f"runtime data file inside code folder {folder}/",
+        "move it to a root data folder outside the code and read it from there",
+    )
+
+
 def runtime_data_findings(path: str, tree: PackageTree) -> list[Finding]:
     if PurePosixPath(path).suffix not in DATA_SUFFIXES:
         return []
     folder = tree.enclosing(path)
     if folder is None:
         return []
-    return [
-        Finding(
-            RUNTIME_DATA,
-            path,
-            f"runtime data file inside code folder {folder}/",
-            "move it to a root data folder outside the code and read it from there",
-        )
-    ]
+    return [data_finding(path, folder)]
 
 
 def entry_point_findings(path: str, tree: PackageTree) -> list[Finding]:

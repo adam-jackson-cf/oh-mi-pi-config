@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-import ast
 import subprocess
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.commands.structure_naming.import_graph import (
     DIRECTION,
+    Reader,
+    graph_language,
     import_config,
-    imported_edges,
+    import_settings,
 )
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
@@ -21,51 +22,45 @@ from guardrails.foundation.inventory import (
 from guardrails.host.process import run_text
 
 
+def owner_tier(path: str, root: str) -> str | None:
+    if not matches(path, root):
+        return None
+    parts = PurePosixPath(path).relative_to(root).parts
+    return parts[0] if len(parts) > 1 else None
+
+
+def allowed(owner: str | None, destination: str | None, tiers: list[str]) -> bool:
+    return (
+        owner in tiers
+        and destination in tiers
+        and tiers.index(destination) <= tiers.index(owner)
+    )
+
+
 def direction_findings(repo: Path, path: str, config: dict[str, Any]) -> list[Finding]:
-    direction, tiers = import_config(config)
-    package, source_root = direction.get("package"), direction.get("source_root")
-    if not (
-        isinstance(package, str)
-        and isinstance(source_root, str)
-        and path.endswith(".py")
+    settings = import_settings(config)
+    language = graph_language(path)
+    if (
+        settings is None
+        or language is None
+        or not matches_any(path, settings.scan)
+        or not (repo / path).is_file()
     ):
         return []
-    if not matches_any(path, as_list(direction.get("scan")) or [source_root]):
-        return []
-    source = repo / path
-    if not source.is_file():
-        return []
-    inside = matches(path, source_root)
-    relative = (
-        PurePosixPath(path).relative_to(source_root.rstrip("/")) if inside else None
-    )
-    module = (
-        ".".join([package, *relative.with_suffix("").parts]) if relative else package
-    )
-    try:
-        tree = ast.parse(source.read_bytes(), filename=path)
-        edges = imported_edges(tree, module, package)
-    except (OSError, SyntaxError, ValueError, ImportError) as error:
-        return [Finding(DIRECTION, path, str(error), "restore readable Python imports")]
-    owner = relative.parts[0] if relative and len(relative.parts) > 1 else None
-    found = []
-    for edge in edges:
-        destination = edge.removeprefix(f"{package}.").split(".")[0]
-        allowed = (
-            owner in tiers
-            and destination in tiers
-            and tiers.index(destination) <= tiers.index(owner)
+    edges = Reader(repo, settings).edges(path, language)
+    if isinstance(edges, Finding):
+        return [edges]
+    owner = owner_tier(path, settings.root)
+    return [
+        Finding(
+            DIRECTION,
+            path,
+            f"unmapped or upward import {edge.label}",
+            "import only your own or a lower tier from structure.tiers",
         )
-        if not allowed:
-            found.append(
-                Finding(
-                    DIRECTION,
-                    path,
-                    f"unmapped or upward import {edge}",
-                    "import only your own or a lower tier from structure.tiers",
-                )
-            )
-    return found
+        for edge in sorted(edges, key=lambda edge: edge.label)
+        if not allowed(owner, edge.tier, settings.tiers)
+    ]
 
 
 def native_findings(

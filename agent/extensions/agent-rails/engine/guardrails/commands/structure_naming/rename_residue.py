@@ -1,20 +1,64 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.structure_naming import typescript
 from guardrails.context.changes import DiffError, git, git_bytes
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.source import go
+from guardrails.foundation.source.tree import (
+    SourceError,
+    grammar,
+    language_of,
+    named,
+    parse,
+)
 from guardrails.subcommand.dispatch import SUBCOMMANDS
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 
 RULE = "RENAME.residue"
 RENAME_THRESHOLD = "50%"
+NON_DEFINING = frozenset({
+    "import_statement",
+    "import_from_statement",
+    "future_import_statement",
+    "lambda",
+    "list_comprehension",
+    "set_comprehension",
+    "dictionary_comprehension",
+    "generator_expression",
+})
+DEFINING = frozenset({"function_definition", "class_definition"})
+TARGET_FIELDS = {
+    "assignment": "left",
+    "augmented_assignment": "left",
+    "for_statement": "left",
+    "named_expression": "name",
+    "type_alias_statement": "left",
+    "as_pattern": "alias",
+}
+TARGET_PATTERNS = frozenset({
+    "pattern_list",
+    "tuple_pattern",
+    "list_pattern",
+    "list_splat_pattern",
+    "tuple",
+    "list",
+    "list_splat",
+    "parenthesized_expression",
+    "as_pattern_target",
+    "type",
+    "generic_type",
+})
 
 
 @dataclass(frozen=True)
@@ -91,46 +135,58 @@ def rename_terms(rename: Rename) -> list[RetiredTerm]:
     return found
 
 
-class DefinedNames(ast.NodeVisitor):
-    descend_classes = True
-    non_defining_nodes = (
-        ast.Import,
-        ast.ImportFrom,
-        ast.Lambda,
-        ast.ListComp,
-        ast.SetComp,
-        ast.DictComp,
-        ast.GeneratorExp,
-    )
+def bound(target: SgNode, found: list[str]) -> None:
+    if target.kind() == "identifier":
+        found.append(target.text())
+    elif target.kind() in TARGET_PATTERNS:
+        for item in named(target):
+            bound(item, found)
+    else:
+        defined(target, found)
 
-    def __init__(self) -> None:
-        self.names: list[str] = []
 
-    def visit(self, node: ast.AST) -> None:
-        if not isinstance(node, self.non_defining_nodes):
-            super().visit(node)
+def visited(node: SgNode) -> list[SgNode]:
+    kind, parent = node.kind(), node.parent()
+    if kind == "function_definition":
+        return []
+    if kind in {"class_definition", "decorated_definition"}:
+        inner = node.field("body" if kind == "class_definition" else "definition")
+        return [] if inner is None else [inner]
+    children = named(node)
+    if kind == "case_clause":
+        return [child for child in children if child.kind() != "case_pattern"]
+    if kind == "except_clause":
+        return [child for child in children if child.kind() in {"as_pattern", "block"}]
+    if kind == "as_pattern" and parent is not None and parent.kind() == "except_clause":
+        return [child for child in children if child.kind() == "as_pattern_target"]
+    return children
 
-    def visit_FunctionDef(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-        self.names.append(node.name)
 
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
-        self.visit_FunctionDef(node)
+def defined(node: SgNode, found: list[str]) -> None:
+    kind = node.kind()
+    if kind in NON_DEFINING:
+        return
+    name = node.field("name")
+    if kind in DEFINING and name is not None:
+        found.append(name.text())
+    target = node.field(TARGET_FIELDS[kind]) if kind in TARGET_FIELDS else None
+    for child in visited(node):
+        if child == target:
+            bound(child, found)
+        else:
+            defined(child, found)
 
-    def visit_ClassDef(self, node: ast.ClassDef) -> None:
-        self.names.append(node.name)
-        if self.descend_classes:
-            for statement in node.body:
-                self.visit(statement)
 
-    def visit_Name(self, node: ast.Name) -> None:
-        if isinstance(node.ctx, ast.Store):
-            self.names.append(node.id)
+def python_names(root: SgNode) -> list[str]:
+    found: list[str] = []
+    defined(root, found)
+    return list(dict.fromkeys(found))
 
-    def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
-        if node.name:
-            self.names.append(node.name)
-        for statement in node.body:
-            self.visit(statement)
+
+IDENTIFIERS: dict[str, Callable[[SgNode], list[str]]] = {
+    "python": python_names,
+    "go": go.identifiers,
+}
 
 
 def residue_findings(
@@ -147,23 +203,26 @@ def residue_findings(
         ]
         if not scoped:
             continue
-        identifiers = []
-        if path.endswith(".py"):
+        identifiers: list[str] = []
+        language = language_of(path)
+        if language is not None:
             try:
-                tree = ast.parse(source, filename=path)
-            except (SyntaxError, ValueError, UnicodeError) as error:
+                root = parse(path, source.decode())
+            except (SourceError, UnicodeError) as error:
                 found.append(
                     Finding(
                         RULE,
                         path,
-                        f"cannot parse head Python file: {error}",
-                        "repair the Python source so rename residue can be checked",
+                        f"cannot read head source: {error}",
+                        "repair the source so rename residue can be checked",
                     )
                 )
                 continue
-            visitor = DefinedNames()
-            visitor.visit(tree)
-            identifiers = list(dict.fromkeys(visitor.names))
+            identifiers = (
+                typescript.identifiers(root, grammar(path))
+                if language == "typescript"
+                else IDENTIFIERS[language](root)
+            )
         found.extend(term_findings(path, scoped, identifiers))
     return list(dict.fromkeys(found))
 
@@ -239,7 +298,7 @@ def commit_snapshot(
         )
         files[path] = (
             git_bytes(repo, "show", f"{head_id}:{path}")
-            if scoped and path.endswith(".py")
+            if scoped and language_of(path) is not None
             else b""
         )
     return renames, files

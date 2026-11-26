@@ -27,6 +27,50 @@ FIXTURE = json.loads(
     ).read_text()
 )
 COPIED = FIXTURE["base"]["src/billing/report.py"]
+SCRIPT_COPY = """export function summariseOrders(orders: Order[], customer: string) {
+  const totals = new Map<string, number>();
+  for (const order of orders) {
+    if (order.customer === customer) {
+      totals.set(order.sku, (totals.get(order.sku) ?? 0) + order.amount);
+    }
+  }
+  return [...totals.entries()].sort((a, b) => a[1] - b[1]);
+}
+
+const short = (a: number) => a + 1;
+
+export class Ledger {
+  balance(entries: Entry[]): number {
+    let total = 0;
+    for (const entry of entries) {
+      total += entry.credit ? entry.amount : -entry.amount;
+    }
+    return total;
+  }
+}
+"""
+GO_COPY = """package billing
+
+func SummariseOrders(orders []Order, customer string) map[string]int {
+\ttotals := map[string]int{}
+\tfor _, order := range orders {
+\t\tif order.Customer == customer {
+\t\t\ttotals[order.SKU] += order.Amount
+\t\t}
+\t}
+\treturn totals
+}
+
+func (l *Ledger) Balance(entries []Entry) int {
+\ttotal := 0
+\tfor _, entry := range entries {
+\t\tif entry.Credit {
+\t\t\ttotal += entry.Amount
+\t\t}
+\t}
+\treturn total
+}
+"""
 
 
 @pytest.mark.fast
@@ -57,9 +101,43 @@ class DefinitionTests(unittest.TestCase):
             "Report.summarise",
         ]
 
-    def test_the_cutoff_and_owner_evidence_live_in_the_catalogue(self) -> None:
+    def test_unparseable_source_has_no_definitions(self) -> None:
+        assert overlap.definitions("a", "a/x.py", "def broken(:\n    pass\n") == []
+        assert overlap.definitions("a", "a/x.ts", "function broken( {\n") == []
+
+    def test_script_and_go_definitions_follow_the_language_definitions(self) -> None:
+        script = overlap.definitions("a", "a/x.ts", SCRIPT_COPY)
+        go = overlap.definitions("a", "a/x.go", GO_COPY)
+        assert [(item.language, item.name) for item in script + go] == [
+            ("typescript", "summariseOrders"),
+            ("typescript", "Ledger"),
+            ("typescript", "Ledger.balance"),
+            ("go", "SummariseOrders"),
+            ("go", "Ledger.Balance"),
+        ]
+
+    def test_units_of_different_languages_are_never_compared(self) -> None:
+        (python,) = overlap.definitions("a", "a/x.py", COPIED)
+        script = overlap.Definition("typescript", "b", "b/x.ts", "f", python.grams)
+        twin = overlap.Definition("python", "b", "b/x.py", "f", python.grams)
+        changed = {"python": {"a"}, "typescript": {"b"}}
+        cutoffs = {"python": 0.336, "typescript": 0.336}
+        assert overlap.overlap_findings([python, script], changed, cutoffs, {}) == []
+        (found,) = overlap.overlap_findings(
+            [python, script, twin], changed, cutoffs, {}
+        )
+        assert (found.path, "b/x.py f" in found.message) == ("a/", True)
+
+    def test_the_cutoff_is_per_language_and_the_evidence_lives_in_the_catalogue(
+        self,
+    ) -> None:
+        assert overlap.pair_score_cutoffs() == {
+            "python": 0.336,
+            "typescript": None,
+            "go": None,
+        }
+        assert overlap.measured_cutoffs() == {"python": 0.336}
         rule = next(item for item in catalogue_rules() if item["id"] == overlap.RULE)
-        assert overlap.pair_score_cutoff() == rule["contract"]["pair_score_cutoff"]
         evidence = rule["contract"]["evidence"]
         assert (evidence["accepted_by"], evidence["accepted_on"]) == (
             "owner",
@@ -121,6 +199,33 @@ class OverlapCommandTests(unittest.TestCase):
             "units use, or record an owner-approved exceptions entry "
             "{rule, path, reason}"
         )
+
+    def test_a_language_without_a_cutoff_does_not_run_but_yields_candidates(
+        self,
+    ) -> None:
+        files = {
+            "src/billing/report.ts": SCRIPT_COPY,
+            "src/shipping/summary.ts": SCRIPT_COPY,
+            "src/billing/report.go": GO_COPY,
+            "src/shipping/summary.go": GO_COPY,
+        }
+        repo, base, head = self.repository({"head": files})
+        assert overlap.run(repo, {}, ["--base", base, "--head", head]) == []
+        for language, suffix in (("typescript", "ts"), ("go", "go")):
+            with self.subTest(language=language):
+                pairs = overlap.overlap_candidates(repo, head, language, [])
+                assert [
+                    (pair.score, pair.first.file, pair.second.file)
+                    for pair in pairs
+                    if pair.score == 1.0
+                ] == [
+                    (
+                        1.0,
+                        f"src/billing/report.{suffix}",
+                        f"src/shipping/summary.{suffix}",
+                    )
+                ]
+                assert {pair.first.language for pair in pairs} == {language}
 
     def test_unreadable_commits_are_a_finding(self) -> None:
         repo, base, _ = self.repository(FIXTURE["cases"][0])

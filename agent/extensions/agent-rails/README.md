@@ -71,6 +71,8 @@ config does not allow, ask the owner where the config says `ask`, and prove a PR
   outside its folder
 - [docs/engine.md](docs/engine.md): the `guardrails` engine: how to run it, its layers,
   adapters, configuration and language coverage
+- [docs/structure-languages.md](docs/structure-languages.md): what each structure rule checks in
+  Python, TypeScript and Go
 - [references/judgments.md](references/judgments.md),
   [references/proofs-and-merge.md](references/proofs-and-merge.md) and
   [references/structure-and-naming.md](references/structure-and-naming.md): the rules refusals cite

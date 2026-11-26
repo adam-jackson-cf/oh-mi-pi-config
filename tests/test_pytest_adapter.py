@@ -23,8 +23,11 @@ from test_agentrails_fixture import config, write_config
 
 from guardrails.commands import cli
 from guardrails.commands.adapters import pytest as adapter
-from guardrails.commands.adapters.pytest import guards, symbol_usage
-from guardrails.commands.adapters.pytest.cases import collect as collect_cases
+from guardrails.commands.adapters.pytest import guards, mutation, symbol_usage
+from guardrails.commands.adapters.pytest.cases import (
+    CollectionError,
+    collect as collect_cases,
+)
 from guardrails.commands.adapters.pytest.dialect import DIALECT
 from guardrails.commands.test_evidence import propagation
 from guardrails.foundation.findings import Finding
@@ -290,6 +293,13 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
         production = {"shop/cart.py": "def unused():\n    pass\n"}
         assert self.findings(production) == []
 
+    def test_concatenated_and_escaped_strings_count_as_production_use(self) -> None:
+        production = {
+            **self.PRODUCTION,
+            "shop/__init__.py": "__all__ = ['reset_cache_' 'for_tests', 'Bas\\x6bet']\n",
+        }
+        assert self.findings(production) == []
+
 
 def adapter_lint_rules() -> list[dict[str, Any]]:
     patterns: list[dict[str, Any]] = json.loads(
@@ -304,6 +314,59 @@ class ExtraTests(unittest.TestCase):
         assert set(collected.behaviours) == {
             "tests/test_shop.py::FastPrices::test_price_doubles",
             "tests/test_shop.py::SlowPrices::test_price_of_zero",
+        }
+
+
+def fingerprints(source: str) -> dict[str, str]:
+    collected = collect_cases("tests/test_cart.py", source)
+    return {
+        case.selector.split("::", 1)[1]: case.fingerprint for case in collected.cases
+    }
+
+
+class StaticCaseTests(unittest.TestCase):
+    def test_formatting_renamed_locals_and_temporaries_share_one_fingerprint(
+        self,
+    ) -> None:
+        found = fingerprints(DUPLICATE_SHAPES)
+        assert (
+            found["test_direct"]
+            == found["test_formatted"]
+            == found["test_temporary_and_renamed"]
+        )
+        assert found["test_tab_escape"] == found["test_hex_escape"]
+        assert found["test_other_value"] != found["test_direct"]
+
+    def test_parametrize_ids_resolve_module_constants_and_folded_values(self) -> None:
+        collected = collect_cases("tests/test_cart.py", PARAMETRIZED_SHAPES)
+        assert [case.selector.split("::", 1)[1] for case in collected.cases] == [
+            "test_totals[row-one]",
+            "test_totals[Two]",
+            "test_sizes[True-0]",
+            "test_sizes[True-1]",
+            "test_sizes[unset-0]",
+            "test_sizes[unset-1]",
+            "test_sizes[a\\tb-0]",
+            "test_sizes[a\\tb-1]",
+        ]
+
+    def test_unparsable_test_file_is_a_collection_error(self) -> None:
+        with pytest.raises(
+            CollectionError, match=r"cannot parse tests/test_cart\.py as python: line 1"
+        ):
+            collect_cases("tests/test_cart.py", "def test_broken(:\n    pass\n")
+
+    def test_mutation_spans_run_from_the_first_decorator_to_the_last_statement(
+        self,
+    ) -> None:
+        source = (
+            "import functools\n\n\n@functools.cache\ndef total(items):\n"
+            "    return sum(items)\n    # trailing note\n\n\n"
+            "class Account:\n    @property\n    def balance(self):\n        return 0\n"
+        )
+        assert mutation.spans("src/ledger.py", source) == {
+            (None, "total"): (4, 6),
+            ("Account", "balance"): (11, 13),
         }
 
 
@@ -339,6 +402,58 @@ class PriceCase(unittest.TestCase):
 class SlowPrices(PriceCase):
     def test_price_of_zero(self):
         self.assertEqual(price(0), 0)
+"""
+
+DUPLICATE_SHAPES = """\
+from shop.cart import total as add_up
+
+
+def test_direct():
+    assert add_up([1, 2]) == 3
+
+
+def test_formatted():
+    assert (add_up(
+        [1, 2,],
+    ) == (3))  # same call and assertion
+
+
+def test_temporary_and_renamed():
+    items = [1, 2]
+    result = add_up(items)
+    assert result == 3
+
+
+def test_other_value():
+    assert add_up([1, 3]) == 3
+
+
+def test_tab_escape():
+    assert add_up(["a\\tb"]) == 3
+
+
+def test_hex_escape():
+    assert add_up(['a\\x09b']) == 3
+"""
+
+PARAMETRIZED_SHAPES = """\
+import pytest
+
+LABEL = "row"
+NAMES = "items, expected"
+ROWS = [([1], 1), ([2], 2)]
+COUNT = len("ab")
+
+
+@pytest.mark.parametrize(NAMES, ROWS, ids=[f"{LABEL}-one", "two".replace("t", "T")])
+def test_totals(items, expected):
+    assert sum(items) == expected
+
+
+@pytest.mark.parametrize("size", range(COUNT))
+@pytest.mark.parametrize("flag", [True, pytest.param(None, id="unset"), "a\\tb"])
+def test_sizes(size, flag):
+    assert size >= 0
 """
 
 if __name__ == "__main__":

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -9,13 +8,18 @@ from typing import TYPE_CHECKING, Any
 from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
+from guardrails.commands.adapters.pytest.syntax import (
+    import_map,
+    pattern_root,
+    string_value,
+)
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import tests_settings
 from guardrails.context.config.suite_files import Suite, adapter_suite, in_suite
 from guardrails.foundation.findings import Finding, Remediation, remediation
 
 if TYPE_CHECKING:
-    from ast_grep_py import Config, SgNode
+    from guardrails.foundation.source.tree import Config, SgNode
 
 DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
 PATTERNS_FILE = "pytest-patterns.json"
@@ -97,39 +101,11 @@ def python_files(repo: Path, argv: list[str]) -> list[str]:
     )
 
 
-def import_map(source: str) -> dict[str, str]:
-    try:
-        tree = ast.parse(source)
-    except SyntaxError:
-        return {}
-    names: dict[str, str] = {}
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.asname:
-                    names[alias.asname] = alias.name
-                else:
-                    top = alias.name.split(".")[0]
-                    names[top] = top
-        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
-            for alias in node.names:
-                names[alias.asname or alias.name] = f"{node.module}.{alias.name}"
-    return names
-
-
-def string_value(text: str) -> str | None:
-    try:
-        value = ast.literal_eval(text)
-    except (ValueError, SyntaxError):
-        return None
-    return value if isinstance(value, str) else None
-
-
 def resolve(node: SgNode, imports: dict[str, str]) -> str | None:
     kind = node.kind()
     text = node.text()
     if kind == "string":
-        return string_value(text)
+        return string_value(node)
     if kind not in {"identifier", "attribute"}:
         return None
     head, _, rest = text.partition(".")
@@ -190,13 +166,11 @@ def owned_target(
 def file_findings(
     path: str, source: str, patterns: list[Pattern], owned: frozenset[str]
 ) -> list[Finding]:
-    from ast_grep_py import SgRoot
-
     roots = {
-        False: SgRoot(source, "python").root(),
-        True: SgRoot(inline_bindings(source, "python"), "python").root(),
+        False: pattern_root(source),
+        True: pattern_root(inline_bindings(source, "python")),
     }
-    imports = import_map(source)
+    imports = import_map(path, source)
     findings: list[Finding] = []
     for pattern in patterns:
         root = roots[pattern.name in INLINED_PATTERNS]

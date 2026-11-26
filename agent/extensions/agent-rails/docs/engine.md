@@ -206,7 +206,9 @@ and YAML must invoke that pinned formatter.
 
 Convention packs (`engine/data/conventions/`) against the verification layers. The
 `tooling` pack holds no source code, so only its fixed names apply. A repository declares
-one adapter per framework it uses, so one stack can use several adapters.
+one adapter per framework it uses, so one stack can use several adapters. The structure rules
+read Python, TypeScript and Go through one tree-sitter layer (`guardrails/foundation/source/`);
+[structure-languages.md](structure-languages.md) lists what each rule covers per language.
 
 | Layer       | python          | typescript                 | go           | shell                |
 | ----------- | --------------- | -------------------------- | ------------ | -------------------- |

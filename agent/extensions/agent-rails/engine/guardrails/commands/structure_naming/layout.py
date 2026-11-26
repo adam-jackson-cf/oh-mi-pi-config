@@ -4,9 +4,15 @@ import ast
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure_naming import package_placement
+from guardrails.commands.structure_naming.go_placement import go_file_findings
 from guardrails.commands.structure_naming.import_direction import native_findings
 from guardrails.commands.structure_naming.import_graph import import_graph_findings
+from guardrails.commands.structure_naming.package_placement import (
+    package_file_findings,
+)
+from guardrails.commands.structure_naming.script_placement import (
+    script_file_findings,
+)
 from guardrails.context import scope
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
@@ -212,9 +218,16 @@ def path_findings(
 
 
 def package_placement_findings(
-    paths: list[str], inventory: list[str], config: dict[str, Any]
+    root: Path, paths: list[str], inventory: list[str], config: dict[str, Any]
 ) -> list[Finding]:
-    return package_placement.package_file_findings(paths, inventory, config)
+    found: dict[tuple[str, str], Finding] = {}
+    for finding in [
+        *package_file_findings(paths, inventory, config),
+        *script_file_findings(root, paths, inventory, config),
+        *go_file_findings(root, paths, inventory, config),
+    ]:
+        found.setdefault((finding.rule_id, finding.path), finding)
+    return list(found.values())
 
 
 def configuration_findings(options: dict[str, Any]) -> list[Finding]:
@@ -266,7 +279,9 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 )
             )
             found.extend(forbidden_import_findings(root, paths, options))
-            found.extend(package_placement_findings(paths, selected.inventory, config))
+            found.extend(
+                package_placement_findings(root, paths, selected.inventory, config)
+            )
             found.extend(native_findings(root, paths, config))
     except InventoryError as error:
         return [placement(".", str(error), "provide a readable Git snapshot")]

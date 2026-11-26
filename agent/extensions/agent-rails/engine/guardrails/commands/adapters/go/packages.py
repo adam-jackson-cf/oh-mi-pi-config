@@ -113,6 +113,6 @@ def described_package(item: dict[str, object], root: Path) -> Package:
     tests: dict[str, str] = {}
     for name in names:
         path = f"{relative}/{name}" if relative != "." else name
-        for test in defined_tests((directory / name).read_text(encoding="utf-8")):
+        for test in defined_tests(path, (directory / name).read_text(encoding="utf-8")):
             tests.setdefault(test, path)
     return Package(str(item.get("ImportPath", "")), relative, tests)

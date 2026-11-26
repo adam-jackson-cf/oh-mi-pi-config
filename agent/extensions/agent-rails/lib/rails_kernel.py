@@ -1546,7 +1546,6 @@ def _harness_check_findings(
             [
                 sys.executable,
                 "-I",
-                "-S",
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                 "from guardrails.commands.cli import main; raise SystemExit(main())",
@@ -3000,7 +2999,6 @@ def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
         [
             sys.executable,
             "-I",
-            "-S",
             "-c",
             "import sys; sys.path.insert(0, sys.argv.pop(1)); "
             "from guardrails.commands.cli import main; raise SystemExit(main())",
