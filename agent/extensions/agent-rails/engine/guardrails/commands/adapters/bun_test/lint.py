@@ -22,12 +22,9 @@ BUN = Vocabulary(
     }),
     evasion_flags=frozenset({
         "skip",
-        "skipIf",
-        "if",
         "only",
         "failing",
         "todo",
-        "todoIf",
         "retry",
     }),
     skipping_registrars=frozenset({"xtest", "xit", "xdescribe"}),

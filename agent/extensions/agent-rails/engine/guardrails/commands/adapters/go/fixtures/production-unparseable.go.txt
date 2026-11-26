@@ -1,0 +1,5 @@
+package shop
+
+func Region( string {
+	return "eu"
+}

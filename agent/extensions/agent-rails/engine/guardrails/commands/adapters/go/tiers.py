@@ -21,7 +21,7 @@ from guardrails.context.config.adapter_declarations import adapter_tiers
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list
-from guardrails.foundation.source.go import TEST_NAME, TEST_SUFFIX
+from guardrails.foundation.source.go import TEST_NAME, test_suffixes
 from guardrails.host.process import run_text
 
 
@@ -134,5 +134,5 @@ def affected_arguments(
         folders = sorted({PurePosixPath(path).parent.as_posix() for path in paths})
         return [*selector_arguments(str(selector)), *package_patterns(folders)]
 
-    command = TierCommand(NAME, (TEST_SUFFIX,), t2_arguments)
+    command = TierCommand(NAME, test_suffixes(), t2_arguments)
     return print_affected(repo, config, command, base, head)

@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import tomllib
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -23,6 +22,7 @@ from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.foundation.source import modules, python, tree
+from guardrails.foundation.source.tree import SourceError
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -240,27 +240,7 @@ def manifest_targets(path: str, text: str) -> list[tuple[str, str]]:
                 r"""['"]?([\w.-]+)\s*=\s*([\w.]+)\s*:\s*([\w.]+)""", text
             )
         ]
-    try:
-        data = tomllib.loads(text)
-    except tomllib.TOMLDecodeError:
-        return []
-    project = data.get("project", {})
-    poetry = data.get("tool", {}).get("poetry", {})
-    found = []
-    for section in (
-        project.get("scripts", {}),
-        project.get("gui-scripts", {}),
-        poetry.get("scripts", {}),
-    ):
-        for key, value in (section or {}).items():
-            target = (
-                value.get("reference", value.get("callable", ""))
-                if isinstance(value, dict)
-                else value
-            )
-            if isinstance(target, str):
-                found.append((key, target))
-    return found
+    return modules.project_scripts(path, text)
 
 
 def project_scripts(tree: dict[str, str]) -> dict[str, list[str]]:
@@ -445,6 +425,16 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         found = consumer_candidates(
             tree, changed_paths(repo, args.base, args.head, "AMR"), config
         )
+    except SourceError as error:
+        return [
+            Finding(
+                RULE,
+                ".",
+                f"cannot read the project scripts: {error}",
+                "repair the manifest so its project scripts can be read, then run "
+                "consumer-candidates again",
+            )
+        ]
     except (DiffError, ValueError) as error:
         return [
             Finding(

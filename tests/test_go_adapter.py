@@ -18,11 +18,10 @@ from guardrails.checker.growth import Snapshot, growth_findings
 from guardrails.commands.adapters.go.cases import collect
 from guardrails.commands.adapters.go.mutation import normalise
 from guardrails.commands.adapters.go.packages import build_arguments
-from guardrails.commands.adapters.go.syntax import imports
 from guardrails.commands.adapters.go.tiers import flag_value, listed_names, top_level
 from guardrails.commands.adapters.go.toolchain import package_patterns
 from guardrails.context.config.adapter_declarations import installed
-from guardrails.foundation.source import tree
+from guardrails.foundation.source import go, tree
 
 pytestmark = pytest.mark.fast
 
@@ -46,7 +45,7 @@ def stream(*lines: str) -> str:
 
 def source(path: str, text: str) -> go_lint.Source:
     root = tree.tolerant_tree(text, "go")
-    return go_lint.Source(path, root, imports(root))
+    return go_lint.Source(path, root, go.import_aliases(root))
 
 
 OWNED = ("example.com/shop/shop",)
@@ -260,6 +259,19 @@ func helper() {}
         )
         first, second = collected.cases
         assert first.fingerprint == second.fingerprint
+
+    def test_renamed_locals_and_comments_keep_the_fingerprint(self) -> None:
+        collected = collect(
+            "tests/total_test.go",
+            "package tests\n\n"
+            "func TestOneTotal(t *T) {\n\ttotal := sum(1, 2)\n\tt.Log(total)\n}\n\n"
+            "func TestTwoTotal(check *T) {\n\t// the same path\n\tvalue := sum(1, 2)\n"
+            "\tcheck.Log(value)\n}\n\n"
+            "func TestOtherTotal(t *T) {\n\ttotal := sum(1, 3)\n\tt.Log(total)\n}\n",
+        )
+        first, second, other = (case.fingerprint for case in collected.cases)
+        assert first == second
+        assert first != other
 
     def test_listing_reads_go_test_list_output_per_package(self) -> None:
         text = stream(

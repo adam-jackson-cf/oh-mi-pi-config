@@ -1,0 +1,5 @@
+import { resetCache } from './settings';
+
+export function warm(): number {
+  return resetCache();
+}

@@ -36,6 +36,11 @@ SENTINELS = frozenset({
     "...",
 })
 PLACEHOLDER = re.compile(r"<[^<>\n]+>|\bTBD\b|\bTODO\b", re.IGNORECASE)
+# tests.public_entry_points: each owned package (a Python package, a folder or a
+# package.json name) mapped to "<module>:<symbol>", the module as the package's language
+# names it (a dotted Python module, a TypeScript file path or package name, a Go import
+# path) and the top-level name importers call.
+ENTRY_POINT = re.compile(r"(?P<module>[^\s:]+):(?P<symbol>[A-Za-z_$][\w$]*)")
 
 
 class ConfigValueError(Exception):
@@ -58,7 +63,7 @@ ADAPTER = {
 }
 SCHEMA: dict[str, Any] = {
     "tiers": {"t1": TIER, "t2": TIER, "t3": TIER},
-    "public_entry_points": "map",
+    "public_entry_points": "entry_points",
     "run_events": {
         "commit": "text",
         "ci": "text",
@@ -332,6 +337,19 @@ def map_problem(value: object) -> str | None:
     return placeholder_problem(value)
 
 
+def entry_points_problem(value: object) -> str | None:
+    problem = map_problem(value)
+    if problem is not None or not isinstance(value, dict):
+        return problem
+    for package, entry in value.items():
+        if not isinstance(entry, str) or ENTRY_POINT.fullmatch(entry) is None:
+            return (
+                f"maps {package!r} to {entry!r}; each owned package maps to its public "
+                "entry point as '<module>:<symbol>'"
+            )
+    return None
+
+
 def object_problem(value: object) -> str | None:
     return None if isinstance(value, dict) else "must be an object"
 
@@ -352,6 +370,7 @@ LEAF_CHECKS: dict[str, Callable[[object], str | None]] = {
     "text": text_problem,
     "texts": texts_problem,
     "map": map_problem,
+    "entry_points": entry_points_problem,
     "object": object_problem,
     "list": list_problem,
 }

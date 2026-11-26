@@ -13,18 +13,47 @@
       "any": [
         {
           "kind": "decorator",
-          "regex": "^@\\s*((pytest\\.)?mark\\.(skip|skipif|xfail|flaky)|(unittest\\.)?(skip|skipIf|skipUnless|expectedFailure)|flaky)\\b"
+          "regex": "^@\\s*((pytest\\.)?mark\\.(skip|xfail|flaky)|(unittest\\.)?(skip|expectedFailure)|flaky)\\b"
         },
         {
           "kind": "call",
           "has": {
             "field": "function",
-            "regex": "^(pytest\\.(skip|xfail|importorskip)|self\\.skipTest)$"
+            "regex": "^pytest\\.xfail$"
+          }
+        },
+        {
+          "kind": "call",
+          "has": {
+            "field": "function",
+            "regex": "^(pytest\\.skip|self\\.skipTest)$"
+          },
+          "inside": {
+            "kind": "expression_statement",
+            "any": [
+              {
+                "inside": {
+                  "kind": "module"
+                }
+              },
+              {
+                "inside": {
+                  "kind": "block",
+                  "inside": {
+                    "kind": "function_definition",
+                    "has": {
+                      "field": "name",
+                      "regex": "^(test|setUp)"
+                    }
+                  }
+                }
+              }
+            ]
           }
         },
         {
           "kind": "assignment",
-          "regex": "^pytestmark\\s*=[\\s\\S]*mark\\.(skip|skipif|xfail|flaky)\\b"
+          "regex": "^pytestmark\\s*=[\\s\\S]*mark\\.(skip|xfail|flaky)\\b"
         }
       ]
     }

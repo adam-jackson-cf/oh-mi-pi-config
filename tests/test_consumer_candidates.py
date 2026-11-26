@@ -24,6 +24,7 @@ from test_agentrails_fixture import config, write_config
 
 from guardrails.commands.structure_naming import consumer_candidates
 from guardrails.context import changes
+from guardrails.foundation.source.tree import SourceError
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
@@ -117,7 +118,8 @@ class ImportReadingTests(unittest.TestCase):
             ("b", "p.g:f"),
             ("c", "p.c:f"),
         ]
-        assert consumer_candidates.manifest_targets("pyproject.toml", "a = = b") == []
+        with pytest.raises(SourceError, match="pyproject.toml"):
+            consumer_candidates.manifest_targets("pyproject.toml", "a = = b")
 
     def test_hidden_folders_and_skill_bundles_are_not_candidates(self) -> None:
         bundle = {"skills/SKILL.md": ""}

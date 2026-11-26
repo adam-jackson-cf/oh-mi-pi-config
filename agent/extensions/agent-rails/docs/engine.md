@@ -107,8 +107,9 @@ Pass those arguments to the repository's Vitest command together with its tier
 selector. `guard-evidence <report> --tier t1` verifies the recorded guard evidence.
 The harness setup covers setup, call and teardown, including swallowed guard
 errors; collection, reports and reporter shims remain outside the checkout.
-`adapter vitest conformance` runs the canonical cases using the installed native runner;
-missing dependencies fail rather than silently skipping a case.
+`adapter vitest conformance` runs the canonical cases using the installed native runner.
+Without it, one `GUARDRAILS.adapter-prerequisite` finding names the missing dependency, and
+only the source and static cases run.
 
 Vitest mutation evidence uses `@stryker-mutator/core@9.4.0` JSON reports.
 `adapter vitest mutation-report --input <stryker.json> --out <external report>` converts
@@ -166,7 +167,8 @@ or patterns such as `./cmd/...`.
   `mutation-report --input <gremlins.json>` converts its `--output` JSON.
 
 `adapter go conformance` passes every canonical case. It needs Go on `PATH`;
-without it every case fails.
+without it, one `GUARDRAILS.adapter-prerequisite` finding names the missing toolchain, and
+only the source and static cases run.
 
 Each finding prints as `path: RULE: message; fix`. A finding about the repo
 config names the section, e.g. `.agentrails/config.json#tests`. The exit code is

@@ -286,6 +286,23 @@ class GoImportTests(RepoCase):
         assert self.rule(files, GO_CONFIG, TIER) == {"svc/internal/store"}
         assert self.rule(files, GO_CONFIG, DIRECTION) == set()
 
+    def test_files_the_go_tool_ignores_are_not_part_of_the_graph(self) -> None:
+        ignored = "//go:build ignore\n\n" + go_source("orders", internal("api/http"))
+        files = {
+            **GO_BASE,
+            "svc/internal/store/orders/gen.go": ignored,
+            "svc/internal/store/orders/testdata/fixture.go": go_source(
+                "fixture", internal("api/http")
+            ),
+            "svc/internal/store/orders/_draft/draft.go": go_source(
+                "draft", internal("api/http")
+            ),
+        }
+        assert self.rule(files, GO_CONFIG, DIRECTION) == set()
+        assert (
+            self.direction(files, "svc/internal/store/orders/gen.go", GO_CONFIG) == []
+        )
+
     def test_tier_readership(self) -> None:
         violating = {
             **GO_BASE,

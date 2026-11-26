@@ -93,7 +93,7 @@ class BunSourceLintTests(unittest.TestCase):
             run_text(["git", "init", "-q", str(repo)], check=True, timeout=60)
             repo_config = {
                 "tests": {
-                    "public_entry_points": {"shop/core.js": ["checkout"]},
+                    "public_entry_points": {"shop": "shop/core.js:checkout"},
                     "adapters": [
                         {"name": "bun_test", "tiers": {"t1": {"location": "tests"}}}
                     ],

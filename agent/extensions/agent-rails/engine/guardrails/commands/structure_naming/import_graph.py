@@ -62,7 +62,9 @@ def import_settings(config: dict[str, Any]) -> ImportSettings | None:
 
 def graph_language(path: str) -> str | None:
     language = language_of(path)
-    return None if language == "go" and go.is_test_file(path) else language
+    if language == "go" and (go.is_test_file(path) or not go.built_path(path)):
+        return None
+    return language
 
 
 @dataclass(frozen=True)
@@ -171,6 +173,8 @@ class Reader:
 
     def go_edges(self, path: str) -> list[Edge]:
         tree = self.source(path)
+        if go.build_ignored(tree):
+            return []
         manifest = modules.nearest(path, GO_MOD, self.files)
         if manifest is None:
             raise SourceError(f"no {GO_MOD} at or above {path}")

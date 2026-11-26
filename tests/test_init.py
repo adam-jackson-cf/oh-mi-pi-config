@@ -396,6 +396,14 @@ class NativeConfigTests(InitCase):
             else:
                 assert tables[family][name] == contract["value"], rule_id
 
+    def test_an_unreadable_pyproject_is_reported_not_read_as_empty(self) -> None:
+        self.write("pyproject.toml", "[project\nrequires-python = '>=3.11'\n")
+        planned, report = native_python.planned_configs(self.repo, {})
+        assert planned == {}
+        assert report[0].startswith(
+            "native: cannot read pyproject.toml (pyproject.toml:"
+        )
+
     def test_proposes_ruff_and_mypy_from_the_repo_and_data(self) -> None:
         self.write("src/target/__init__.py", "")
         code, output = self.init()

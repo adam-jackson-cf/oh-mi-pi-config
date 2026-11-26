@@ -250,6 +250,12 @@ global mode in `judgments/<judgment>/thresholds.json`.
 - `tiers.<tier>` holds only the `command` that runs every framework in the tier.
 - `adapters` has one entry per test framework (`pytest`, `vitest`, `bun_test`, `go`). Each
   gives a native `selector` and `location` for every tier it takes part in.
+- `public_entry_points` maps each owned package to its public entry point as
+  `"<package>": "<module>:<symbol>"`, for example `{"ledger": "ledger.cli:main"}`. The package
+  is a Python package name, a folder or a package.json `name`; the adapters treat code inside it
+  as owned. The module is named as its language imports it: a dotted Python module, a TypeScript
+  file path or package name, or a Go import path. The symbol is a top-level name that
+  `TEST.no-test-hooks` never reports as used only by tests. Every other form is refused.
 - `fast_tier_budget.machines[]` entries are keyed by the `id` the budget probe reports.
 - `tiers.t3`, `verification_surface`, `identity_artefacts` and
   `run_events.nightly_scheduler` may be `{"none": true}`. Each such exemption needs an

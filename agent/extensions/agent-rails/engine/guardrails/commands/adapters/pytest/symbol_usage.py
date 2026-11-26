@@ -1,138 +1,141 @@
+"""The pytest adapter's part of the shared test-only tally: Python definitions and the
+uses modules.python_references resolves through imports and module attributes."""
+
 from __future__ import annotations
 
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING
 
-from guardrails.commands.adapters.pytest.syntax import (
-    IMPORT_KINDS,
-    NAMES,
-    STRING_KINDS,
-    Role,
-    format_texts,
-    import_aliases,
-    string_texts,
-    walk,
-)
-from guardrails.context.config.reader import tests_settings
+from guardrails.commands.adapters.owned_source import READ_ERRORS, manifest_finding
+from guardrails.commands.adapters.symbol_tally import Defined, Key, Tally
+from guardrails.context.config.entry_points import EntryPoint
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.source.modules import (
+    DOTTED_NAME,
+    PythonIndex,
+    SymbolUse,
+    project_scripts,
+    python_references,
+)
 from guardrails.foundation.source.python import defined
-from guardrails.foundation.source.tree import SourceError, line, named, parse
+from guardrails.foundation.source.tree import line, named, read
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
-RULE = "TEST.no-test-hooks"
-FIX = (
-    "drive the behaviour through a public entry point and delete the symbol, or give it a "
-    "production caller; production code never carries hooks only tests use"
-)
-
+    from guardrails.commands.adapters.owned_source import Source
 
 DEFINITIONS = frozenset({"function_definition", "class_definition"})
-USED = NAMES | {Role.ATTRIBUTE, Role.FUNCTION, Role.CLASS}
 
 
 @dataclass(frozen=True)
-class Definition:
-    path: str
-    name: str
-    line: int
+class Owner:
+    """The Python files of a repository by import name, and the owned packages among the
+    entry points: dotted package names, not the folder paths other languages own."""
+
+    index: PythonIndex
+    packages: frozenset[str]
+
+    def owns(self, path: str) -> bool:
+        return any(self.index.in_package(path, package) for package in self.packages)
 
 
-def parsed(path: str, source: str) -> SgNode | None:
-    try:
-        return parse(path, source)
-    except SourceError:
-        return None
+def owner(points: Iterable[EntryPoint], files: Iterable[str]) -> Owner:
+    packages = frozenset(
+        point.package for point in points if DOTTED_NAME.fullmatch(point.package)
+    )
+    return Owner(PythonIndex(files), packages)
 
 
-def top_level(root: SgNode) -> list[tuple[SgNode, SgNode]]:
+PRIVATE_PREFIX = "_"
+
+
+def top_level(root: SgNode) -> list[tuple[SgNode, SgNode, str]]:
+    """Each public top-level function and class: its statement, definition and name."""
+    found = []
+    for statement in named(root):
+        node = defined(statement)
+        name = node.field("name")
+        if (
+            node.kind() in DEFINITIONS
+            and name is not None
+            and not name.text().startswith(PRIVATE_PREFIX)
+        ):
+            found.append((statement, node, name.text()))
+    return found
+
+
+def definitions(production: Mapping[str, Source]) -> dict[Key, Defined]:
+    found: dict[Key, Defined] = {}
+    for path, source in production.items():
+        for statement, node, name in top_level(source.root):
+            span = (statement.range().start.index, statement.range().end.index)
+            found[path, name] = Defined(line(node), span)
+    return found
+
+
+def public_entries(points: Iterable[EntryPoint], index: PythonIndex) -> list[Key]:
     return [
-        (node, name)
-        for node in map(defined, named(root))
-        if node.kind() in DEFINITIONS and (name := node.field("name")) is not None
+        found
+        for point in points
+        if (found := index.symbol(f"{point.module}.{point.symbol}", "", relative=False))
     ]
 
 
-def definitions(path: str, root: SgNode) -> list[Definition]:
-    return [
-        Definition(path, name.text(), line(node))
-        for node, name in top_level(root)
-        if not name.text().startswith("_")
-    ]
+@dataclass(frozen=True)
+class ScriptManifests:
+    """The pyproject.toml files whose declared scripts are production uses, and the
+    config's entry points: what reaches production code from outside its source."""
+
+    repo: Path
+    manifests: list[str]
+    points: Iterable[EntryPoint]
 
 
-def node_names(node: SgNode, role: Role, skip: frozenset[SgNode]) -> list[str]:
-    kind = node.kind()
-    if kind == "identifier":
-        return [node.text()] if role in USED and node not in skip else []
-    if kind in IMPORT_KINDS:
-        return [
-            part
-            for _, _, original in import_aliases(node)
-            for part in original.split(".")
-        ]
-    if kind == "format_specifier":
-        return format_texts(node)
-    parent = node.parent() if kind == "string" else None
-    if kind in STRING_KINDS and (
-        parent is None or parent.kind() != "concatenated_string"
-    ):
-        return string_texts(node)
-    return []
-
-
-def used_names(root: SgNode, *, skip: frozenset[SgNode] = frozenset()) -> set[str]:
-    names: set[str] = set()
-    for node, role in walk(root):
-        names.update(node_names(node, role, skip))
-    return names
-
-
-def entry_point_symbols(config: dict[str, Any]) -> set[str]:
-    entries = tests_settings(config, "public_entry_points")
-    symbols = set()
-    for value in entries.values() if isinstance(entries, dict) else []:
-        text = str(value)
-        if ":" in text:
-            symbols.add(text.rsplit(":", 1)[1].split(".")[0].strip())
-        else:
-            symbols.add(text.rsplit(".", 1)[-1].strip())
-    return symbols
+def script_uses(
+    found: ScriptManifests, index: PythonIndex
+) -> tuple[list[tuple[str, SymbolUse]], list[Finding]]:
+    """Each declared script's function, as a use by its manifest, and a finding for each
+    manifest that does not read."""
+    uses: list[tuple[str, SymbolUse]] = []
+    problems: list[Finding] = []
+    for manifest in found.manifests:
+        try:
+            scripts = project_scripts(manifest, read(found.repo, manifest))
+        except READ_ERRORS as error:
+            problems.append(manifest_finding(manifest, error))
+            continue
+        for _, target in scripts:
+            module, _, function = target.partition(":")
+            name = f"{module.strip()}.{function.strip().partition('.')[0]}"
+            symbol = index.symbol(name, manifest, relative=False)
+            if symbol is not None:
+                uses.append((manifest, SymbolUse(symbol[0], symbol[1], -1)))
+    return uses, problems
 
 
 def test_only_findings(
-    production: dict[str, str],
-    tests: dict[str, str],
-    config: dict[str, Any],
-    reported: set[str],
+    sources: Mapping[str, Source],
+    is_test: Callable[[str], bool],
+    reported: Collection[str],
+    index: PythonIndex,
+    outside: ScriptManifests,
 ) -> list[Finding]:
-    defined_symbols: list[Definition] = []
-    production_uses: set[str] = set()
-    for path, source in production.items():
-        root = parsed(path, source)
-        if root is None:
-            continue
-        own = frozenset(name for _, name in top_level(root))
-        production_uses |= used_names(root, skip=own)
-        if path in reported:
-            defined_symbols.extend(definitions(path, root))
-    test_uses: dict[str, str] = {}
-    for path, source in sorted(tests.items()):
-        root = parsed(path, source)
-        for name in used_names(root) if root is not None else set():
-            test_uses.setdefault(name, path)
-    public = entry_point_symbols(config)
-    return [
-        Finding(
-            RULE,
-            item.path,
-            f"line {item.line}: production symbol '{item.name}' is used only by tests "
-            f"({test_uses[item.name]})",
-            FIX,
-        )
-        for item in defined_symbols
-        if item.name in test_uses
-        and item.name not in production_uses
-        and item.name not in public
-    ]
+    production = {path: source for path, source in sources.items() if not is_test(path)}
+    tally = Tally(definitions(production))
+    references = {
+        path: python_references(path, source.root, index)
+        for path, source in sources.items()
+    }
+    tally.reexports.update(
+        (path, list(found.reexports)) for path, found in references.items()
+    )
+    for path in sorted(references):
+        tally.record(path, references[path].uses, test=is_test(path))
+    scripts, problems = script_uses(outside, index)
+    for manifest, use in scripts:
+        tally.record(manifest, [use], test=False)
+    public = tally.public(public_entries(outside.points, index))
+    return [*problems, *tally.findings(reported, public)]

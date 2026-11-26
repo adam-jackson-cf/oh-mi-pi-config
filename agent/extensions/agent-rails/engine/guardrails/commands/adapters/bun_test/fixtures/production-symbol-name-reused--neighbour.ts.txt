@@ -1,0 +1,5 @@
+const cache = { resetCache(): number { return 0; } };
+
+export function warm(): number {
+  return cache.resetCache();
+}

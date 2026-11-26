@@ -13,6 +13,7 @@ from guardrails.context.config.suite_files import is_test_file
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import matches_any
 
+WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
 GROWTH = "TEST.growth.justified"
 DUPLICATE = "TEST.duplicate-path"
 BEHAVIOUR_FIX = "name the test after the behavior it proves, or remove the test"
@@ -51,6 +52,18 @@ class FrameworkCollector:
     locations: tuple[str, ...]
     suffixes: tuple[str, ...]
     collect: Collector
+
+
+def name_words(name: str) -> list[str]:
+    """The lowercase words of an identifier, split at underscores, case changes and digits
+    (snake_case, camelCase and PascalCase alike)."""
+    return [word.lower() for word in WORD.findall(name)]
+
+
+def behaviour_name(name: str, prefix: str) -> str:
+    """A test function's behavior name: its words after the framework's test prefix, so
+    test_adds_item, testAddsItem and TestAddsItem all name 'adds item'."""
+    return " ".join(name_words(name.removeprefix(prefix)))
 
 
 def framework_collectors(config: dict[str, Any]) -> list[FrameworkCollector]:

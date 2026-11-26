@@ -17,8 +17,6 @@ VITEST = Vocabulary(
     }),
     evasion_flags=frozenset({
         "skip",
-        "skipIf",
-        "runIf",
         "only",
         "fails",
         "todo",

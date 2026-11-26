@@ -1,0 +1,6 @@
+import { test, expect } from 'vitest';
+import { resetCache } from '../shop/settings';
+
+test('reset empties the cache', () => {
+  expect(resetCache()).toBe(0);
+});

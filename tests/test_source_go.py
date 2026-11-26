@@ -139,5 +139,73 @@ class DirectiveTests(unittest.TestCase):
         assert not go.is_test_file("pkg/test.go")
 
 
+class FileSetTests(unittest.TestCase):
+    def test_built_paths_skip_the_folders_and_names_the_go_tool_ignores(self) -> None:
+        built = ["main.go", "shop/cart.go", "shop/cart_test.go", "cmd/x/main.go"]
+        ignored = [
+            "shop/testdata/fixture.go",
+            "vendor/x/y.go",
+            "_tools/gen.go",
+            ".cache/gen.go",
+            "shop/_draft.go",
+            "shop/.hidden.go",
+            "shop/cart.ts",
+        ]
+        assert [path for path in built + ignored if go.built_path(path)] == built
+
+    def test_a_build_ignore_file_is_not_built(self) -> None:
+        ignored = parse("shop/gen.go", "//go:build ignore\n\npackage main\n")
+        kept = parse("shop/cart.go", "//go:build linux\n\npackage shop\n")
+        assert not go.built("shop/gen.go", ignored)
+        assert go.built("shop/cart.go", kept)
+
+    def test_test_files_and_suffixes_come_from_the_go_pack(self) -> None:
+        assert go.test_suffixes() == ("_test.go",)
+        assert go.is_test_file("shop/cart_test.go")
+        assert not go.is_test_file("shop/cart_test.go.txt")
+
+
+class ReferenceTests(unittest.TestCase):
+    def test_imported_names_and_own_package_names_are_references(self) -> None:
+        root = parse(
+            "shop/report.go",
+            """package shop
+
+import (
+\tcore "example.com/app/core"
+\t"example.com/app/v2"
+)
+
+type Report struct{ total core.Amount }
+
+func Build(items []Item) Report {
+\tvalue := Sum(items)
+\treturn Report{total: core.Round(value)}
+}
+
+func (r Report) Value() int { return app.Version(r.helper()) }
+""",
+        )
+        found = {(item.import_path, item.name) for item in go.references(root)}
+        assert {
+            ("example.com/app/core", "Amount"),
+            ("example.com/app/core", "Round"),
+            ("example.com/app/v2", "Version"),
+            (None, "Item"),
+            (None, "Sum"),
+            (None, "Report"),
+        } <= found
+        assert (None, "Build") not in found
+        assert (None, "helper") not in found
+        assert (None, "core") not in found
+
+    def test_aliases_follow_the_last_path_element_past_a_major_version(self) -> None:
+        root = parse(
+            "x.go",
+            'package x\n\nimport (\n\t"github.com/a/go-thing/v3"\n\t. "dot"\n\t_ "blank"\n)\n',
+        )
+        assert go.import_aliases(root) == {"thing": "github.com/a/go-thing/v3"}
+
+
 if __name__ == "__main__":
     unittest.main()

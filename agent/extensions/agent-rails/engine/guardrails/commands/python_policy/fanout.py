@@ -17,7 +17,8 @@ from guardrails.checker.python_rules.settings import (
     setting_finding,
 )
 from guardrails.context.config import house_style
-from guardrails.context.config.reader import tests_settings
+from guardrails.context.config.entry_points import packages as entry_point_packages
+from guardrails.context.config.section_schema import ConfigValueError
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import GLOB_CHARACTERS, InventoryError, as_list
 from guardrails.foundation.source import modules, python, tree
@@ -107,8 +108,7 @@ def root_packages(config: dict[str, Any], options: PythonSettings) -> set[str]:
     section = options.mapping("fanout")
     if "root_packages" in section:
         return set(as_list(section["root_packages"]))
-    entry_points = tests_settings(config, "public_entry_points")
-    return set(entry_points) if isinstance(entry_points, dict) else set()
+    return set(entry_point_packages(config))
 
 
 def limits(options: PythonSettings) -> dict[str, Any]:
@@ -131,7 +131,13 @@ def setting_findings(
         for root in roots
         if not GLOB_CHARACTERS & set(root) and not (repo / root).is_dir()
     ]
-    packages = root_packages(config, options)
+    try:
+        packages = root_packages(config, options)
+    except ConfigValueError as error:
+        return [
+            *found,
+            setting_finding(GENERAL, "fanout.root_packages", f"is unset and {error}"),
+        ]
     if not packages or any(not package.isidentifier() for package in packages):
         found.append(
             setting_finding(

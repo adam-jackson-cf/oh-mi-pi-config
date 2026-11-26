@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Framework-agnostic adapter conformance spec. Every adapter implements each case as a fixture in its framework and must classify it as stated. 'evidence' names the layer the adapter produces: source (ast-grep patterns), static-cases (the static test-case collector, checked as if every test function were new), run-report (guarded run plus normalised JUnit report) or collection (collect-only IDs per tier). 'expect' is finding (the rule reports it), clean (the rule does not), or a normalised record or collected IDs the adapter must produce.",
+  "about": "Framework-agnostic adapter conformance spec. Every adapter implements each case as a fixture in its framework and must classify it as stated. 'evidence' names the layer the adapter produces: source (ast-grep patterns), static-cases (the static test-case collector, checked as if every test function were new), run-report (guarded run plus normalised JUnit report) or collection (collect-only IDs per tier). 'expect' is finding (the rule reports it), clean (the rule does not), or a normalised record or collected IDs the adapter must produce. 'companions' names further files a case places beside its fixture, each from the adapter's fixture '<case id>--<role>': 'test' (a test file in the adapter's test folder) and 'neighbour' (a second owned production module).",
   "cases": [
     {
       "id": "self-mocking-dotted-target",
@@ -49,6 +49,13 @@
       "rule": "TEST.no-evasion",
       "evidence": "source",
       "situation": "the same static skip is covered by a reason-backed guardrail exception for its path",
+      "expect": "clean"
+    },
+    {
+      "id": "conditional-runtime-skip",
+      "rule": "TEST.no-evasion",
+      "evidence": "source",
+      "situation": "a test skips only when a runtime condition holds; the run report records that skip, so the source rule reports only unconditional (static) skips",
       "expect": "clean"
     },
     {
@@ -120,6 +127,37 @@
       "evidence": "source",
       "situation": "owned production code reads only real configuration",
       "expect": "clean"
+    },
+    {
+      "id": "production-test-only-symbol",
+      "rule": "TEST.no-test-hooks",
+      "evidence": "source",
+      "situation": "owned production code defines a function that only a test calls",
+      "companions": ["test"],
+      "expect": "finding"
+    },
+    {
+      "id": "production-symbol-production-caller",
+      "rule": "TEST.no-test-hooks",
+      "evidence": "source",
+      "situation": "the function a test calls is also imported and called by another owned production module",
+      "companions": ["test", "neighbour"],
+      "expect": "clean"
+    },
+    {
+      "id": "production-symbol-name-reused",
+      "rule": "TEST.no-test-hooks",
+      "evidence": "source",
+      "situation": "a function only a test calls shares its name with an unrelated member another owned production module calls",
+      "companions": ["test", "neighbour"],
+      "expect": "finding"
+    },
+    {
+      "id": "production-unparseable",
+      "rule": "TEST.no-test-hooks",
+      "evidence": "source",
+      "situation": "an owned production file does not parse; lint reports it instead of skipping it",
+      "expect": "finding"
     },
     {
       "id": "fast-tier-network",

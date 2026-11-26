@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from guardrails.checker.growth import behaviour_name
 from guardrails.commands.adapters.pytest.parametrize import (
     Dimension,
     Scope,
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
 SUFFIXES = (".py",)
+TEST_PREFIX = "test"
 UNITTEST_BASES = frozenset({"unittest.TestCase", "unittest.IsolatedAsyncioTestCase"})
 OPAQUE_KINDS = frozenset({
     "function_definition",
@@ -317,12 +319,10 @@ class Collector:
                     dimensions(decorators(statement), self.scope) + inherited,
                 )
             elif node.kind() == "function_definition" and name.text().startswith(
-                "test"
+                TEST_PREFIX
             ):
                 selector = f"{self.path}::{prefix}{name.text()}"
-                self.behaviours[selector] = (
-                    name.text().removeprefix("test_").replace("_", " ")
-                )
+                self.behaviours[selector] = behaviour_name(name.text(), TEST_PREFIX)
                 found = dimensions(decorators(statement), self.scope) + inherited
                 self.cases.extend(
                     expanded_cases(

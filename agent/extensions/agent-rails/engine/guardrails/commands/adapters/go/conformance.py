@@ -17,6 +17,8 @@ PRODUCTION_FILE = "shop/settings.go"
 RUN_SELECTOR = "-run ."
 GO_IDS = {"tests/test_case.py::test_fast_total": f"{TEST_FILE}::TestFastTotal"}
 RUN_TIERS = {"user-data-write": "t2", "user-data-temporary-home": "t2"}
+COMPANIONS = {"test": TEST_FILE, "neighbour": "shop/neighbour.go"}
+TOOLCHAIN_REMEDY = "install the pinned Go toolchain, or set checkers.adapter_go.command to its go binary"
 BASE_CONFIG: dict[str, Any] = {
     "tests": {
         "adapters": [
@@ -27,7 +29,7 @@ BASE_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop": ["PublicAPI"]},
+        "public_entry_points": {"shop": "example.com/project/shop:PublicAPI"},
         "tiers": {"t1": {"command": "guardrails adapter go run --tier t1"}},
         "layout": {
             "test_file_patterns": ["*_test.go"],
@@ -67,10 +69,9 @@ def build_project(root: Path, case: dict[str, Any]) -> conformance.Project:
     (project / placed).write_text(
         fixture_source(conformance.fixture_case(case["id"])), encoding="utf-8"
     )
+    conformance.place_companions(project, case, COMPANIONS, fixture_source)
     config = copy.deepcopy(BASE_CONFIG)
     config["exceptions"] = conformance.case_exceptions(case, placed)
-    if production:
-        config["tests"]["public_entry_points"][placed] = ["Region"]
     return conformance.Project(root, placed, config)
 
 
@@ -156,28 +157,27 @@ def check_collection(
     return conformance.collection_verdict(case, reported, ids, expected)
 
 
-def run_conformance(
-    case_ids: list[str] | None = None, *, config: dict[str, Any] | None = None
-) -> list[conformance.CaseResult]:
+def harness(config: dict[str, Any]) -> conformance.Harness:
     from guardrails.commands.adapters.go.run import kept_go_environment
 
-    selected = conformance.select_cases(case_ids or [])
-    configured = (config or {}).get("checkers", {}).get("adapter_go", {})
+    configured = config.get("checkers", {}).get("adapter_go", {})
     try:
         kept = kept_go_environment({"checkers": {"adapter_go": configured}})
+        toolchain = {
+            **configured,
+            "command": [str(Path(kept.pop("GOROOT")) / "bin" / "go")],
+        }
+        missing = None
     except (OSError, ValueError, subprocess.SubprocessError) as error:
-        return conformance.failed_cases(selected, str(error))
-    toolchain = {
-        **configured,
-        "command": [str(Path(kept.pop("GOROOT")) / "bin" / "go")],
-    }
+        kept, toolchain = {}, configured
+        missing = conformance.Prerequisite(str(error), TOOLCHAIN_REMEDY)
 
     def build(root: Path, case: dict[str, Any]) -> conformance.Project:
         project = build_project(root, case)
         project.config["checkers"]["adapter_go"] = toolchain
         return project
 
-    harness = conformance.Harness(
+    return conformance.Harness(
         label="the Go adapter",
         prefix="guardrails-go-conformance-",
         build=build,
@@ -187,14 +187,20 @@ def run_conformance(
             "run-report": lambda project, case: check_run(project, case, kept),
             "collection": check_collection,
         },
-        errors=(OSError, ValueError, subprocess.SubprocessError),
+        missing=missing,
     )
-    return conformance.run_cases(harness, selected)
+
+
+def run_conformance(
+    case_ids: list[str] | None = None, *, config: dict[str, Any] | None = None
+) -> list[conformance.CaseResult]:
+    selected = conformance.select_cases(case_ids or [])
+    return conformance.run_cases(harness(config or {}), selected)
 
 
 def run_cases(
     case_ids: list[str], *, config: dict[str, Any] | None = None
 ) -> list[Finding]:
-    return conformance.findings(
-        run_conformance(case_ids, config=config), "the Go adapter"
-    )
+    chosen = harness(config or {})
+    results = conformance.run_cases(chosen, conformance.select_cases(case_ids))
+    return conformance.findings(chosen, results)

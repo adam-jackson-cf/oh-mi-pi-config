@@ -49,7 +49,7 @@ BASE_CONFIG: dict[str, Any] = {
     "checkers": {},
     "exceptions": [],
 }
-PREREQUISITE = "GUARDRAILS.adapter-prerequisite"
+COMPANIONS = {"test": "tests/test_case.py", "neighbour": "shop/neighbour.py"}
 
 
 def bindings() -> dict[str, Any]:
@@ -68,6 +68,11 @@ def fixture_source(name: str) -> str:
     )
 
 
+def fixture_module(name: str) -> str:
+    """A fixture's source by case-style name: case-id--role is case_id__role.py."""
+    return fixture_source(f"{name.replace('-', '_')}.py")
+
+
 def build_project(root: Path, case: dict[str, Any], binding: dict[str, Any]) -> str:
     project = root / "project"
     (project / "shop").mkdir(parents=True)
@@ -84,6 +89,7 @@ def build_project(root: Path, case: dict[str, Any], binding: dict[str, Any]) -> 
         else "tests/test_case.py"
     )
     (project / placed).write_text(fixture_source(fixture), encoding="utf-8")
+    conformance.place_companions(project, case, COMPANIONS, fixture_module)
     return placed
 
 
@@ -212,33 +218,34 @@ def build_case(root: Path, case: dict[str, Any]) -> conformance.Project:
     )
 
 
-HARNESS = conformance.Harness(
-    label="the pytest adapter",
-    prefix="guardrails-conformance-",
-    build=build_case,
-    checks={
-        "source": check_source,
-        "static-cases": check_static_cases,
-        "run-report": check_run,
-        "collection": check_collection,
-    },
-    errors=(),
-)
+def harness() -> conformance.Harness:
+    missing = (
+        conformance.Prerequisite(
+            f"the pytest extra is not installed for {sys.executable}",
+            "run guardrails from an environment that installs guardrails[pytest]",
+        )
+        if importlib.util.find_spec(NAME) is None
+        else None
+    )
+    return conformance.Harness(
+        label="the pytest adapter",
+        prefix="guardrails-conformance-",
+        build=build_case,
+        checks={
+            "source": check_source,
+            "static-cases": check_static_cases,
+            "run-report": check_run,
+            "collection": check_collection,
+        },
+        missing=missing,
+    )
 
 
 def run_conformance(case_ids: list[str]) -> list[conformance.CaseResult]:
-    return conformance.run_cases(HARNESS, conformance.select_cases(case_ids))
+    return conformance.run_cases(harness(), conformance.select_cases(case_ids))
 
 
 def run_cases(case_ids: list[str]) -> list[Finding]:
-    if importlib.util.find_spec(NAME) is None:
-        return [
-            Finding(
-                PREREQUISITE,
-                "conformance",
-                f"the pytest extra is not installed for {sys.executable}, "
-                "so the run-report cases cannot start",
-                "run guardrails from an environment that installs guardrails[pytest]",
-            )
-        ]
-    return conformance.findings(run_conformance(case_ids), HARNESS.label)
+    chosen = harness()
+    results = conformance.run_cases(chosen, conformance.select_cases(case_ids))
+    return conformance.findings(chosen, results)

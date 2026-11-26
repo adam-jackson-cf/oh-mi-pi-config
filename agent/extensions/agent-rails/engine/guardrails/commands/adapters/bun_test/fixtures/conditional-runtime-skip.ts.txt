@@ -1,0 +1,8 @@
+import { test, expect } from 'bun:test';
+
+test.skipIf(!Bun.which('docker'))('total when docker is present', () => {
+  expect(6).toBe(6);
+});
+test.if(Boolean(process.env.VENDOR_READY))('total from the vendor', () => {
+  expect(6).toBe(6);
+});

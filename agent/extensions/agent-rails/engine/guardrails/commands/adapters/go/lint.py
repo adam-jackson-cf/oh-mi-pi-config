@@ -5,18 +5,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.adapters import owned_source
 from guardrails.commands.adapters.go.dialect import XFAIL_PREFIX
 from guardrails.commands.adapters.go.ownership import (
+    GoModules,
     owned_import,
     owned_imports,
     owned_path,
+    owned_roots,
 )
+from guardrails.commands.adapters.go.symbol_usage import test_only_findings
 from guardrails.commands.adapters.go.syntax import (
     arguments,
     call_name,
     first_parameter,
     go_files,
-    imports,
     string_value,
     test_functions,
     walk,
@@ -24,9 +27,7 @@ from guardrails.commands.adapters.go.syntax import (
 )
 from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.context.config.house_style import apply_exceptions
-from guardrails.context.config.reader import tests_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import normalized_path, repo_paths
 from guardrails.foundation.source import go as go_source, tree
 
 if TYPE_CHECKING:
@@ -86,10 +87,6 @@ SELF_MOCKING_FIX = (
 EVASION_FIX = "make the test run and pass, or record an owner-approved exception"
 SEED_FIX = "give quick.Config a Rand built from a fixed seed"
 HOOKS_FIX = "remove the hook; tests must exercise the production path unchanged"
-SYMBOL_FIX = (
-    "drive the behaviour through a public entry point and delete the symbol, or give it a "
-    "production caller; production code never carries hooks only tests use"
-)
 
 
 @dataclass(frozen=True)
@@ -349,94 +346,6 @@ def hook_findings(source: Source) -> list[Finding]:
     ]
 
 
-def declared_names(root: SgNode) -> list[tuple[str, int]]:
-    found = []
-    for node in tree.named(root):
-        if node.kind() == "function_declaration":
-            name = node.field("name")
-            if name is not None and name.text() not in {"main", "init"}:
-                found.append((name.text(), line(name)))
-        if node.kind() == "type_declaration":
-            for spec in tree.named(node):
-                name = spec.field("name")
-                if spec.kind() == "type_spec" and name is not None:
-                    found.append((name.text(), line(name)))
-    return found
-
-
-def definition_starts(root: SgNode) -> frozenset[int]:
-    starts = set()
-    for node in walk(root):
-        if node.kind() in {"function_declaration", "type_spec"}:
-            name = node.field("name")
-            if name is not None:
-                starts.add(name.range().start.index)
-    return frozenset(starts)
-
-
-def used_names(root: SgNode, *, skip_definitions: bool = False) -> set[str]:
-    skipped = definition_starts(root) if skip_definitions else frozenset()
-    return {
-        node.text()
-        for node in walk(root)
-        if node.kind() in NAMES and node.range().start.index not in skipped
-    }
-
-
-def entry_point_symbols(config: dict[str, Any]) -> set[str]:
-    entries = tests_settings(config, "public_entry_points")
-    symbols: set[str] = set()
-    for value in entries.values() if isinstance(entries, dict) else []:
-        items = value if isinstance(value, list) else [value]
-        for item in items:
-            text = str(item)
-            symbols.add(text.rsplit(":", 1)[-1].rsplit(".", 1)[-1].strip())
-    return symbols
-
-
-def test_only_symbols(
-    production: dict[str, Source],
-    tests: dict[str, Source],
-    config: dict[str, Any],
-    reported: set[str],
-) -> list[Finding]:
-    production_uses: set[str] = set()
-    defined: list[tuple[str, str, int]] = []
-    for path, source in production.items():
-        production_uses |= used_names(source.root, skip_definitions=True)
-        if path in reported:
-            defined.extend(
-                (path, name, number) for name, number in declared_names(source.root)
-            )
-    test_uses: dict[str, str] = {}
-    for path, source in sorted(tests.items()):
-        for name in used_names(source.root):
-            test_uses.setdefault(name, path)
-    public = entry_point_symbols(config)
-    return [
-        Finding(
-            HOOKS,
-            path,
-            f"line {number}: production symbol '{name}' is used only by tests ({test_uses[name]})",
-            SYMBOL_FIX,
-        )
-        for path, name, number in defined
-        if name in test_uses and name not in production_uses and name not in public
-    ]
-
-
-def load(repo: Path, path: str) -> Source | None:
-    try:
-        text = (repo / path).read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return None
-    try:
-        root = tree.parse(path, text)
-    except tree.SourceError:
-        return None
-    return Source(path, root, imports(root))
-
-
 def type_names(root: SgNode) -> set[str]:
     specs = [
         spec
@@ -454,32 +363,85 @@ def owned_type_names(sources: dict[str, Source]) -> frozenset[str]:
     )
 
 
-def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
-    every = go_files(repo_paths(repo))
-    chosen = (
-        go_files([item for raw in paths if (item := normalized_path(repo, raw))])
-        if paths
-        else every
-    )
-    owned = owned_imports(repo, config)
-    production: dict[str, Source] = {}
-    tests: dict[str, Source] = {}
-    for path in every:
-        if go_source.is_test_file(path) or owned_path(path, config):
-            source = load(repo, path)
-            if source is not None:
-                (tests if go_source.is_test_file(path) else production)[path] = source
-    owned_types = owned_type_names(production)
+def built_sources(
+    loaded: dict[str, owned_source.Source],
+) -> tuple[dict[str, Source], list[Finding]]:
+    """The loaded files the go tool builds (a //go:build ignore file is no package's
+    source), each with its imports; a file with no package clause is unreadable."""
+    built: dict[str, Source] = {}
     findings: list[Finding] = []
-    reported: set[str] = set()
-    for path in chosen:
-        if path in tests:
-            source = tests[path]
-            findings.extend(self_mocking(source, owned, owned_types))
-            findings.extend(evasion(source))
-            findings.extend(property_seed(source))
-        elif path in production:
-            findings.extend(hook_findings(production[path]))
-            reported.add(path)
-    findings.extend(test_only_symbols(production, tests, config, reported))
+    for path, loaded_source in loaded.items():
+        root = loaded_source.root
+        try:
+            if go_source.build_ignored(root):
+                continue
+        except tree.SourceError as error:
+            test = go_source.is_test_file(path)
+            findings.append(owned_source.unparseable(path, error, test=test))
+            continue
+        built[path] = Source(path, root, go_source.import_aliases(root))
+    return built, findings
+
+
+@dataclass(frozen=True)
+class Scan:
+    """The test and owned Go files a lint run reads, the findings for those it cannot,
+    and the modules and owned folders they resolve in."""
+
+    built: dict[str, Source]
+    unreadable: list[Finding]
+    modules: GoModules
+    roots: tuple[str, ...]
+
+
+def scan(repo: Path, tracked: list[str], roots: tuple[str, ...]) -> Scan:
+    is_test = go_source.is_test_file
+    read = [
+        path for path in go_files(tracked) if is_test(path) or owned_path(path, roots)
+    ]
+    loaded, unreadable = owned_source.load_all(repo, read, is_test)
+    built, broken = built_sources(loaded)
+    return Scan(built, [*unreadable, *broken], GoModules(repo, set(tracked)), roots)
+
+
+def file_lint(
+    source: Source, found: Scan, owned_types: frozenset[str]
+) -> list[Finding]:
+    if go_source.is_test_file(source.path):
+        owned = owned_imports(found.roots, found.modules)
+        return [
+            *self_mocking(source, owned, owned_types),
+            *evasion(source),
+            *property_seed(source),
+        ]
+    return hook_findings(source)
+
+
+def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
+    points = owned_source.configured_entry_points(config)
+    if isinstance(points, Finding):
+        return [points]
+    tracked = owned_source.repository_paths(repo)
+    chosen = set(
+        go_files(owned_source.repository_paths(repo, paths) if paths else tracked)
+    )
+    found = scan(repo, tracked, owned_roots(points))
+    production = {
+        path: item
+        for path, item in found.built.items()
+        if not go_source.is_test_file(path)
+    }
+    owned_types = owned_type_names(production)
+    findings = [item for item in found.unreadable if item.path in chosen]
+    for path in sorted(chosen & found.built.keys()):
+        findings.extend(file_lint(found.built[path], found, owned_types))
+    reported = chosen & production.keys()
+    if reported:
+        trees = {path: item.root for path, item in found.built.items()}
+        findings.extend(
+            test_only_findings(
+                trees, go_source.is_test_file, reported, found.modules, points
+            )
+        )
+    findings.extend(found.modules.problems.values())
     return apply_exceptions(findings, config)

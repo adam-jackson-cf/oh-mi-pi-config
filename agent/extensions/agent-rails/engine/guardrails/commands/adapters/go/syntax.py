@@ -2,22 +2,16 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
-from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
-from guardrails.foundation.source import tree
+from guardrails.checker.growth import name_words
+from guardrails.foundation.source import go, tree
 from guardrails.foundation.source.go import STRING_KINDS, TEST_NAME
 from guardrails.foundation.source.tree import named
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
-
-SOURCE_SUFFIX = ".go"
-SKIPPED_PARTS = frozenset({".git", "vendor", "testdata", "node_modules"})
-VERSION_ELEMENT = re.compile(r"^v\d+$")
-WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
 
 
 def walk(node: SgNode) -> Iterator[SgNode]:
@@ -32,30 +26,8 @@ def string_value(node: SgNode | None) -> str | None:
     return node.text()[1:-1]
 
 
-def default_alias(path: str) -> str:
-    elements = path.split("/")
-    name = elements[-1]
-    if VERSION_ELEMENT.match(name) and len(elements) > 1:
-        name = elements[-2]
-    name = name.split(".")[0].removeprefix("go-").removesuffix("-go")
-    return name.replace("-", "")
-
-
-def imports(root: SgNode) -> dict[str, str]:
-    found: dict[str, str] = {}
-    for node in root.find_all(kind="import_spec"):
-        path = string_value(node.field("path"))
-        if path is None:
-            continue
-        name = node.field("name")
-        alias = name.text() if name is not None else default_alias(path)
-        if alias not in {".", "_"}:
-            found[alias] = path
-    return found
-
-
 def words(name: str) -> list[str]:
-    return [item.lower() for item in WORD.findall(name)]
+    return name_words(name)
 
 
 def test_functions(root: SgNode) -> list[SgNode]:
@@ -98,12 +70,8 @@ def arguments(call: SgNode) -> list[SgNode]:
 
 
 def go_files(paths: list[str]) -> list[str]:
-    return sorted({
-        path
-        for path in paths
-        if path.endswith(SOURCE_SUFFIX)
-        and not SKIPPED_PARTS.intersection(PurePosixPath(path).parts)
-    })
+    """The paths the go tool reads as package source (go.built_path)."""
+    return sorted({path for path in paths if go.built_path(path)})
 
 
 def defined_tests(path: str, text: str) -> list[str]:

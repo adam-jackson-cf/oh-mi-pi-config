@@ -57,7 +57,7 @@
       }
     ],
     "public_entry_points": {
-      "<package>": "<public entry point>"
+      "<package>": "<module>:<symbol>"
     },
     "run_events": {
       "commit": "<command>",

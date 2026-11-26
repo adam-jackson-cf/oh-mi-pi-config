@@ -27,6 +27,11 @@
     "test_like_patterns": {
       "test_*.go": "https://pkg.go.dev/cmd/go#hdr-Test_packages"
     },
+    "build_ignored": {
+      "prefixes": "https://pkg.go.dev/cmd/go#hdr-Package_lists_and_patterns",
+      "folders": "https://pkg.go.dev/cmd/go#hdr-Package_lists_and_patterns",
+      "constraint": "https://pkg.go.dev/cmd/go#hdr-Build_constraints"
+    },
     "placement": {
       "root": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
@@ -49,11 +54,18 @@
   "ignored_folders": ["vendor"],
   "test_patterns": ["*_test.go"],
   "test_like_patterns": ["test_*.go"],
+  "build_ignored": {
+    "prefixes": [".", "_"],
+    "folders": ["testdata", "vendor"],
+    "constraint": "ignore"
+  },
   "sources": [
     "https://go.dev/doc/effective_go#package-names",
     "https://pkg.go.dev/cmd/go#hdr-Test_packages",
     "https://go.dev/doc/modules/layout",
-    "https://go.dev/wiki/CodeReviewComments#package-comments"
+    "https://go.dev/wiki/CodeReviewComments#package-comments",
+    "https://pkg.go.dev/cmd/go#hdr-Package_lists_and_patterns",
+    "https://pkg.go.dev/cmd/go#hdr-Build_constraints"
   ],
   "placement": {
     "root": "tests",

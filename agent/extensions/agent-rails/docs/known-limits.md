@@ -31,6 +31,14 @@ What the rails do not catch or measure today.
   "cannot parse source" finding from the bun_test and vitest adapters and is unreadable to the
   structure rules. ast-grep-py 0.51.3, the newest release on 2026-11-26, still rejects it; the engine
   pins 0.51.0. Writing `&amp;` or `{"&"}` avoids it.
+- `TEST.no-test-hooks` tallies top-level functions and classes (Python), package-level
+  functions and types (Go) and top-level declarations (TypeScript): a method only tests call is
+  not reported. A reference resolves through imports and module attributes, so a call through an
+  object (`cache.reset()`) is no use of a module's `reset`, and a local name that shadows a
+  top-level one in the same file counts as a use of it. Python console scripts and modules a file
+  names by a literal dotted string (importlib dispatch) count as production uses; a module named
+  by a computed string, a function fetched from a dictionary of helpers, or code held in a string
+  does not, so such a function is reported unless it is the package's public entry point.
 - The structure-naming candidate proposers (`kind-candidates`, `consumer-candidates`, `name-pairs`)
   propose Python only: their judgments were measured on Python cases.
 - `structure-naming/same_thing` judges only the name pairs `name-pairs` proposes (alias, head noun,

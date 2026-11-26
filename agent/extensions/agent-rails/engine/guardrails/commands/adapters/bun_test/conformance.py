@@ -10,6 +10,8 @@ from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_bytes, run_text
 
 FIXTURES = Path(__file__).with_name("fixtures")
+COMPANIONS = {"test": "tests/case.test.ts", "neighbour": "shop/neighbour.ts"}
+RUNNER_REMEDY = "install Bun, or set checkers.adapter_bun_test.command to its binary"
 BASE_CONFIG: dict[str, Any] = {
     "tests": {
         "adapters": [
@@ -23,7 +25,7 @@ BASE_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop/core.ts": ["publicApi"]},
+        "public_entry_points": {"shop": "shop/core.ts:publicApi"},
         "tiers": {"t1": {"command": "bun test"}},
         "layout": {
             "test_file_patterns": ["*.test.ts"],
@@ -55,10 +57,9 @@ def build_project(root: Path, case: dict[str, Any]) -> conformance.Project:
     (project / placed).write_text(
         fixture_source(conformance.fixture_case(case["id"])), encoding="utf-8"
     )
+    conformance.place_companions(project, case, COMPANIONS, fixture_source)
     config = copy.deepcopy(BASE_CONFIG)
     config["exceptions"] = conformance.case_exceptions(case, placed)
-    if production:
-        config["tests"]["public_entry_points"][placed] = ["publicApi"]
     return conformance.Project(root, placed, config)
 
 
@@ -149,17 +150,14 @@ def check_collection(
     return conformance.collection_verdict(case, reported, ids, expected)
 
 
-def run_conformance(
-    case_ids: list[str] | None = None, *, config: dict[str, Any] | None = None
-) -> list[conformance.CaseResult]:
+def harness(config: dict[str, Any]) -> conformance.Harness:
     from guardrails.commands.adapters.bun_test.tiers import command as runner_command
 
-    selected = conformance.select_cases(case_ids or [])
     try:
-        command = runner_command(config or {})
+        command, missing = runner_command(config), None
     except ValueError as error:
-        return conformance.failed_cases(selected, str(error))
-    harness = conformance.Harness(
+        command, missing = [], conformance.Prerequisite(str(error), RUNNER_REMEDY)
+    return conformance.Harness(
         label="the Bun adapter",
         prefix="guardrails-bun-conformance-",
         build=build_project,
@@ -171,13 +169,20 @@ def run_conformance(
                 project, case, command
             ),
         },
+        missing=missing,
     )
-    return conformance.run_cases(harness, selected)
+
+
+def run_conformance(
+    case_ids: list[str] | None = None, *, config: dict[str, Any] | None = None
+) -> list[conformance.CaseResult]:
+    selected = conformance.select_cases(case_ids or [])
+    return conformance.run_cases(harness(config or {}), selected)
 
 
 def run_cases(
     case_ids: list[str], *, config: dict[str, Any] | None = None
 ) -> list[Finding]:
-    return conformance.findings(
-        run_conformance(case_ids, config=config), "the Bun adapter"
-    )
+    chosen = harness(config or {})
+    results = conformance.run_cases(chosen, conformance.select_cases(case_ids))
+    return conformance.findings(chosen, results)

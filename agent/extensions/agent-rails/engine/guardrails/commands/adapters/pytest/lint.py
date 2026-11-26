@@ -6,11 +6,19 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from guardrails.commands.adapters.marker_bindings import inline_bindings
+from guardrails.commands.adapters.owned_source import (
+    Source,
+    configured_entry_points,
+    load_all,
+)
 from guardrails.commands.adapters.pytest.dialect import NAME
-from guardrails.commands.adapters.pytest.symbol_usage import test_only_findings
+from guardrails.commands.adapters.pytest.symbol_usage import (
+    ScriptManifests,
+    owner,
+    test_only_findings,
+)
 from guardrails.commands.adapters.pytest.syntax import import_map, string_value
 from guardrails.context.config.house_style import apply_exceptions
-from guardrails.context.config.reader import tests_settings
 from guardrails.context.config.suite_files import Suite, adapter_suite, in_suite
 from guardrails.foundation.findings import Finding, Remediation, remediation
 from guardrails.foundation.source.tree import tolerant_tree
@@ -21,6 +29,7 @@ if TYPE_CHECKING:
 DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
 PATTERNS_FILE = "pytest-patterns.json"
 INLINED_PATTERNS = frozenset({"no-test-hooks-environment"})
+PYPROJECT = "pyproject.toml"
 SKIPPED_PARTS = frozenset({
     ".git",
     ".venv",
@@ -66,35 +75,31 @@ def load_patterns() -> list[Pattern]:
     return patterns
 
 
-def owned_packages(config: dict[str, Any]) -> frozenset[str]:
-    entries = tests_settings(config, "public_entry_points")
-    names = set()
-    for key in entries if isinstance(entries, dict) else {}:
-        parts = [part for part in str(key).replace("/", ".").split(".") if part]
-        if parts and parts[0] == "src":
-            parts = parts[1:]
-        if parts:
-            names.add(parts[0])
-    return frozenset(names)
-
-
 def is_pytest_test_file(path: str, suite: Suite) -> bool:
     return PurePosixPath(path).name == "conftest.py" or in_suite(path, suite)
 
 
-def python_files(repo: Path, argv: list[str]) -> list[str]:
-    if argv:
-        return sorted({path for path in argv if path.endswith(".py")})
+def inventory(repo: Path) -> list[str]:
     from guardrails.foundation.inventory import InventoryError, repo_paths
 
     try:
         paths = repo_paths(repo)
     except InventoryError:
-        paths = [path.relative_to(repo).as_posix() for path in repo.rglob("*.py")]
+        paths = [path.relative_to(repo).as_posix() for path in repo.rglob("*")]
+    return [
+        path for path in paths if not SKIPPED_PARTS & set(PurePosixPath(path).parts)
+    ]
+
+
+def python_files(repo: Path, argv: list[str]) -> list[str]:
+    if argv:
+        return sorted({path for path in argv if path.endswith(".py")})
+    return sorted(path for path in inventory(repo) if path.endswith(".py"))
+
+
+def pyproject_files(repo: Path) -> list[str]:
     return sorted(
-        path
-        for path in paths
-        if path.endswith(".py") and not SKIPPED_PARTS & set(PurePosixPath(path).parts)
+        path for path in inventory(repo) if PurePosixPath(path).name == PYPROJECT
     )
 
 
@@ -150,24 +155,29 @@ def target_nodes(match: SgNode, target: str) -> list[SgNode]:
     raise ValueError(f"unknown rule target {target!r}")
 
 
+def in_owned(name: str, owned: frozenset[str]) -> bool:
+    return any(name == package or name.startswith(f"{package}.") for package in owned)
+
+
 def owned_target(
     match: SgNode, target: str, imports: dict[str, str], owned: frozenset[str]
 ) -> str | None:
     for node in target_nodes(match, target):
         origin = resolve(node, imports)
-        if origin and origin.split(".")[0] in owned:
+        if origin and in_owned(origin, owned):
             return origin
     return None
 
 
 def file_findings(
-    path: str, source: str, patterns: list[Pattern], owned: frozenset[str]
+    source: Source, patterns: list[Pattern], owned: frozenset[str]
 ) -> list[Finding]:
+    path = source.path
     roots = {
-        False: tolerant_tree(source, "python"),
-        True: tolerant_tree(inline_bindings(source, "python"), "python"),
+        False: source.root,
+        True: tolerant_tree(inline_bindings(source.text, "python"), "python"),
     }
-    imports = import_map(path, source)
+    imports = import_map(source.root)
     findings: list[Finding] = []
     for pattern in patterns:
         root = roots[pattern.name in INLINED_PATTERNS]
@@ -192,55 +202,37 @@ def file_findings(
 
 
 def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
-    owned = owned_packages(config)
+    points = configured_entry_points(config)
+    if isinstance(points, Finding):
+        return [points]
     suite = adapter_suite(config, NAME)
+    every = python_files(repo, [])
+    owned = owner(points, every)
+
+    def is_test(path: str) -> bool:
+        return is_pytest_test_file(path, suite)
+
+    selected = set(python_files(repo, paths)) if paths else set(every)
+    read = [path for path in every if is_test(path) or owned.owns(path)]
+    sources, unreadable = load_all(repo, read, is_test)
+    findings = [item for item in unreadable if item.path in selected]
     patterns = load_patterns()
-    findings: list[Finding] = []
     production: set[str] = set()
-    for path in python_files(repo, paths):
-        if is_pytest_test_file(path, suite):
-            scoped = [item for item in patterns if item.scope == "tests"]
-        elif is_owned(path, owned):
-            scoped = [item for item in patterns if item.scope == "production"]
+    for path in sorted(selected & sources.keys()):
+        scope = "tests" if is_test(path) else "production"
+        if scope == "production":
             production.add(path)
-        else:
-            continue
-        source = read_source(repo, path)
-        if source is None:
-            continue
-        findings.extend(file_findings(path, source, scoped, owned))
-    findings.extend(test_only_symbol_findings(repo, config, production))
+        scoped = [item for item in patterns if item.scope == scope]
+        findings.extend(file_findings(sources[path], scoped, owned.packages))
+    if production:
+        manifests = pyproject_files(repo)
+        findings.extend(
+            test_only_findings(
+                sources,
+                is_test,
+                production,
+                owned.index,
+                ScriptManifests(repo, manifests, points),
+            )
+        )
     return apply_exceptions(findings, config)
-
-
-def is_owned(path: str, owned: frozenset[str]) -> bool:
-    return bool(owned & {*PurePosixPath(path).parts[:-1], PurePosixPath(path).stem})
-
-
-def read_source(repo: Path, path: str) -> str | None:
-    try:
-        return (repo / path).read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return None
-
-
-def test_only_symbol_findings(
-    repo: Path, config: dict[str, Any], reported: set[str]
-) -> list[Finding]:
-    if not reported:
-        return []
-    owned = owned_packages(config)
-    suite = adapter_suite(config, NAME)
-    production: dict[str, str] = {}
-    tests: dict[str, str] = {}
-    for path in python_files(repo, []):
-        if is_pytest_test_file(path, suite):
-            target = tests
-        elif is_owned(path, owned):
-            target = production
-        else:
-            continue
-        source = read_source(repo, path)
-        if source is not None:
-            target[path] = source
-    return test_only_findings(production, tests, config, reported)

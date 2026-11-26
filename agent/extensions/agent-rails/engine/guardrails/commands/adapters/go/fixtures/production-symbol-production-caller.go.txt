@@ -1,0 +1,5 @@
+package shop
+
+func ResetCache() int {
+	return 0
+}

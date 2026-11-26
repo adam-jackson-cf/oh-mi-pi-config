@@ -22,7 +22,6 @@ from guardrails.foundation.source.tree import SourceError, languages
 
 BUNDLE_MANIFESTS = frozenset({"SKILL.md", "go.mod"})
 MODULE_MANIFEST = "go.mod"
-TEST_DATA = "testdata"
 COMMANDS = "cmd"
 WALK_ALL = "all:"
 HIDDEN_PREFIXES = (".", "_")
@@ -31,10 +30,6 @@ MAIN_PACKAGE = "main"
 
 def extensions() -> tuple[str, ...]:
     return languages()["go"]
-
-
-def in_test_data(path: str) -> bool:
-    return TEST_DATA in PurePosixPath(path).parts[:-1]
 
 
 def embedded(pattern: str, relative: str) -> bool:
@@ -56,12 +51,13 @@ def embedded_in_package(path: str, folder: str, sources: Sources) -> bool:
     return any(
         embedded(pattern, relative)
         for source in sources.beside(folder, extensions())
-        for pattern in go.embed_patterns(sources.tree(source))
+        if go.built(source, root := sources.tree(source))
+        for pattern in go.embed_patterns(root)
     )
 
 
 def runtime_data_findings(path: str, tree: CodeTree, sources: Sources) -> list[Finding]:
-    if PurePosixPath(path).suffix not in DATA_SUFFIXES or in_test_data(path):
+    if PurePosixPath(path).suffix not in DATA_SUFFIXES or go.in_ignored_folder(path):
         return []
     folder = tree.enclosing(path)
     if folder is None:
@@ -76,7 +72,7 @@ def runtime_data_findings(path: str, tree: CodeTree, sources: Sources) -> list[F
 
 def is_command(path: str, sources: Sources) -> bool:
     root = sources.tree(path)
-    return go.package_name(root) == MAIN_PACKAGE and not go.build_ignored(root)
+    return go.package_name(root) == MAIN_PACKAGE and go.built(path, root)
 
 
 def top_tier(folder: str, module: str) -> bool:
@@ -87,7 +83,7 @@ def top_tier(folder: str, module: str) -> bool:
 def entry_point_findings(
     path: str, tracked: Collection[str], sources: Sources
 ) -> list[Finding]:
-    if not path.endswith(extensions()) or go.is_test_file(path) or in_test_data(path):
+    if not go.built_path(path) or go.is_test_file(path):
         return []
     manifest = nearest(path, MODULE_MANIFEST, tracked)
     if manifest is None:

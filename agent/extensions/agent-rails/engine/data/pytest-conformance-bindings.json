@@ -38,6 +38,19 @@
     },
     "user-data-temporary-home": {
       "tier": "t2"
+    },
+    "production-test-only-symbol": {
+      "place": "production"
+    },
+    "production-symbol-production-caller": {
+      "place": "production"
+    },
+    "production-symbol-name-reused": {
+      "place": "production"
+    },
+    "production-unparseable": {
+      "place": "production",
+      "fixture": "production_unparseable.py.txt"
     }
   }
 }

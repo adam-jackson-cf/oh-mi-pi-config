@@ -335,5 +335,96 @@ class GoModuleTests(unittest.TestCase):
             modules.package_import_path("example.com/app", "svc", "other/pkg")
 
 
+def references(files: dict[str, str], path: str) -> set[tuple[str, str]]:
+    index = modules.PythonIndex(files)
+    found = modules.python_references(path, parse(path, files[path]), index)
+    return {(use.path, use.symbol) for use in found.uses}
+
+
+class PythonReferenceTests(unittest.TestCase):
+    FILES = {
+        "shop/__init__.py": "from .core import reset\n",
+        "shop/core.py": "def reset():\n    return 0\n",
+        "shop/cache.py": "class Cache:\n    def reset(self):\n        return 1\n",
+    }
+
+    def test_imports_module_attributes_and_relative_imports_resolve_to_files(
+        self,
+    ) -> None:
+        files = {
+            **self.FILES,
+            "app/a.py": "from shop.core import reset\nreset()\n",
+            "app/b.py": "import shop.core\nshop.core.reset()\n",
+            "app/c.py": "from shop import core as c\nc.reset()\n",
+            "shop/d.py": "from . import core\ncore.reset()\n",
+        }
+        for path in ["app/a.py", "app/b.py", "app/c.py", "shop/d.py"]:
+            with self.subTest(path=path):
+                assert ("shop/core.py", "reset") in references(files, path)
+
+    def test_an_unrelated_attribute_of_the_same_name_is_not_a_reference(self) -> None:
+        files = {
+            **self.FILES,
+            "app/e.py": "from shop.cache import Cache\nCache().reset()\nsubprocess.run()\n",
+        }
+        found = references(files, "app/e.py")
+        assert ("shop/core.py", "reset") not in found
+        assert ("shop/cache.py", "Cache") in found
+
+    def test_strings_naming_a_module_attribute_are_references(self) -> None:
+        files = {**self.FILES, "app/f.py": "patch('shop.core.reset')\n"}
+        assert ("shop/core.py", "reset") in references(files, "app/f.py")
+
+    def test_modules_named_by_string_are_read_through_unresolved_names(self) -> None:
+        files = {
+            **self.FILES,
+            "app/dispatch.py": (
+                "import importlib\n"
+                "COMMANDS = {'reset': 'shop.core'}\n"
+                "module = importlib.import_module(COMMANDS['reset'])\n"
+                "module.reset()\n"
+            ),
+            "app/lookup.py": (
+                "from importlib import import_module\n"
+                "getattr(import_module('shop.cache'), 'Cache')\n"
+            ),
+        }
+        assert ("shop/core.py", "reset") in references(files, "app/dispatch.py")
+        assert ("shop/cache.py", "Cache") in references(files, "app/lookup.py")
+        assert ("shop/core.py", "reset") not in references(
+            {**files, "app/plain.py": "thing.reset()\n"}, "app/plain.py"
+        )
+
+    def test_a_package_reexports_what_it_imports(self) -> None:
+        index = modules.PythonIndex(self.FILES)
+        root = parse("shop/__init__.py", self.FILES["shop/__init__.py"])
+        found = modules.python_references("shop/__init__.py", root, index)
+        assert found.reexports == (modules.Reexport("reset", "shop/core.py", "reset"),)
+
+
+class ManifestTests(unittest.TestCase):
+    def test_package_entries_read_exports_then_main(self) -> None:
+        assert (
+            modules.package_entry({"exports": "./a.js", "main": "./b.js"}) == "./a.js"
+        )
+        assert modules.package_entry({"exports": {".": "./c.js"}}) == "./c.js"
+        assert modules.package_entry({
+            "exports": {"./x": "./x.js"},
+            "main": "m.js",
+        }) == ("m.js")
+        assert modules.package_entry({"name": "x"}) is None
+
+    def test_manifests_that_do_not_read_are_source_errors(self) -> None:
+        with pytest.raises(SourceError, match="package.json"):
+            modules.package_manifest("package.json", '{"name": ')
+        with pytest.raises(SourceError, match="must hold a JSON object"):
+            modules.package_manifest("package.json", "[]")
+        with pytest.raises(SourceError, match="pyproject.toml"):
+            modules.pyproject("pyproject.toml", "a = = b")
+        assert modules.pyproject("pyproject.toml", "[project]\nname = 'x'\n") == {
+            "project": {"name": "x"}
+        }
+
+
 if __name__ == "__main__":
     unittest.main()

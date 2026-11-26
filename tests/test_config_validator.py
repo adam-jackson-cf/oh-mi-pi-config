@@ -18,7 +18,7 @@ import pytest
 
 from guardrails.commands import cli
 from guardrails.commands.check import whole_repo
-from guardrails.context.config import section_schema, validator
+from guardrails.context.config import entry_points, section_schema, validator
 from guardrails.context.config.validator import ConfigError, OfferedQuestion
 from guardrails.foundation import decision_store
 
@@ -234,6 +234,42 @@ class Sections(unittest.TestCase):
             'exceptions[0].rule: "NOT.a-rule" is not a rule id in the guardrail '
             "catalogue or a judgment question"
         ]
+
+
+class EntryPointTests(unittest.TestCase):
+    def test_each_owned_package_maps_to_a_module_and_a_symbol(self) -> None:
+        config = {
+            "tests": {
+                "public_entry_points": {
+                    "ledger": "ledger.cli:main",
+                    "web/src": "web/src/index.ts:App",
+                    "cart": "example.com/shop/cart:Total",
+                }
+            }
+        }
+        assert entry_points.entry_points(config) == (
+            entry_points.EntryPoint("ledger", "ledger.cli", "main"),
+            entry_points.EntryPoint("web/src", "web/src/index.ts", "App"),
+            entry_points.EntryPoint("cart", "example.com/shop/cart", "Total"),
+        )
+        assert entry_points.packages(config) == ("ledger", "web/src", "cart")
+        assert entry_points.entry_points({}) == ()
+        assert entry_points.entry_points({"tests": {"public_entry_points": {}}}) == ()
+
+    def test_every_other_form_is_a_config_error(self) -> None:
+        for value in [
+            {"shop": ["checkout"]},
+            {"shop": "shop.cli"},
+            {"shop": {".": "./src/index.ts"}},
+            {"shop": "shop.cli:main.run"},
+            {"<package>": "<public entry point>"},
+            ["shop.cli:main"],
+        ]:
+            with self.subTest(value=value):
+                config = {"tests": {"public_entry_points": value}}
+                with pytest.raises(section_schema.ConfigValueError):
+                    entry_points.entry_points(config)
+                assert section_schema.leaf_problem(value, "entry_points") is not None
 
 
 class Constants(unittest.TestCase):
