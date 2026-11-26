@@ -104,7 +104,7 @@ class KindTreeTests(unittest.TestCase):
         }
         assert kind_candidates.parsed("x.py", tree["app/models/broken.py"]) is None
         assert kind_candidates.parsed("x.py", tree["app/models/escape.py"]) is None
-        model = kind_candidates.model_of(tree)
+        model = kind_candidates.model_of(tree, {})
         assert model.eligible() == ["app/models/fine.py"]
         assert dict(model.graph) == {
             "app/models/broken.py": [
@@ -133,7 +133,7 @@ class KindTreeTests(unittest.TestCase):
             "b/helpers.py": "",
             "a/main.py": "import helpers\n",
         }
-        graph = kind_candidates.model_of(tree).graph
+        graph = kind_candidates.model_of(tree, {}).graph
         assert dict(graph) == {
             "app/util/helpers.py": [
                 ("app/models/deep/x.py", "from ...util import helpers"),

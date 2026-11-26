@@ -1,11 +1,11 @@
-"""Go source syntax: parsing, test functions, imports and identifier words."""
+"""Go source syntax: test functions, calls, strings and the files the go tool builds."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
 
-from guardrails.checker.growth import name_words
+from guardrails.foundation import conventions
 from guardrails.foundation.source import go, tree
 from guardrails.foundation.source.go import STRING_KINDS, TEST_NAME
 from guardrails.foundation.source.tree import named
@@ -24,10 +24,6 @@ def string_value(node: SgNode | None) -> str | None:
     if node is None or node.kind() not in STRING_KINDS:
         return None
     return node.text()[1:-1]
-
-
-def words(name: str) -> list[str]:
-    return name_words(name)
 
 
 def test_functions(root: SgNode) -> list[SgNode]:
@@ -70,8 +66,13 @@ def arguments(call: SgNode) -> list[SgNode]:
 
 
 def go_files(paths: list[str]) -> list[str]:
-    """The paths the go tool reads as package source (go.built_path)."""
-    return sorted({path for path in paths if go.built_path(path)})
+    """The paths the go tool reads as package source (go.built_path), outside every
+    folder no scan reads."""
+    return sorted({
+        path
+        for path in paths
+        if go.built_path(path) and not conventions.ignored_path(path)
+    })
 
 
 def defined_tests(path: str, text: str) -> list[str]:

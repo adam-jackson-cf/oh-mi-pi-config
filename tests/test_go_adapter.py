@@ -225,6 +225,29 @@ func Region() string {
             '("GO_TEST")',
         ]
 
+    def test_marker_value_comparisons_and_phrase_names_are_test_hooks(self) -> None:
+        production = source(
+            "shop/region.go",
+            """package shop
+
+import "os"
+
+var latestOnly = true
+
+func Region(testMode bool) string {
+\tif os.Getenv("APP_ENV") == "test" {
+\t\treturn "local"
+\t}
+\treturn os.Getenv("APP_ENV")
+}
+""",
+        )
+        assert [item.message for item in go_lint.hook_findings(production)] == [
+            "line 7: production code declares a test-only hook (testMode)",
+            "line 8: production code reads a test marker from the environment or test flags "
+            '(os.Getenv("APP_ENV") == "test")',
+        ]
+
 
 class CollectionTests(unittest.TestCase):
     def test_test_functions_collect_with_behaviour_names_from_their_words(self) -> None:

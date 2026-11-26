@@ -35,11 +35,55 @@ def for_path(path: str) -> dict[str, Any]:
     )
 
 
+@cache
+def data(name: str) -> Any:
+    """An engine data file (engine/data/<name>), read as JSON."""
+    return json.loads((DATA_FOLDER / name).read_bytes())
+
+
+@cache
+def ignored_folders() -> frozenset[str]:
+    """The folders no scan reads, whatever language a file in them is: every pack's
+    installed, generated and tool-state folders."""
+    return frozenset(folder for pack in packs() for folder in pack["ignored_folders"])
+
+
 def ignored_path(path: str) -> bool:
-    directories = PurePosixPath(path).parts[:-1]
+    """Whether a file sits in a folder no scan reads: one of ignored_folders, or a folder
+    its own language's tools write output to (Python's build/, a bundler's dist/) or its
+    toolchain ignores (Go's testdata/). Those names are only ignored for that language:
+    a Python package may be called coverage."""
+    pack = for_path(path)
+    own = {
+        *pack.get("output_folders", []),
+        *pack.get("build_ignored", {}).get("folders", []),
+    }
     return any(
-        folder in pack["ignored_folders"] for pack in packs() for folder in directories
+        folder in ignored_folders() or folder in own
+        for folder in PurePosixPath(path).parts[:-1]
     )
+
+
+def runtime_extensions(language: str) -> tuple[str, ...]:
+    """A language's source extensions without its stub extension: the files that run."""
+    pack = load_pack(language)
+    return tuple(
+        extension
+        for extension in pack["extensions"]
+        if extension != pack.get("stub_extension")
+    )
+
+
+def test_support_file(path: str) -> bool:
+    """A file a test runner reads as test support by name (pytest's conftest.py)."""
+    return PurePosixPath(path).name in for_path(path).get("test_support_files", [])
+
+
+def test_frameworks(language: str) -> dict[str, Any]:
+    """How a language's test frameworks mark tests: modules, case classes and the name
+    prefixes of test classes and functions."""
+    frameworks: dict[str, Any] = load_pack(language)["test_frameworks"]
+    return frameworks
 
 
 def fixed_file(path: str) -> bool:
@@ -51,10 +95,11 @@ def fixed_file(path: str) -> bool:
         for pattern in rules["fixed_files"]
     ):
         return True
-    return bool(
-        pack.get("package_files")
-        and pure.name in (f"{pure.parent.name}.go", f"{pure.parent.name}_test.go")
-    )
+    package = pure.parent.name
+    return bool(pack.get("package_files")) and pure.name in {
+        *(package + extension for extension in pack["extensions"]),
+        *(pattern.replace("*", package, 1) for pattern in pack["test_patterns"]),
+    }
 
 
 def fixed_folder(path: str, name: str) -> bool:

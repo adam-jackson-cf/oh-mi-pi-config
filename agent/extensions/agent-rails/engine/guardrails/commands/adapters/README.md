@@ -32,9 +32,13 @@ An adapter does only these six things. No framework is assumed.
    `TEST.no-test-hooks`, `TEST.no-evasion`, `TEST.property-seed`). "Owned code"
    means the packages the config's `tests.public_entry_points` names, read through
    `context/config/entry_points.py`. For `TEST.no-test-hooks`, report production
-   reads of test markers (environment reads and loaded-module or runner-global
-   checks), never marker-shaped strings held as data. Each pattern carries a
-   `remediation` with its root cause and a holistic fix.
+   reads of test markers (environment reads, comparisons of an environment value
+   with a test value, and loaded-module or runner-global checks), never
+   marker-shaped strings held as data, and declared names that end with a hook phrase.
+   The marker names, values, runner modules and hook phrases are one vocabulary,
+   `data/test-hook-patterns.json`, read through `hook_vocabulary.py`; a pattern file
+   splices a fragment in as `%name%`. Each pattern carries a `remediation` with
+   its root cause and a holistic fix.
    - Read every test and owned file through `owned_source.load`: a file that
      cannot be read or parsed is a finding (`TEST.no-evasion` for a test file,
      `TEST.no-test-hooks` for production), never a silent skip.
@@ -99,7 +103,9 @@ It includes, for example:
 - Parts two or more adapters use live beside them in `adapters/`: `contract.py`
   (tier guards, evidence output and guard evidence), `conformance.py` (the
   shared conformance run), `marker_bindings.py` (marker-read inlining for
-  lint) and `javascript/` (the Vitest and Bun case collector, lint, Stryker
+  lint, from constant bindings the syntax tree holds), `hook_vocabulary.py` (the
+  shared test-marker vocabulary and hook-phrase matcher) and `javascript/`
+  (the Vitest and Bun case collector, lint, Stryker
   normaliser and `node_guard/` runtime). Source patterns are run-time data in
   `engine/data/<name>-patterns.json`.
 - The harness runs the adapter against the target from outside its tree; JUnit

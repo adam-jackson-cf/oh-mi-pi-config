@@ -80,7 +80,7 @@ class ImportReadingTests(unittest.TestCase):
             "pkg/tool.py": "if __name__ == '__main__':\n    pass\n",
             "pkg/broken.py": "import pkg.tool\nif __name__ == '__main__':\n    x(\n",
         }
-        assert [path for path, _ in consumer_candidates.propose(tree)] == [
+        assert [path for path, _ in consumer_candidates.propose(tree, {})] == [
             "pkg/tool.py"
         ]
         tree["pkg/__init__.py"] = '"""\\x"""\n'

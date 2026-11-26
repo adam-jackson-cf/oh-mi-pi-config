@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 from guardrails.checker.growth import behaviour_name
 from guardrails.commands.adapters.go.syntax import test_functions, walk
 from guardrails.foundation.source.go import STRING_KINDS, TEST_NAME
-from guardrails.foundation.source.tree import SourceError, parse
+from guardrails.foundation.source.tree import SourceError, languages, parse
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
-SUFFIXES = (".go",)
+SUFFIXES = languages()["go"]
 COMMENT = "comment"
 LOCAL = "identifier"
 NAME_DECLARERS = frozenset({

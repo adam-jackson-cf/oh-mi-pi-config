@@ -222,7 +222,7 @@
       }
     ],
     "public_entry_points": {
-      "ledger": "ledger.cli:main"
+      "ledger": ["ledger.cli:main"]
     },
     "run_events": {
       "commit": "bash scripts/run-ci-quality-gates.sh --tier commit",

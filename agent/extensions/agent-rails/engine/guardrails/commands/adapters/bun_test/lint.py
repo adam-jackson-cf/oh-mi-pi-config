@@ -3,32 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from guardrails.commands.adapters.javascript.lint import Vocabulary, lint as shared_lint
+from guardrails.commands.adapters.javascript.lint import (
+    lint as shared_lint,
+    runner_vocabulary,
+)
 from guardrails.foundation.findings import Finding
 
-BUN = Vocabulary(
-    adapter="bun_test",
-    mock_calls=frozenset({
-        "mock",
-        "mock.module",
-        "spyOn",
-        "jest.fn",
-        "jest.mock",
-        "jest.spyOn",
-        "vi.fn",
-        "vi.mock",
-        "vi.spyOn",
-        "vi.mocked",
-    }),
-    evasion_flags=frozenset({
-        "skip",
-        "only",
-        "failing",
-        "todo",
-        "retry",
-    }),
-    skipping_registrars=frozenset({"xtest", "xit", "xdescribe"}),
-)
+BUN = runner_vocabulary("bun_test")
 
 
 def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:

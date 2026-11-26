@@ -14,7 +14,7 @@ pytestmark = pytest.mark.seam
 
 REPO_CONFIG: dict[str, Any] = {
     "tests": {
-        "public_entry_points": {"shop": "shop/core.ts:checkout"},
+        "public_entry_points": {"shop": ["shop/core.ts:checkout"]},
         "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
         "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
     }
@@ -87,7 +87,7 @@ class VitestInventoryTests(unittest.TestCase):
                 **REPO_CONFIG,
                 "tests": {
                     **REPO_CONFIG.get("tests", {}),
-                    "public_entry_points": {"@shop/core": "@shop/core:publicApi"},
+                    "public_entry_points": {"@shop/core": ["@shop/core:publicApi"]},
                 },
             }
             found = lint.lint(repo, repo_config, [])

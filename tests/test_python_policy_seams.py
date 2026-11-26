@@ -271,7 +271,9 @@ class FailClosedDefaultTests(unittest.TestCase):
         self,
     ) -> None:
         repo = ShopRepo(self)
-        repo.repo_config = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
+        repo.repo_config = {
+            "tests": {"public_entry_points": {"shop": ["shop.cli:main"]}}
+        }
         unmapped = {
             item.path for item in repo.run("quality") if item.rule_id == "PYQ100"
         }
@@ -504,14 +506,18 @@ class SubprocessTimeoutTests(unittest.TestCase):
         assert all(item.rule_id == "TEST.subprocess-timeouts" for item in findings)
         assert "positive timeout" in findings[0].fix
 
-    def test_only_test_files_are_checked_and_conftest_counts(self) -> None:
+    def test_only_test_source_is_checked_and_conftest_and_helpers_count(self) -> None:
         call = "import subprocess\nsubprocess.run(['true'])\n"
         findings = self.check({
             "src/shop/process.py": call,
+            "src/testimonials/process.py": call,
             "tests/conftest.py": call,
             "tests/unit/helper.py": call,
         })
-        assert rules_at(findings) == {("TEST.subprocess-timeouts", "tests/conftest.py")}
+        assert rules_at(findings) == {
+            ("TEST.subprocess-timeouts", "tests/conftest.py"),
+            ("TEST.subprocess-timeouts", "tests/unit/helper.py"),
+        }
 
     def test_unparsable_test_file_is_reported(self) -> None:
         findings = self.check({"tests/unit/test_bad.py": "def test_x(:\n"})

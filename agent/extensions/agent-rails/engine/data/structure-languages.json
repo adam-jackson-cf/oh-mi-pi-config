@@ -1,25 +1,13 @@
 {
-  "about": "Per-language definitions for the structure rules. Each value names its published source; a rule a language cannot use is listed under not_applicable with its reason. A language with no measured cutoff for a scored rule does not run that rule until one is measured (docs/structure-languages.md).",
+  "about": "Per-language definitions for the structure rules; each language reads its extensions from the convention pack its source names. Each value names its published source; a rule a language cannot use is listed under not_applicable with its reason. A language with no measured cutoff for a scored rule does not run that rule until one is measured (docs/structure-languages.md).",
   "languages": {
     "python": {
-      "extensions": [".py", ".pyi"],
       "source": "engine/data/conventions/python.json"
     },
     "typescript": {
-      "extensions": [
-        ".ts",
-        ".tsx",
-        ".mts",
-        ".cts",
-        ".js",
-        ".jsx",
-        ".mjs",
-        ".cjs"
-      ],
       "source": "engine/data/conventions/typescript.json"
     },
     "go": {
-      "extensions": [".go"],
       "source": "engine/data/conventions/go.json"
     }
   },

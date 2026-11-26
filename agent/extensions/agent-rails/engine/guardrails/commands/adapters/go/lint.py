@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.adapters import owned_source
-from guardrails.commands.adapters.go.dialect import XFAIL_PREFIX
+from guardrails.commands.adapters import hook_vocabulary, owned_source
+from guardrails.commands.adapters.go.dialect import XFAIL_PREFIX, vocabulary
 from guardrails.commands.adapters.go.ownership import (
     GoModules,
     owned_import,
@@ -23,7 +23,6 @@ from guardrails.commands.adapters.go.syntax import (
     string_value,
     test_functions,
     walk,
-    words,
 )
 from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.context.config.house_style import apply_exceptions
@@ -37,39 +36,10 @@ SELF_MOCKING = "TEST.no-self-mocking"
 EVASION = "TEST.no-evasion"
 SEED = "TEST.property-seed"
 HOOKS = "TEST.no-test-hooks"
-SKIP_CALLS = frozenset({"Skip", "Skipf", "SkipNow"})
-PATCH_PACKAGES = frozenset({
-    "github.com/agiledragon/gomonkey",
-    "github.com/agiledragon/gomonkey/v2",
-    "bou.ke/monkey",
-    "github.com/bouk/monkey",
-    "github.com/undefinedlabs/go-mpatch",
-})
-RETRY_PACKAGES = frozenset({
-    "github.com/hashicorp/consul/sdk/testutil/retry",
-    "github.com/avast/retry-go",
-    "github.com/avast/retry-go/v2",
-    "github.com/avast/retry-go/v3",
-    "github.com/avast/retry-go/v4",
-})
-QUICK_PACKAGE = "testing/quick"
-QUICK_CHECKS = frozenset({"Check", "CheckEqual"})
-TESTING_PACKAGE = "testing"
-MARKER_READS = frozenset({("os", "Getenv"), ("os", "LookupEnv"), ("flag", "Lookup")})
-MARKER = re.compile(
-    r"^([A-Z0-9_]*_)?(GO_?TEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?$"
-    r"|^test\.\w+$"
+COMPARISONS = frozenset({"==", "!="})
+MARKER_MESSAGE = (
+    "production code reads a test marker from the environment or test flags ({})"
 )
-HOOK_PHRASES = frozenset({
-    ("for", "test"),
-    ("for", "tests"),
-    ("for", "testing"),
-    ("test", "hook"),
-    ("test", "hooks"),
-    ("testing", "only"),
-    ("test", "only"),
-    ("test", "mode"),
-})
 DECLARING = frozenset({
     "function_declaration",
     "method_declaration",
@@ -80,13 +50,20 @@ DECLARING = frozenset({
     "type_spec",
 })
 NAMES = frozenset({"identifier", "field_identifier", "type_identifier"})
-MOCK_CONSTRUCTOR = re.compile(r"^NewMock(\w+)$")
-SELF_MOCKING_FIX = (
-    "test the owned code through its public entry point; fake only boundaries"
-)
-EVASION_FIX = "make the test run and pass, or record an owner-approved exception"
-SEED_FIX = "give quick.Config a Rand built from a fixed seed"
-HOOKS_FIX = "remove the hook; tests must exercise the production path unchanged"
+
+
+def names(key: str) -> frozenset[str]:
+    return frozenset(vocabulary()[key])
+
+
+def calls_named(key: str) -> frozenset[tuple[str, str]]:
+    """Calls as (package import path, function), such as os.Getenv."""
+    return frozenset((package, name) for package, name in vocabulary()[key])
+
+
+def fix(rule: str) -> str:
+    text: str = vocabulary()["fixes"][rule]
+    return text
 
 
 @dataclass(frozen=True)
@@ -134,14 +111,14 @@ def self_mocking(
     found = []
     for call in calls(source.root):
         qualifier, name = call_name(call)
-        patching = (
-            qualifier is not None and source.imports.get(qualifier) in PATCH_PACKAGES
+        patching = qualifier is not None and source.imports.get(qualifier) in names(
+            "patch_packages"
         )
         if patching and any(
             references_owned(item, aliases) for item in arguments(call)
         ):
             found.append((call, f"patches owned code ({snippet(call)})"))
-        mock = MOCK_CONSTRUCTOR.match(name or "")
+        mock = re.match(vocabulary()["mock_constructor"], name or "")
         if mock and mock.group(1) in owned_types:
             found.append((call, f"builds a mock of owned type {mock.group(1)}"))
     for node in walk(source.root):
@@ -158,7 +135,10 @@ def self_mocking(
             found.append((node, f"rebinds owned package state ({snippet(node)})"))
     return [
         Finding(
-            SELF_MOCKING, source.path, f"line {line(node)}: {message}", SELF_MOCKING_FIX
+            SELF_MOCKING,
+            source.path,
+            f"line {line(node)}: {message}",
+            fix(SELF_MOCKING),
         )
         for node, message in found
     ]
@@ -166,7 +146,7 @@ def self_mocking(
 
 def skip_call(call: SgNode, receiver: str | None) -> bool:
     qualifier, name = call_name(call)
-    return name in SKIP_CALLS and (receiver is None or qualifier == receiver)
+    return name in names("skip_calls") and (receiver is None or qualifier == receiver)
 
 
 def body_statements(function: SgNode) -> list[SgNode]:
@@ -210,11 +190,13 @@ def evasion(source: Source) -> list[Finding]:
         ):
             found.append((call, f"expected-failure marker ({snippet(call)})"))
         qualifier, _ = call_name(call)
-        if qualifier is not None and source.imports.get(qualifier) in RETRY_PACKAGES:
+        if qualifier is not None and source.imports.get(qualifier) in names(
+            "retry_packages"
+        ):
             found.append((call, f"retries until green ({snippet(call)})"))
     unique = {(line(node), message): node for node, message in found}
     return [
-        Finding(EVASION, source.path, f"line {number}: {message}", EVASION_FIX)
+        Finding(EVASION, source.path, f"line {number}: {message}", fix(EVASION))
         for number, message in sorted(unique)
     ]
 
@@ -252,18 +234,19 @@ def seeded(literal: SgNode | None) -> bool:
     for item in walk(literal):
         if item.kind() == "keyed_element":
             key = tree.named(item)[0] if tree.named(item) else None
-            if key is not None and key.text() == "Rand":
+            if key is not None and key.text() == vocabulary()["property"]["seed_field"]:
                 return True
     return False
 
 
 def property_seed(source: Source) -> list[Finding]:
     found = []
+    quick = vocabulary()["property"]
     for call in calls(source.root):
         qualifier, name = call_name(call)
-        if qualifier is None or source.imports.get(qualifier) != QUICK_PACKAGE:
+        if qualifier is None or source.imports.get(qualifier) != quick["package"]:
             continue
-        if name not in QUICK_CHECKS:
+        if name not in quick["checks"]:
             continue
         values = arguments(call)
         options = config_literal(values[-1], source.root) if values else None
@@ -274,15 +257,29 @@ def property_seed(source: Source) -> list[Finding]:
                     source.path,
                     f"line {line(call)}: quick property test neither fixes nor reports "
                     f"its seed ({snippet(call)})",
-                    SEED_FIX,
+                    fix(SEED),
                 )
             )
     return found
 
 
-def hook_phrase(name: str) -> bool:
-    parts = words(name)
-    return any(pair in HOOK_PHRASES for pair in zip(parts, parts[1:], strict=False))
+def marker_name(value: str) -> bool:
+    """A test marker an environment read or a flag lookup names: a shared marker name
+    (test-hook-patterns.json) or a go test flag (test.v)."""
+    return hook_vocabulary.matches("marker_name", value) or (
+        re.fullmatch(vocabulary()["flag_marker"], value) is not None
+    )
+
+
+def reads(call: SgNode | None, source: Source, key: str) -> bool:
+    """Whether a node is a call of one of the vocabulary's calls (by import path)."""
+    if call is None or call.kind() != "call_expression":
+        return False
+    qualifier, name = call_name(call)
+    return qualifier is not None and (
+        source.imports.get(qualifier),
+        name,
+    ) in calls_named(key)
 
 
 def marker_read(node: SgNode, source: Source) -> bool:
@@ -295,37 +292,46 @@ def marker_read(node: SgNode, source: Source) -> bool:
         or call.kind() != "call_expression"
     ):
         return False
-    qualifier, name = call_name(call)
-    return (
-        qualifier is not None and (source.imports.get(qualifier), name) in MARKER_READS
+    return reads(call, source, "marker_reads")
+
+
+def value_comparison(node: SgNode, source: Source) -> bool:
+    """Whether a node compares an environment value with a test marker value, as in
+    os.Getenv("APP_ENV") == "test"."""
+    operator = node.field("operator")
+    if node.kind() != "binary_expression" or operator is None:
+        return False
+    sides = [node.field("left"), node.field("right")]
+    return operator.text() in COMPARISONS and any(
+        (value := string_value(side)) is not None
+        and hook_vocabulary.matches("marker_value", value)
+        and reads(other, source, "value_reads")
+        for side, other in (sides, sides[::-1])
     )
 
 
 def marker_reads(source: Source) -> list[tuple[SgNode, str]]:
+    inlined = tree.tolerant_tree(
+        inline_bindings(source.root.text(), source.root, "go"), "go"
+    )
     return [
-        (
-            node,
-            "production code reads a test marker from the environment or test flags "
-            f"({snippet(node)})",
+        (node, MARKER_MESSAGE.format(snippet(node)))
+        for node in walk(inlined)
+        if (
+            (value := string_value(node)) is not None
+            and marker_name(value)
+            and marker_read(node, source)
         )
-        for node in walk(
-            tree.tolerant_tree(inline_bindings(source.root.text(), "go"), "go")
-        )
-        if (value := string_value(node)) is not None
-        and MARKER.match(value)
-        and marker_read(node, source)
+        or value_comparison(node, source)
     ]
 
 
 def hook_findings(source: Source) -> list[Finding]:
     found = []
+    probe = tuple(vocabulary()["test_probe"])
     for call in calls(source.root):
         qualifier, name = call_name(call)
-        if (
-            qualifier is not None
-            and source.imports.get(qualifier) == TESTING_PACKAGE
-            and name == "Testing"
-        ):
+        if qualifier is not None and (source.imports.get(qualifier), name) == probe:
             found.append((
                 call,
                 f"production code asks whether it runs under test ({snippet(call)})",
@@ -334,14 +340,14 @@ def hook_findings(source: Source) -> list[Finding]:
     for node in walk(source.root):
         if node.kind() in DECLARING:
             for item in tree.named(node):
-                if item.kind() in NAMES and hook_phrase(item.text()):
+                if item.kind() in NAMES and hook_vocabulary.hook_phrase(item.text()):
                     found.append((
                         item,
                         f"production code declares a test-only hook ({item.text()})",
                     ))
     unique = {(line(node), message) for node, message in found}
     return [
-        Finding(HOOKS, source.path, f"line {number}: {message}", HOOKS_FIX)
+        Finding(HOOKS, source.path, f"line {number}: {message}", fix(HOOKS))
         for number, message in sorted(unique)
     ]
 

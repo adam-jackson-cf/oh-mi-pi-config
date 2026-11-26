@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -15,8 +16,9 @@ from guardrails.context.changes import (
     parse_range,
     range_finding,
 )
-from guardrails.context.config.adapter_declarations import tier_locations
-from guardrails.context.config.reader import checker_settings, tests_settings
+from guardrails.context.config.reader import checker_settings
+from guardrails.context.config.suite_files import is_test_source
+from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.foundation.source import modules, python, tree
@@ -36,12 +38,9 @@ DIRECTIVE = re.compile(
     r".*(?:-\*-.*-\*-|vim:|vi:|ex:)|.*coding[:=]\s*[-\w.]+)"
 )
 PARSER_DIRECTIVE = re.compile(r"#\s*(?:syntax|escape)\s*=\s*\S+\s*", re.IGNORECASE)
-SHELL = {".sh", ".bash", ".zsh"}
+SHELL = frozenset(conventions.load_pack("shell")["extensions"])
 WORD_BREAKS = " \t\n;&|()<>"
-HASH = {
-    ".sh",
-    ".bash",
-    ".zsh",
+HASH = SHELL | {
     ".fish",
     ".yml",
     ".yaml",
@@ -130,6 +129,19 @@ MOCK_MODULES = {
 }
 
 
+def mock_call_pattern() -> re.Pattern[str]:
+    """A call of a JavaScript runner's mock API by its namespace (jest.mock, vi.spyOn,
+    mock.module): every dotted name the runner vocabularies list. A bare name (bun's
+    mock) is an imported binding the lexer cannot resolve, so it is not read."""
+    apis = conventions.data("javascript-patterns.json")["mock_apis"]
+    names = sorted({name for calls in apis.values() for name in calls if "." in name})
+    spelled = (r"\s*\.\s*".join(map(re.escape, name.split("."))) for name in names)
+    return re.compile(r"(?<![\w$.])(?:" + "|".join(spelled) + r")\s*\(")
+
+
+MOCK_CALL = mock_call_pattern()
+
+
 def finding(rule: str, path: str, line: int, message: str) -> Finding:
     return Finding(
         rule,
@@ -139,15 +151,8 @@ def finding(rule: str, path: str, line: int, message: str) -> Finding:
     )
 
 
-HASH_NAMES = frozenset({
-    "dockerfile",
-    "makefile",
-    "cmakelists.txt",
-    "rakefile",
-    ".gitignore",
-    ".gitattributes",
-    ".env",
-})
+HASH_NAMES = frozenset({"cmakelists.txt", "rakefile", ".env"})
+COMMENT_SYNTAX = conventions.load_pack("tooling")["comment_syntax"]
 SUFFIX_MARKERS: tuple[tuple[frozenset[str], tuple[tuple[str, str], ...]], ...] = (
     (
         frozenset({".sql", ".lua", ".hs", ".elm", ".vhd", ".vhdl", ".ada"}),
@@ -166,10 +171,20 @@ SUFFIX_MARKERS: tuple[tuple[frozenset[str], tuple[tuple[str, str], ...]], ...] =
 )
 
 
+def tool_file(path: str, syntax: str) -> bool:
+    """Whether the tooling pack names the file as one written in a comment syntax."""
+    name = Path(path).name
+    return any(fnmatchcase(name, pattern) for pattern in COMMENT_SYNTAX[syntax])
+
+
 def comment_markers(path: str) -> list[tuple[str, str]]:
     suffix = Path(path).suffix.lower()
     markers: list[tuple[str, str]] = []
-    if suffix in HASH or Path(path).name.lower() in HASH_NAMES:
+    if (
+        suffix in HASH
+        or Path(path).name.lower() in HASH_NAMES
+        or tool_file(path, "hash_comments")
+    ):
         markers.append(("#", "\n"))
     if suffix in SLASH:
         markers.append(("/*", "*/"))
@@ -225,9 +240,8 @@ def opens_comment(text: str, at: int, start: str, suffix: str) -> bool:
 
 
 def parser_directives(text: str, path: str) -> set[int]:
-    if (
-        Path(path).suffix.lower() != ".dockerfile"
-        and Path(path).name.lower() != "dockerfile"
+    if Path(path).suffix.lower() != ".dockerfile" and not tool_file(
+        path, "parser_directives"
     ):
         return set()
     lines: set[int] = set()
@@ -269,15 +283,11 @@ def lex(text: str, path: str) -> tuple[list[tuple[int, int, str]], str]:
     return comments, "".join(masked)
 
 
-def is_test(path: str, config: dict[str, Any]) -> bool:
-    layout = tests_settings(config, "layout") or {}
-    locations = [
-        location for values in tier_locations(config).values() for location in values
-    ]
-    locations.extend(as_list(layout.get("support_dir")))
-    locations.extend(as_list(layout.get("fixtures_dir")))
-    locations.extend(as_list(checker_settings(config, "check").get("exclude")))
-    return matches_any(path, locations)
+def product_source(path: str, config: dict[str, Any]) -> bool:
+    """Whether a file is product code the mock checks read: not test source and not a
+    path the check config excludes."""
+    excluded = as_list(checker_settings(config, "check").get("exclude"))
+    return not (is_test_source(path, config) or matches_any(path, excluded))
 
 
 def added_lines(node: SgNode, added: set[int]) -> list[int]:
@@ -409,7 +419,7 @@ def python_findings(
             placeholder = placeholder_finding(node, path, added, names)
             if placeholder is not None:
                 findings.append(placeholder)
-    if not is_test(path, config):
+    if product_source(path, config):
         ends: dict[int, int] = {}
         for node in tree.of_kinds(root, python.IMPORT_KINDS):
             ends[tree.line(node)] = max(
@@ -433,7 +443,7 @@ def inspect(
         return python_findings(text, path, added, config)
     comments, code = lex(text, path)
     findings = comment_findings(comments, path, added - parser_directives(text, path))
-    if not is_test(path, config):
+    if product_source(path, config):
         findings.extend(script_mock_findings(text, code, path, added))
     return findings
 
@@ -456,10 +466,7 @@ def script_mock_findings(
     text: str, code: str, path: str, added: set[int]
 ) -> list[Finding]:
     findings = []
-    pattern = re.compile(
-        r"\b(?:jest|vi)\s*\.\s*(?:mock|doMock|unstable_mockModule)\s*\("
-    )
-    for match in pattern.finditer(code):
+    for match in MOCK_CALL.finditer(code):
         line = code.count("\n", 0, match.start()) + 1
         if line in added:
             findings.append(finding(MOCKS, path, line, "mock call in product code"))

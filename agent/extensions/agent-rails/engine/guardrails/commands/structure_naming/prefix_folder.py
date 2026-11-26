@@ -10,10 +10,7 @@ from itertools import combinations
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure_naming.scan_scope import (
-    is_test_path,
-    is_vendored_path,
-)
+from guardrails.commands.structure_naming.scan_scope import is_vendored_path
 from guardrails.context.changes import (
     DiffError,
     changed_paths,
@@ -23,7 +20,8 @@ from guardrails.context.changes import (
 )
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
-from guardrails.context.config.suite_files import is_test_file
+from guardrails.context.config.suite_files import is_test_source
+from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.foundation.source import modules, python, tree, typescript
@@ -90,9 +88,9 @@ def stem_tokens(language: str, stem: str) -> list[str]:
 
 
 def is_member(path: str, language: str) -> bool:
-    if language == "python":
-        return PurePosixPath(path).suffix == ".py"
-    return tree.language_of(path) == language
+    """A source file of the language that runs (a Python stub declares, so it is no
+    member)."""
+    return PurePosixPath(path).suffix in conventions.runtime_extensions(language)
 
 
 def owned(paths: list[str], language: str) -> list[str]:
@@ -120,7 +118,7 @@ def groups(
     siblings: dict[str, list[str]] = defaultdict(list)
     for path in owned(paths, language):
         if PurePosixPath(path).name != modules.package_marker() and not (
-            is_test_file(path, config) or is_test_path(path)
+            is_test_source(path, config)
         ):
             siblings[PurePosixPath(path).parent.as_posix()].append(path)
     found: list[dict[str, Any]] = []

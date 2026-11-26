@@ -23,7 +23,7 @@ BINDINGS_FILE = "pytest-conformance-bindings.json"
 PYTEST_INI = "[pytest]\nmarkers =\n    fast: tier 1\n    slow: tier 2\n"
 BASE_CONFIG: dict[str, Any] = {
     "tests": {
-        "public_entry_points": {"shop": "shop.core:Basket"},
+        "public_entry_points": {"shop": ["shop.core:Basket"]},
         "adapters": [
             {
                 "name": NAME,
@@ -77,6 +77,7 @@ def build_project(root: Path, case: dict[str, Any], binding: dict[str, Any]) -> 
     project = root / "project"
     (project / "shop").mkdir(parents=True)
     (project / "tests").mkdir()
+    run_text(["git", "init", "-q", str(project)], check=True, timeout=30)
     (project / "pytest.ini").write_text(PYTEST_INI, encoding="utf-8")
     (project / "shop" / "__init__.py").write_text("", encoding="utf-8")
     (project / "shop" / "core.py").write_text(

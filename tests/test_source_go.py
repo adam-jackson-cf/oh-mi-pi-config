@@ -115,6 +115,24 @@ class DirectiveTests(unittest.TestCase):
         source = 'package a\n\n//go:embed "esc\\x41.txt"\nvar f string\n'
         assert go.embed_patterns(parse("a.go", source)) == ["escA.txt"]
 
+    def test_embed_patterns_match_by_go_path_match(self) -> None:
+        cases = [
+            ("data/[^_]*.json", "data/a.json", True),
+            ("data/[^_]*.json", "data/_a.json", False),
+            ("data/[!a]x", "data/bx", False),
+            ("data/*.json", "data/deep/a.json", False),
+            ("data/**.json", "data/a.json", True),
+            ("data/a\\*", "data/a*", True),
+            ("data", "data/deep/a.json", True),
+            ("data", "data/.hidden/a.json", False),
+            ("all:data", "data/.hidden/a.json", True),
+        ]
+        for pattern, path, embedded in cases:
+            with self.subTest(pattern=pattern, path=path):
+                assert go.embeds(pattern, path) is embedded
+        with pytest.raises(SourceError, match="invalid //go:embed pattern"):
+            go.embeds("data/[]a]", "data/a")
+
     def test_an_invalid_quoted_embed_pattern_is_an_error(self) -> None:
         source = 'package a\n\n//go:embed "bad\\q"\nvar f string\n'
         with pytest.raises(SourceError, match="invalid //go:embed pattern"):

@@ -261,7 +261,7 @@ class TestOnlySymbolCase(unittest.TestCase):
         )
     }
 
-    REPO_CONFIG = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
+    REPO_CONFIG = {"tests": {"public_entry_points": {"shop": ["shop.cli:main"]}}}
 
     def findings(
         self,
@@ -336,6 +336,62 @@ def adapter_lint_rules() -> list[dict[str, Any]]:
         (ENGINE / "data/pytest-patterns.json").read_text()
     )
     return patterns
+
+
+def production_findings(text: str) -> list[str]:
+    from guardrails.commands.adapters.pytest import lint
+
+    path = "shop/settings.py"
+    loaded = Source(path, text, tree.parse(path, text))
+    rules = [rule for rule in lint.load_patterns() if rule.scope == "production"]
+    return [item.message for item in lint.file_findings(loaded, rules, frozenset())]
+
+
+class ProductionHookTests(unittest.TestCase):
+    def test_hook_phrases_count_in_declared_names_only(self) -> None:
+        assert production_findings(
+            "def reset_for_testing():\n    pass\n\n\n"
+            "class SwitchTestMode:\n    pass\n\n\n"
+            "def total(items, testOnly=False):\n    return len(items)\n"
+        ) == [
+            "line 1: production code declares a test-only hook (reset_for_testing)",
+            "line 5: production code declares a test-only hook (SwitchTestMode)",
+            "line 9: production code declares a test-only hook (testOnly)",
+        ]
+        assert (
+            production_findings(
+                "import lib\n\nis_testing = lib.reset_for_testing(1)\nlatest_only = 2\n\n\n"
+                "def test_only_findings():\n    pass\n"
+            )
+            == []
+        )
+
+    def test_a_binding_written_inside_a_string_binds_nothing(self) -> None:
+        assert (
+            production_findings(
+                'import os\n\nHELP = """\nMODE = "TESTING"\n"""\n\n\n'
+                "def mode():\n    return os.environ.get(MODE)\n"
+            )
+            == []
+        )
+        assert production_findings(
+            'import os\n\nMODE = "TESTING"\n\n\ndef mode():\n'
+            "    return os.environ.get(MODE)\n"
+        ) == [
+            "line 7: production code reads a test marker from the environment or loaded "
+            'modules ("TESTING")'
+        ]
+
+    def test_comparing_an_environment_value_with_a_test_value_is_a_marker_read(
+        self,
+    ) -> None:
+        assert production_findings(
+            "import os\n\nLOCAL = os.environ.get('APP_ENV') == 'test'\n"
+            "REMOTE = os.getenv('APP_ENV') != 'production'\n"
+        ) == [
+            "line 3: production code reads a test marker from the environment or loaded "
+            "modules (os.environ.get('APP_ENV') == 'test')"
+        ]
 
 
 class ExtraTests(unittest.TestCase):

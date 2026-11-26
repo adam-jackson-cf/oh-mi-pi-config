@@ -192,6 +192,82 @@ def embed_value(token: str) -> str:
     return token
 
 
+def class_pattern(pattern: str, start: int) -> tuple[str, int]:
+    """A path.Match character class ([a-z], [^_], [\\]]) at pattern[start] as a regular
+    expression class, and the index after it; SourceError when it is malformed."""
+    at, negated = start + 1, False
+    ranges: list[tuple[str, str]] = []
+    if pattern.startswith("^", at):
+        negated, at = True, at + 1
+    while not (pattern.startswith("]", at) and ranges):
+        low, at = class_character(pattern, at)
+        high = low
+        if pattern.startswith("-", at):
+            high, at = class_character(pattern, at + 1)
+        ranges.append((low, high))
+    body = "".join(
+        f"{re.escape(low)}-{re.escape(high)}" for low, high in ranges if low <= high
+    )
+    if not body:
+        return ("[^/]" if negated else "(?!)"), at + 1
+    return f"[{'^' if negated else ''}{body}]", at + 1
+
+
+def class_character(pattern: str, at: int) -> tuple[str, int]:
+    if at >= len(pattern) or pattern[at] in "-]":
+        raise SourceError(f"invalid //go:embed pattern {pattern}")
+    if pattern[at] == "\\":
+        at += 1
+    if at >= len(pattern) - 1:
+        raise SourceError(f"invalid //go:embed pattern {pattern}")
+    return pattern[at], at + 1
+
+
+def path_match(pattern: str) -> re.Pattern[str]:
+    """A Go path.Match pattern as a regular expression: * and ? never match /, a class
+    negates with ^, a backslash escapes the next character, and ** is two stars."""
+    parts, at = [], 0
+    while at < len(pattern):
+        character = pattern[at]
+        if character == "*":
+            parts.append("[^/]*")
+        elif character == "?":
+            parts.append("[^/]")
+        elif character == "[":
+            text, at = class_pattern(pattern, at)
+            parts.append(text)
+            continue
+        elif character == "\\":
+            at += 1
+            if at == len(pattern):
+                raise SourceError(f"invalid //go:embed pattern {pattern}")
+            parts.append(re.escape(pattern[at]))
+        else:
+            parts.append(re.escape(character))
+        at += 1
+    return re.compile("".join(parts))
+
+
+def embeds(pattern: str, relative: str) -> bool:
+    """Whether a //go:embed pattern embeds a file at a path relative to its package: the
+    pattern's path elements match the path's first elements by path.Match, and a file
+    below a matched folder is embedded unless a name below it starts with a hidden
+    prefix (all: embeds those too)."""
+    rules = pack()["embed"]
+    walk_all = pattern.startswith(rules["all_prefix"])
+    segments = pattern.removeprefix(rules["all_prefix"]).split("/")
+    names = relative.split("/")
+    if len(names) < len(segments) or not all(
+        path_match(segment).fullmatch(name)
+        for name, segment in zip(names, segments, strict=False)
+    ):
+        return False
+    hidden = tuple(rules["hidden_prefixes"])
+    return walk_all or not any(
+        name.startswith(hidden) for name in names[len(segments) :]
+    )
+
+
 def embed_patterns(root: SgNode) -> list[str]:
     return [
         embed_value(token)

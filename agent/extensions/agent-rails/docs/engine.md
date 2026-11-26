@@ -61,8 +61,14 @@ or a lower one, and two parts of one layer never import each other.
 
 `data/`, beside the package, is not a layer. It holds the run-time data: the
 rule catalogue, house style, convention packs, config template, adapter source
-patterns, conformance cases and the decision-store schema. Each module that reads
-a data file names it by explicit path (`DATA_FOLDER`).
+patterns and vocabularies, conformance cases and the decision-store schema. Language facts
+live there, not in code: extensions, test patterns and frameworks, ignored and output
+folders and fixed names in the convention packs; bundle manifests and entry modules in
+`structure-languages.json`; each adapter's vocabulary in its `*-patterns.json`, with the
+test-marker names, values and hook phrases every adapter shares in `test-hook-patterns.json`.
+Modules above the foundation read data through `foundation/conventions.py` (`DATA_FOLDER`,
+`data()`); foundation modules name the folder themselves, because the layer rules keep them
+from importing a sibling.
 
 ## Adapters
 

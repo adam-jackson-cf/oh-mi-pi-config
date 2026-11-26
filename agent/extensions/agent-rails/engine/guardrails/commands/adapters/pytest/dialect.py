@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from guardrails.foundation import conventions
 from guardrails.test_report.junit import Dialect, Report, as_int
 
 SUBTEST_PROPERTIES = {
@@ -23,7 +24,9 @@ class PytestDialect(Dialect):
 
 
 NAME = __name__.split(".")[-2]
-DIALECT = PytestDialect(name=NAME, source_suffix=".py")
+# A dotted classname names a Python module that runs: its path plus the runtime extension.
+(SOURCE_SUFFIX,) = conventions.runtime_extensions("python")
+DIALECT = PytestDialect(name=NAME, source_suffix=SOURCE_SUFFIX)
 
 
 def junit_arguments(report_path: str) -> list[str]:

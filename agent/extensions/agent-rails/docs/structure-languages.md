@@ -18,11 +18,23 @@ The import rules are `dependency-direction`, `tier-readership`, `sibling-isolati
 | Prefix folder | Cutoff 0.15, measured | Runs once measured | Does not apply |
 | Rename residue | Defined names | Identifiers | Identifiers |
 
+Runtime data is one check in every language. A tooling-pack config file (`pyproject.toml`,
+`setup.cfg`, `ruff.toml`, `mypy.ini`, `.golangci.yml`, `biome.json`) and the language's bundle
+manifest are never runtime data, and a folder that holds a bundle manifest is a distribution
+root: its own data sits beside its code there. Folders no scan reads (installed, generated and
+tool-state trees such as `node_modules/`, `.venv/`, Python's `build/`, Go's `testdata/`) are
+skipped.
+
 Duplicate code is `STRUCT.overlapping-responsibilities`; prefix folder is `STRUCT.prefix-folder`,
 which does not apply to Go because a Go folder is a package. A scored rule runs for a language only
 with a measured cutoff. Shell has no packages, imports or definitions, so no structure rule reads
 it. The candidate proposers behind the structure-naming judgments still propose Python only: those
-judgments were measured on Python cases.
+judgments were measured on Python cases. They and every other structure scan leave test source
+out: a pack's test runner patterns (`test_*.py`, `*_test.go`, `*.test.ts`), `conftest.py`, the
+configured test file patterns, the `tests/`, `fixtures/` and `support/` folders, and the data
+(not source) under a tier location. A name that only starts like a test (`testimonials/`,
+`testing.go`, `fixture_loader.py`) is product code, and so is source under a tier location that
+runs tests beside code (vitest, go test) unless its name is a test's.
 
 Python module names and imports have one owner, `guardrails/foundation/source/modules.py`:
 

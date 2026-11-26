@@ -4,13 +4,16 @@ from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.context.config.adapter_declarations import tier_locations
-from guardrails.context.config.reader import tests_settings
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.foundation.source.modules import folder_of
-from guardrails.foundation.source.tree import SourceError, parse
+from guardrails.foundation.source.tree import (
+    SourceError,
+    languages,
+    parse,
+    rule_definitions,
+)
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -33,18 +36,27 @@ DATA_SUFFIXES = frozenset({
     ".yaml",
     ".yml",
 })
-ENTRY_MODULES = frozenset({"__main__.py", "cli.py"})
-BUNDLE_MANIFESTS = frozenset({"SKILL.md", "pyproject.toml", "setup.cfg", "setup.py"})
 TOP_TIER_DEPTH = 1
 
 
+def bundle_manifests(language: str) -> frozenset[str]:
+    """The files that make a folder a distribution of a language (structure-languages.json)."""
+    manifests = rule_definitions(RUNTIME_DATA)[language]["bundle_manifests"]
+    return frozenset(manifests)
+
+
+def entry_modules() -> frozenset[str]:
+    """The Python module names that are a package's entry points."""
+    return frozenset(rule_definitions(ENTRY_POINT)["python"]["entry_modules"])
+
+
 class CodeTree:
-    def __init__(
-        self,
-        inventory: Iterable[str],
-        extensions: tuple[str, ...],
-        manifests: frozenset[str],
-    ) -> None:
+    """The folders of one language's source and of its bundle manifests: where runtime
+    data does not belong (inside code) and where it does (a distribution's own folder)."""
+
+    def __init__(self, inventory: Iterable[str], language: str) -> None:
+        extensions = languages()[language]
+        self.manifests = bundle_manifests(language)
         self.code: set[str] = set()
         self.bundles: set[str] = set()
         for path in inventory:
@@ -52,26 +64,44 @@ class CodeTree:
             folder = pure.parent.as_posix()
             if folder == ".":
                 continue
-            if pure.name in manifests:
+            if pure.name in self.manifests:
                 self.bundles.add(folder)
             elif pure.name.endswith(extensions):
                 self.code.add(folder)
 
     def enclosing(self, path: str) -> str | None:
+        """The nearest code folder above a file, unless a bundle folder (a folder with a
+        bundle manifest) comes first: a distribution's own folder holds its manifests and
+        data beside its code."""
         for parent in PurePosixPath(path).parents:
             folder = parent.as_posix()
-            if folder in self.code:
-                return folder
             if folder in self.bundles:
                 return None
+            if folder in self.code:
+                return folder
         return None
+
+    def misplaced_data(self, path: str) -> str | None:
+        """The code folder a runtime data file sits in, or None when the file is no
+        runtime data (not a data suffix, a bundle manifest, a tooling fixed file such as
+        pyproject.toml, ruff.toml or .golangci.yml, or in an ignored folder) or sits
+        outside code."""
+        pure = PurePosixPath(path)
+        if (
+            pure.suffix not in DATA_SUFFIXES
+            or pure.name in self.manifests
+            or conventions.fixed_file(path)
+            or conventions.ignored_path(path)
+        ):
+            return None
+        return self.enclosing(path)
 
 
 class PackageTree(CodeTree):
     def __init__(self, inventory: Iterable[str]) -> None:
         python = conventions.load_pack("python")
         paths = list(inventory)
-        super().__init__(paths, tuple(python["extensions"]), BUNDLE_MANIFESTS)
+        super().__init__(paths, "python")
         self.packages = {
             PurePosixPath(path).parent.as_posix()
             for path in paths
@@ -83,21 +113,6 @@ class PackageTree(CodeTree):
         while current.parent.as_posix() in self.packages:
             current = current.parent
         return current.as_posix()
-
-
-def held_by_tests(path: str, config: dict[str, Any]) -> bool:
-    placement = conventions.load_pack("python")["placement"]
-    folders = {placement["root"], placement["fixtures_dir"]}
-    if folders.intersection(PurePosixPath(path).parts[:-1]):
-        return True
-    layout = tests_settings(config, "layout")
-    holders = (
-        as_list([layout.get("fixtures_dir"), layout.get("support_dir")])
-        if isinstance(layout, dict)
-        else []
-    )
-    locations = [item for items in tier_locations(config).values() for item in items]
-    return matches_any(path, [*holders, *locations])
 
 
 class Sources:
@@ -144,18 +159,14 @@ def data_finding(path: str, folder: str) -> Finding:
 
 
 def runtime_data_findings(path: str, tree: PackageTree) -> list[Finding]:
-    if PurePosixPath(path).suffix not in DATA_SUFFIXES:
-        return []
-    folder = tree.enclosing(path)
-    if folder is None:
-        return []
-    return [data_finding(path, folder)]
+    folder = tree.misplaced_data(path)
+    return [] if folder is None else [data_finding(path, folder)]
 
 
 def entry_point_findings(path: str, tree: PackageTree) -> list[Finding]:
     pure = PurePosixPath(path)
     folder = pure.parent.as_posix()
-    if pure.name not in ENTRY_MODULES or folder not in tree.packages:
+    if pure.name not in entry_modules() or folder not in tree.packages:
         return []
     root = tree.root(folder)
     depth = len(pure.parent.relative_to(root).parts)
@@ -179,7 +190,7 @@ def package_file_findings(
     tree = PackageTree(inventory)
     found: list[Finding] = []
     for path in paths:
-        if held_by_tests(path, config):
+        if is_test_source(path, config):
             continue
         found.extend(runtime_data_findings(path, tree))
         found.extend(entry_point_findings(path, tree))

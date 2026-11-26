@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter, defaultdict
+from collections.abc import Callable
 from functools import cache
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 
 from guardrails.commands.structure_naming.name_pair.extract import (
@@ -16,8 +17,8 @@ from guardrails.commands.structure_naming.name_pair.extract import (
     stem,
     words,
 )
+from guardrails.foundation import conventions
 
-DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
 TRIVIAL = re.compile(
     r"^(utf-?8|utf-?16|ascii|latin-?1|true|false|none|null|yes|no|on|off|json|yaml|text"
     r"|html|xml|csv|id|name|type|value|key|data|default|auto|main|master|dev|prod|test"
@@ -71,7 +72,7 @@ Pair = dict[str, Any]
 
 @cache
 def synonyms() -> dict[str, frozenset[str]]:
-    data = json.loads((DATA_FOLDER / "name-synonyms.json").read_bytes())
+    data = json.loads((conventions.DATA_FOLDER / "name-synonyms.json").read_bytes())
     found: dict[str, set[str]] = defaultdict(set)
     for group in data["groups"]:
         for first in group:
@@ -119,8 +120,8 @@ def definition_entry(item: dict[str, Any]) -> Pair:
 
 
 class NameIndex:
-    def __init__(self, tree: dict[str, str]) -> None:
-        found: Found = extract_tree(tree)
+    def __init__(self, tree: dict[str, str], is_test: Callable[[str], bool]) -> None:
+        found: Found = extract_tree(tree, is_test)
         self.tree = tree
         self.definitions = found.definitions
         self.aliases = found.aliases

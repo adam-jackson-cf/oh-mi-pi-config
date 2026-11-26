@@ -56,9 +56,10 @@ def language_pack(language: str) -> dict[str, Any]:
 
 
 def languages() -> dict[str, tuple[str, ...]]:
+    """Each structure language's source extensions, from its convention pack."""
     return {
-        name: tuple(entry["extensions"])
-        for name, entry in structure_languages()["languages"].items()
+        name: tuple(language_pack(name)["extensions"])
+        for name in structure_languages()["languages"]
     }
 
 

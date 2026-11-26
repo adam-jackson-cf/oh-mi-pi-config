@@ -1,0 +1,38 @@
+{
+  "about": "The go adapter's vocabulary for TEST.no-self-mocking, TEST.no-evasion, TEST.property-seed and TEST.no-test-hooks. Packages are import paths; a call is [package import path, function]. The test-marker names, values and hook phrases are shared with the other adapters in test-hook-patterns.json.",
+  "skip_calls": ["Skip", "Skipf", "SkipNow"],
+  "patch_packages": [
+    "github.com/agiledragon/gomonkey",
+    "github.com/agiledragon/gomonkey/v2",
+    "bou.ke/monkey",
+    "github.com/bouk/monkey",
+    "github.com/undefinedlabs/go-mpatch"
+  ],
+  "mock_constructor": "^NewMock(\\w+)$",
+  "retry_packages": [
+    "github.com/hashicorp/consul/sdk/testutil/retry",
+    "github.com/avast/retry-go",
+    "github.com/avast/retry-go/v2",
+    "github.com/avast/retry-go/v3",
+    "github.com/avast/retry-go/v4"
+  ],
+  "property": {
+    "package": "testing/quick",
+    "checks": ["Check", "CheckEqual"],
+    "seed_field": "Rand"
+  },
+  "test_probe": ["testing", "Testing"],
+  "marker_reads": [
+    ["os", "Getenv"],
+    ["os", "LookupEnv"],
+    ["flag", "Lookup"]
+  ],
+  "value_reads": [["os", "Getenv"]],
+  "flag_marker": "^test\\.\\w+$",
+  "fixes": {
+    "TEST.no-self-mocking": "test the owned code through its public entry point; fake only boundaries",
+    "TEST.no-evasion": "make the test run and pass, or record an owner-approved exception",
+    "TEST.property-seed": "give quick.Config a Rand built from a fixed seed",
+    "TEST.no-test-hooks": "remove the hook; tests must exercise the production path unchanged"
+  }
+}

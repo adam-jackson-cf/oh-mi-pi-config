@@ -48,11 +48,11 @@ TEST_PLACEMENT = "TEST.placement"
 def framework_names(
     found: list[python.PythonImport],
 ) -> tuple[bool, set[str], set[str]]:
-    frameworks = conventions.load_pack("python")["test_frameworks"]
+    frameworks = conventions.test_frameworks("python")
     modules = set(frameworks["modules"])
-    case_module, case_class = frameworks["case_module"], frameworks["case_class"]
+    case_module, case_classes = frameworks["case_module"], frameworks["case_classes"]
     framework_imported = False
-    testcase_names = {case_class}
+    testcase_names = set(case_classes)
     unittest_names = {case_module}
     for item in found:
         if item.level:
@@ -64,7 +64,7 @@ def framework_names(
             testcase_names.update(
                 bound
                 for name, bound in zip(item.names, item.bindings, strict=True)
-                if name == case_class
+                if name in case_classes
             )
     return framework_imported, testcase_names, unittest_names
 
@@ -72,13 +72,14 @@ def framework_names(
 def is_test_class(
     node: SgNode, testcase_names: set[str], unittest_names: set[str]
 ) -> bool:
+    frameworks = conventions.test_frameworks("python")
     bases = node.field("superclasses")
-    return python.name_of(node).startswith("Test") or any(
+    return python.name_of(node).startswith(frameworks["class_prefix"]) or any(
         (base.kind() == "identifier" and base.text() in testcase_names)
         or (
             base.kind() == "attribute"
             and (attribute := base.field("attribute")) is not None
-            and attribute.text() == "TestCase"
+            and attribute.text() in frameworks["case_classes"]
             and (value := base.field("object")) is not None
             and value.kind() == "identifier"
             and value.text() in unittest_names
@@ -88,8 +89,15 @@ def is_test_class(
 
 
 def defines_tests(repo: Path, path: str) -> bool:
-    if not path.endswith(".py") or not (repo / path).is_file():
+    """Whether a Python file that runs (a stub defines no tests) imports a test
+    framework and defines a test function or a test class with a test method, by the
+    framework names the Python pack holds."""
+    if (
+        not path.endswith(conventions.runtime_extensions("python"))
+        or not (repo / path).is_file()
+    ):
         return False
+    prefix = conventions.test_frameworks("python")["function_prefix"]
     try:
         root = tree.parse(path, tree.read(repo, path))
     except (OSError, tree.SourceError):
@@ -101,7 +109,7 @@ def defines_tests(repo: Path, path: str) -> bool:
         return False
     for node in python.members(root):
         if node.kind() == "function_definition" and python.name_of(node).startswith(
-            "test_"
+            prefix
         ):
             return True
         if (
@@ -109,7 +117,7 @@ def defines_tests(repo: Path, path: str) -> bool:
             and is_test_class(node, testcase_names, unittest_names)
             and any(
                 method.kind() == "function_definition"
-                and python.name_of(method).startswith("test_")
+                and python.name_of(method).startswith(prefix)
                 for method in python.members(node.field("body"))
             )
         ):

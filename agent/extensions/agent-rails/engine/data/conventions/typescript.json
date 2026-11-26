@@ -31,6 +31,10 @@
     "ignored_folders": {
       "node_modules": "https://docs.npmjs.com/cli/v11/configuring-npm/folders"
     },
+    "output_folders": {
+      "dist": "https://vite.dev/config/build-options#build-outdir",
+      "coverage": "https://vitest.dev/config/#coverage-reportsdirectory"
+    },
     "test_patterns": {
       "*.test.ts": "https://vitest.dev/config/include.html",
       "*.test.tsx": "https://vitest.dev/config/include.html",
@@ -88,6 +92,7 @@
   ],
   "fixed_folders": ["__tests__", "node_modules"],
   "ignored_folders": ["node_modules"],
+  "output_folders": ["dist", "coverage"],
   "test_patterns": [
     "*.test.ts",
     "*.test.tsx",

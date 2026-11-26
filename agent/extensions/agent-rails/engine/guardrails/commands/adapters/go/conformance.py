@@ -29,7 +29,7 @@ BASE_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop": "example.com/project/shop:PublicAPI"},
+        "public_entry_points": {"shop": ["example.com/project/shop:PublicAPI"]},
         "tiers": {"t1": {"command": "guardrails adapter go run --tier t1"}},
         "layout": {
             "test_file_patterns": ["*_test.go"],

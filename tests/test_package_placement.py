@@ -88,7 +88,7 @@ class PackagePlacementTests(unittest.TestCase):
             (DATA_FOLDER / "structure-languages.json").read_text(encoding="utf-8")
         )
         python = languages["rules"][package_placement.ENTRY_POINT]["python"]
-        assert python["entry_modules"] == sorted(package_placement.ENTRY_MODULES)
+        assert python["entry_modules"] == sorted(package_placement.entry_modules())
 
 
 class SourceRepoCase(unittest.TestCase):
@@ -405,10 +405,30 @@ class LanguageSpecTests(SourceRepoCase):
             for language, entry in LANGUAGES["STRUCT.runtime-data-placement"].items()
         }
         assert manifests == {
-            "python": sorted(package_placement.BUNDLE_MANIFESTS),
-            "typescript": sorted(script_placement.BUNDLE_MANIFESTS),
-            "go": sorted(go_placement.BUNDLE_MANIFESTS),
+            language: sorted(package_placement.bundle_manifests(language))
+            for language in ("python", "typescript", "go")
         }
+
+    def test_tool_configs_and_bundle_manifests_beside_code_are_not_runtime_data(
+        self,
+    ) -> None:
+        inventory = self.repo({
+            "tools/x/cli.py": "",
+            "tools/x/pyproject.toml": "",
+            "tools/x/ruff.toml": "",
+            "tools/x/setup.cfg": "",
+            "tools/x/mypy.ini": "",
+            "svc/main.go": "package main\n",
+            "svc/.golangci.yml": "",
+            "web/view.ts": "",
+            "web/biome.json": "{}",
+            "pkg/core.py": "",
+            "pkg/rules.yaml": "",
+            "vendor/lib/lib.go": "package lib\n",
+            "vendor/lib/schema.json": "{}",
+        })
+        found = layout.package_placement_findings(self.root, inventory, inventory, {})
+        assert pairs(found) == {(DATA, "pkg/rules.yaml")}
 
     def test_one_finding_per_file_when_languages_share_a_folder(self) -> None:
         inventory = self.repo({

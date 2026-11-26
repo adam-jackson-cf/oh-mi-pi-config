@@ -213,7 +213,7 @@ class OverlapCommandTests(unittest.TestCase):
         assert overlap.run(repo, {}, ["--base", base, "--head", head]) == []
         for language, suffix in (("typescript", "ts"), ("go", "go")):
             with self.subTest(language=language):
-                pairs = overlap.overlap_candidates(repo, head, language, [])
+                pairs = overlap.overlap_candidates(repo, head, language, {})
                 assert [
                     (pair.score, pair.first.file, pair.second.file)
                     for pair in pairs

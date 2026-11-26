@@ -37,9 +37,9 @@ SENTINELS = frozenset({
 })
 PLACEHOLDER = re.compile(r"<[^<>\n]+>|\bTBD\b|\bTODO\b", re.IGNORECASE)
 # tests.public_entry_points: each owned package (a Python package, a folder or a
-# package.json name) mapped to "<module>:<symbol>", the module as the package's language
-# names it (a dotted Python module, a TypeScript file path or package name, a Go import
-# path) and the top-level name importers call.
+# package.json name) mapped to a list of its entry points, each "<module>:<symbol>": the
+# module as the package's language names it (a dotted Python module, a TypeScript file
+# path or package name, a Go import path) and a top-level name importers call.
 ENTRY_POINT = re.compile(r"(?P<module>[^\s:]+):(?P<symbol>[A-Za-z_$][\w$]*)")
 
 
@@ -341,11 +341,18 @@ def entry_points_problem(value: object) -> str | None:
     problem = map_problem(value)
     if problem is not None or not isinstance(value, dict):
         return problem
-    for package, entry in value.items():
-        if not isinstance(entry, str) or ENTRY_POINT.fullmatch(entry) is None:
+    for package, entries in value.items():
+        if (
+            not isinstance(entries, list)
+            or not entries
+            or not all(
+                isinstance(entry, str) and ENTRY_POINT.fullmatch(entry) is not None
+                for entry in entries
+            )
+        ):
             return (
-                f"maps {package!r} to {entry!r}; each owned package maps to its public "
-                "entry point as '<module>:<symbol>'"
+                f"maps {package!r} to {entries!r}; each owned package maps to a list of "
+                "its public entry points, each '<module>:<symbol>'"
             )
     return None
 

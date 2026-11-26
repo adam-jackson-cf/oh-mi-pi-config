@@ -118,7 +118,7 @@ SHOP_REPO_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop": "shop.core:Basket"},
+        "public_entry_points": {"shop": ["shop.core:Basket"]},
         "tiers": {
             "t1": {"command": "pytest -m fast"},
             "t2": {"command": "pytest -m slow"},

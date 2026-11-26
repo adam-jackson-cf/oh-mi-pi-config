@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from guardrails.context.config.entry_points import EntryPoint, entry_points
 from guardrails.context.config.section_schema import ConfigValueError
+from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import normalized_path, repo_paths
 from guardrails.foundation.source import tree
@@ -30,8 +31,8 @@ MANIFEST_FIX = (
     "repair the file so adapter lint can resolve owned code, then run it again"
 )
 CONFIG_FIX = (
-    "map each owned package to '<module>:<symbol>' in tests.public_entry_points "
-    "(docs/config.md)"
+    "map each owned package to a list of '<module>:<symbol>' entries in "
+    "tests.public_entry_points (docs/config.md)"
 )
 READ_ERRORS: tuple[type[Exception], ...] = (OSError, UnicodeError, tree.SourceError)
 EntryPoints = tuple[EntryPoint, ...]
@@ -108,6 +109,11 @@ def configured_entry_points(config: dict[str, Any]) -> EntryPoints | Finding:
 
 
 def repository_paths(repo: Path, paths: Iterable[str] | None = None) -> list[str]:
-    """Repository-relative paths: the given ones, or every tracked file."""
+    """Repository-relative paths, the given ones or every tracked file, outside every
+    folder no scan reads (conventions.ignored_path: node_modules, vendor, .venv, ...)."""
     chosen = repo_paths(repo) if paths is None else paths
-    return [path for raw in chosen if (path := normalized_path(repo, raw))]
+    return [
+        path
+        for raw in chosen
+        if (path := normalized_path(repo, raw)) and not conventions.ignored_path(path)
+    ]

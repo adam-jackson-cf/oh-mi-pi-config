@@ -6,7 +6,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.adapters import owned_source
+from guardrails.commands.adapters import hook_vocabulary, owned_source
 from guardrails.commands.adapters.javascript.cases import (
     CALLBACK_KINDS,
     REGISTRARS,
@@ -17,6 +17,7 @@ from guardrails.commands.adapters.javascript.cases import (
     children,
     imports,
     origin,
+    vocabulary,
     walk,
 )
 from guardrails.commands.adapters.marker_bindings import inline_bindings
@@ -40,9 +41,6 @@ from guardrails.foundation.source.modules import (
 if TYPE_CHECKING:
     from ast_grep_py import Config, SgNode
 
-DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
-SKIPPED = frozenset({".git", "node_modules", "dist", "build", ".venv", "coverage"})
-PATTERNS_FILE = "javascript-patterns.json"
 RELATIVE_PREFIXES = ("./", "../")
 RELATIVE_SPECIFIERS = frozenset({".", ".."})
 # A call the test callback's context makes to skip itself (Vitest's context.skip()).
@@ -60,7 +58,6 @@ class Pattern:
 
 
 def load_patterns() -> list[Pattern]:
-    text = (DATA_FOLDER / PATTERNS_FILE).read_text(encoding="utf-8")
     return [
         Pattern(
             item["id"],
@@ -68,9 +65,9 @@ def load_patterns() -> list[Pattern]:
             item["target"],
             item["message"],
             remediation(item["remediation"]),
-            {"rule": item["rule"]},
+            {"rule": hook_vocabulary.expanded(item["rule"])},
         )
-        for item in json.loads(text)
+        for item in vocabulary()["patterns"]
     ]
 
 
@@ -79,16 +76,31 @@ def source_files(repo: Path, paths: list[str]) -> list[str]:
         path
         for path in owned_source.repository_paths(repo, paths or None)
         if path.endswith(SUFFIXES)
-        and not SKIPPED.intersection(PurePosixPath(path).parts)
     })
 
 
 @dataclass(frozen=True)
 class Vocabulary:
+    """A runner's names from javascript-patterns.json: the calls that mock, the
+    registration flags that evade and the registrars that skip."""
+
     adapter: str
     mock_calls: frozenset[str]
     evasion_flags: frozenset[str]
-    skipping_registrars: frozenset[str] = frozenset()
+    skipping_registrars: frozenset[str]
+
+
+def runner_vocabulary(adapter: str) -> Vocabulary:
+    data = vocabulary()
+    runner = data["runners"][adapter]
+    return Vocabulary(
+        adapter,
+        frozenset(
+            call for api in runner["mock_apis"] for call in data["mock_apis"][api]
+        ),
+        frozenset(runner["evasion_flags"]),
+        frozenset(runner["skipping_registrars"]),
+    )
 
 
 def is_test(path: str, config: dict[str, Any], adapter: str) -> bool:
@@ -112,7 +124,7 @@ def package_manifests(
     problems: list[Finding] = []
     for manifest in tracked:
         pure = PurePosixPath(manifest)
-        if pure.name != PACKAGE_MANIFEST or SKIPPED.intersection(pure.parts):
+        if pure.name != PACKAGE_MANIFEST:
             continue
         try:
             data = package_manifest(manifest, tree.read(repo, manifest))
@@ -264,6 +276,7 @@ class Site:
     vocabulary: Vocabulary
 
 
+TYPE_NAME = "type_identifier"
 HOOK_DECLARATIONS = frozenset({
     "variable_declarator",
     "function_declaration",
@@ -272,9 +285,6 @@ HOOK_DECLARATIONS = frozenset({
     "required_parameter",
     "optional_parameter",
 })
-PROPERTY_MODULE = "fast-check"
-PROPERTY_RUNNERS = frozenset({("assert",), ("check",)})
-GLOBAL_CONFIGURATION = ("configureGlobal",)
 
 
 def environment_violation(node: SgNode, site: Site) -> str | None:
@@ -282,10 +292,25 @@ def environment_violation(node: SgNode, site: Site) -> str | None:
 
 
 def hook_violation(node: SgNode, site: Site) -> str | None:
+    """A declared name (not a use) that holds a test-hook phrase. A TypeScript class
+    name is a type identifier, so its declaration is matched instead."""
+    if node.kind() == "class_declaration":
+        name = node.field("name")
+        return (
+            name.text()
+            if name is not None
+            and name.kind() == TYPE_NAME
+            and hook_vocabulary.hook_phrase(name.text())
+            else None
+        )
     parent = node.parent()
     if parent is not None and parent.kind() in HOOK_DECLARATIONS:
         name = parent.field("name") or parent.field("pattern")
-        if name is not None and name.range().start.index == node.range().start.index:
+        if (
+            name is not None
+            and name.range().start.index == node.range().start.index
+            and hook_vocabulary.hook_phrase(node.text())
+        ):
             return node.text()
     return None
 
@@ -380,15 +405,20 @@ def evasion_violation(node: SgNode, site: Site) -> str | None:
     return None
 
 
-def property_call(found: Imported | None, paths: Container[tuple[str, ...]]) -> bool:
+def property_call(found: Imported | None, names: Container[str]) -> bool:
+    """Whether a callee is one of the named fast-check functions (property in
+    javascript-patterns.json)."""
     return (
-        found is not None and found.module == PROPERTY_MODULE and found.path() in paths
+        found is not None
+        and found.module == vocabulary()["property"]["module"]
+        and len(found.path()) == 1
+        and found.path()[0] in names
     )
 
 
 def property_violation(node: SgNode, site: Site) -> str | None:
     found = origin(node.field("function"), site.aliases)
-    if found is None or not property_call(found, PROPERTY_RUNNERS):
+    if found is None or not property_call(found, vocabulary()["property"]["runners"]):
         return None
     args = arguments(node)
     options = object_pairs(args[1]) if len(args) > 1 else {}
@@ -418,7 +448,8 @@ def configured_seeds(root: SgNode, aliases: Mapping[str, Imported]) -> list[int]
     configured = []
     for node in root.find_all({"rule": {"kind": "call_expression"}}):
         if property_call(
-            origin(node.field("function"), aliases), {GLOBAL_CONFIGURATION}
+            origin(node.field("function"), aliases),
+            {vocabulary()["property"]["global_configuration"]},
         ):
             args = arguments(node)
             parent = node.parent()
@@ -442,7 +473,7 @@ def file_findings(
 ) -> list[Finding]:
     path, root = source.path, source.root
     inlined = tree.tolerant_tree(
-        inline_bindings(source.text, "typescript"), tree.grammar(path)
+        inline_bindings(source.text, root, "typescript"), tree.grammar(path)
     )
     aliases = imports(root)
     configured = configured_seeds(root, aliases)

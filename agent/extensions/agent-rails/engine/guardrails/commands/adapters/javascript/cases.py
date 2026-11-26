@@ -3,18 +3,17 @@ from __future__ import annotations
 import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from functools import cache
 from typing import TYPE_CHECKING, Any
 
+from guardrails.foundation import conventions
 from guardrails.foundation.source import tree, typescript
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
 SUFFIXES = tree.languages()["typescript"]
-RUNNER_MODULES = ("vitest", "bun:test")
-# Modules whose default export is the module namespace, so a default import reads
-# their members directly.
-NAMESPACE_DEFAULTS = frozenset({"fast-check"})
+PATTERNS_FILE = "javascript-patterns.json"
 MEMBER_KINDS = frozenset({"member_expression", "subscript_expression"})
 REGISTRARS = frozenset({"test", "it", "describe", "suite"})
 TEST_REGISTRARS = frozenset({"test", "it"})
@@ -103,8 +102,21 @@ def parse(path: str, text: str) -> SgNode:
         raise CollectionError(str(error)) from error
 
 
+@cache
+def vocabulary() -> dict[str, Any]:
+    """javascript-patterns.json: the source patterns and the runner vocabulary."""
+    found: dict[str, Any] = conventions.data(PATTERNS_FILE)
+    return found
+
+
+def namespace_default(specifier: str) -> bool:
+    """Whether a module's default export is its namespace, so a default import reads
+    its members directly (fast-check)."""
+    return specifier in vocabulary()["namespace_defaults"]
+
+
 def binding_origin(binding: typescript.Binding) -> Imported:
-    whole = binding.imported == "default" and binding.specifier in NAMESPACE_DEFAULTS
+    whole = binding.imported == "default" and namespace_default(binding.specifier)
     return Imported(binding.specifier, None if whole else binding.imported)
 
 
@@ -152,8 +164,13 @@ def qualified(node: SgNode | None, aliases: Mapping[str, Imported]) -> str:
     return ""
 
 
+def runner_modules() -> tuple[str, ...]:
+    """The modules the test runners' APIs import from (vitest, bun:test)."""
+    return tuple(runner["module"] for runner in vocabulary()["runners"].values())
+
+
 def runner_api(name: str) -> str:
-    for module in RUNNER_MODULES:
+    for module in runner_modules():
         if name.startswith(f"{module}."):
             return name[len(module) + 1 :]
     return name
@@ -165,7 +182,7 @@ def api_name(node: SgNode | None, aliases: Mapping[str, Imported]) -> str:
     found = origin(node, aliases)
     if found is None:
         return qualified(node, aliases)
-    return ".".join(found.path()) if found.module in RUNNER_MODULES else found.label()
+    return ".".join(found.path()) if found.module in runner_modules() else found.label()
 
 
 def static_value(

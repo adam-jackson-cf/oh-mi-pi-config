@@ -37,7 +37,7 @@ REPO_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop": "example.com/shop/shop:Total"},
+        "public_entry_points": {"shop": ["example.com/shop/shop:Total"]},
         "tiers": {
             "t1": {"command": "guardrails adapter go run --tier t1"},
             "t3": {"none": True},
@@ -201,7 +201,7 @@ class GoSourceSetTests(unittest.TestCase):
             run_text(["git", "-C", str(repo), "add", "."], check=True, timeout=60)
             config = {
                 "tests": {
-                    "public_entry_points": {"shop": "example.com/shop/shop:Total"}
+                    "public_entry_points": {"shop": ["example.com/shop/shop:Total"]}
                 }
             }
             found = go_lint.lint(repo, config, [])

@@ -237,18 +237,19 @@ class Sections(unittest.TestCase):
 
 
 class EntryPointTests(unittest.TestCase):
-    def test_each_owned_package_maps_to_a_module_and_a_symbol(self) -> None:
+    def test_each_owned_package_maps_to_a_list_of_modules_and_symbols(self) -> None:
         config = {
             "tests": {
                 "public_entry_points": {
-                    "ledger": "ledger.cli:main",
-                    "web/src": "web/src/index.ts:App",
-                    "cart": "example.com/shop/cart:Total",
+                    "ledger": ["ledger.cli:main", "ledger.adapters.bank:run"],
+                    "web/src": ["web/src/index.ts:App"],
+                    "cart": ["example.com/shop/cart:Total"],
                 }
             }
         }
         assert entry_points.entry_points(config) == (
             entry_points.EntryPoint("ledger", "ledger.cli", "main"),
+            entry_points.EntryPoint("ledger", "ledger.adapters.bank", "run"),
             entry_points.EntryPoint("web/src", "web/src/index.ts", "App"),
             entry_points.EntryPoint("cart", "example.com/shop/cart", "Total"),
         )
@@ -259,6 +260,9 @@ class EntryPointTests(unittest.TestCase):
     def test_every_other_form_is_a_config_error(self) -> None:
         for value in [
             {"shop": ["checkout"]},
+            {"shop": "shop.cli:main"},
+            {"shop": []},
+            {"shop": ["shop.cli:main", 3]},
             {"shop": "shop.cli"},
             {"shop": {".": "./src/index.ts"}},
             {"shop": "shop.cli:main.run"},

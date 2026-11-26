@@ -38,7 +38,18 @@
       "__pycache__": "https://docs.python.org/3/tutorial/modules.html#compiled-python-files"
     },
     "ignored_folders": {
-      "__pycache__": "https://docs.python.org/3/tutorial/modules.html#compiled-python-files"
+      "__pycache__": "https://docs.python.org/3/tutorial/modules.html#compiled-python-files",
+      ".venv": "https://docs.python.org/3/library/venv.html",
+      "venv": "https://docs.python.org/3/library/venv.html",
+      "site-packages": "https://docs.python.org/3/library/site.html",
+      ".tox": "https://tox.wiki/en/latest/config.html#work_dir",
+      ".mypy_cache": "https://mypy.readthedocs.io/en/stable/config_file.html#confval-cache_dir",
+      ".pytest_cache": "https://docs.pytest.org/en/stable/how-to/cache.html",
+      ".ruff_cache": "https://docs.astral.sh/ruff/settings/#cache-dir"
+    },
+    "output_folders": {
+      "build": "https://setuptools.pypa.io/en/latest/userguide/quickstart.html",
+      "dist": "https://build.pypa.io/en/stable/"
     },
     "test_patterns": {
       "test_*.py": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery",
@@ -52,6 +63,16 @@
       "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "support_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "beside_code": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery"
+    },
+    "test_support_files": {
+      "conftest.py": "https://docs.pytest.org/en/stable/reference/fixtures.html#conftest-py-sharing-fixtures-across-multiple-files"
+    },
+    "test_frameworks": {
+      "modules": "https://docs.python.org/3/library/unittest.html",
+      "case_module": "https://docs.python.org/3/library/unittest.html#unittest.TestCase",
+      "case_classes": "https://docs.python.org/3/library/unittest.html#unittest.IsolatedAsyncioTestCase",
+      "class_prefix": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery",
+      "function_prefix": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery"
     }
   },
   "convention_notes": [
@@ -75,11 +96,23 @@
   ],
   "fixed_files": ["__init__.py", "__main__.py", "conftest.py"],
   "fixed_folders": ["__pycache__"],
-  "ignored_folders": ["__pycache__"],
+  "ignored_folders": [
+    "__pycache__",
+    ".venv",
+    "venv",
+    "site-packages",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache"
+  ],
+  "output_folders": ["build", "dist"],
   "test_frameworks": {
     "modules": ["pytest", "unittest"],
     "case_module": "unittest",
-    "case_class": "TestCase"
+    "case_classes": ["TestCase", "IsolatedAsyncioTestCase"],
+    "class_prefix": "Test",
+    "function_prefix": "test"
   },
   "test_patterns": ["test_*.py", "*_test.py"],
   "test_like_patterns": ["test*.py"],
@@ -95,5 +128,6 @@
     "fixtures_dir": "fixtures",
     "support_dir": "support",
     "beside_code": true
-  }
+  },
+  "test_support_files": ["conftest.py"]
 }

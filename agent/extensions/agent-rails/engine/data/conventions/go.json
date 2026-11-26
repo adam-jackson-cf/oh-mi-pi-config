@@ -37,6 +37,11 @@
       "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "support_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "beside_code": "https://pkg.go.dev/cmd/go#hdr-Test_packages"
+    },
+    "embed": {
+      "all_prefix": "https://pkg.go.dev/embed#hdr-Directives",
+      "hidden_prefixes": "https://pkg.go.dev/embed#hdr-Directives",
+      "pattern_syntax": "https://pkg.go.dev/path#Match"
     }
   },
   "convention_notes": [
@@ -72,5 +77,10 @@
     "fixtures_dir": "fixtures",
     "support_dir": "support",
     "beside_code": true
+  },
+  "embed": {
+    "all_prefix": "all:",
+    "hidden_prefixes": [".", "_"],
+    "pattern_syntax": "path.Match"
   }
 }

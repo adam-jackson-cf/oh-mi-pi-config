@@ -62,17 +62,25 @@ class NamePairTests(unittest.TestCase):
 
     def test_test_and_fixture_folders_propose_no_pairs(self) -> None:
         case = next(case for case in FIXTURE["cases"] if case["pairs"])
-        for folder in (
-            "pkg/testdata/",
-            "internal/testutil/",
-            "src/test_helpers/",
-            "tests_e2e/",
-            "fixtures/",
+        located = {"tests": {"layout": {"support_dir": "e2e"}}}
+        for folder, repo_config in (
+            ("tests/", {}),
+            ("fixtures/", {}),
+            ("pkg/support/", {}),
+            ("e2e/", located),
         ):
             with self.subTest(folder=folder):
                 tree = {folder + path: text for path, text in FIXTURE["tree"].items()}
                 changed = {folder + path for path in case["changed"]}
-                assert candidates.name_pair_candidates(tree, changed, {}) == []
+                assert candidates.name_pair_candidates(tree, changed, repo_config) == []
+
+    def test_folders_only_named_like_tests_still_propose_pairs(self) -> None:
+        case = next(case for case in FIXTURE["cases"] if case["pairs"])
+        for folder in ("src/testimonials/", "internal/testutil/", "pkg/testdata/"):
+            with self.subTest(folder=folder):
+                tree = {folder + path: text for path, text in FIXTURE["tree"].items()}
+                changed = {folder + path for path in case["changed"]}
+                assert candidates.name_pair_candidates(tree, changed, {})
 
     def test_each_pair_carries_both_names_evidence_and_its_proposer_score(self) -> None:
         (pair,) = candidates.name_pair_candidates(
@@ -115,7 +123,8 @@ class NamePairTests(unittest.TestCase):
         assert member["kind"] == "member of class Store"
         assert member["definition"]["signature"] == "class Store:"
         assert candidates.evidence(
-            tree, {"name": "x", "kind": "function", "path": "a.py"}
+            candidates.Sources(tree, lambda path: False),
+            {"name": "x", "kind": "function", "path": "a.py"},
         ) == {
             "name": "x",
             "kind": "function",

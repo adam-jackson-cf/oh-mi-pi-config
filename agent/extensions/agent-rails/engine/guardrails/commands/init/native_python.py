@@ -8,11 +8,12 @@ from typing import Any, TypeGuard
 from guardrails.commands.init.native_tools import HEADER, load_data
 from guardrails.context.config.reader import structure_settings
 from guardrails.context.config.section_schema import PLACEHOLDER
+from guardrails.foundation import conventions
 from guardrails.foundation.source import modules, tree
 
 PYPROJECT = "pyproject.toml"
 REQUIRES = re.compile(r">=\s*(\d+)\.(\d+)")
-SKIPPED = frozenset({"tests", "test", "docs", "build", "dist", "node_modules"})
+NON_PRODUCT = frozenset({"tests", "test", "docs"})
 
 
 def pyproject(repo: Path) -> dict[str, Any]:
@@ -40,8 +41,9 @@ def packages(repo: Path) -> tuple[list[str], list[str]]:
             child.name
             for child in root.iterdir()
             if child.is_dir()
-            and (child / "__init__.py").is_file()
-            and child.name not in SKIPPED
+            and (child / modules.package_marker()).is_file()
+            and child.name not in NON_PRODUCT
+            and not conventions.ignored_path(f"{child.name}/{modules.package_marker()}")
             and not child.name.startswith(".")
         )
         if found:

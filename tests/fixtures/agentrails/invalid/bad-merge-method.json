@@ -114,7 +114,7 @@
       }
     ],
     "public_entry_points": {
-      "ledger": "ledger.cli:main"
+      "ledger": ["ledger.cli:main"]
     },
     "run_events": {
       "commit": "make gate-commit",

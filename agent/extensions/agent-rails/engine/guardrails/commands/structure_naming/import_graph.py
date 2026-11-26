@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import structure_settings
+from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
@@ -61,8 +62,12 @@ def import_settings(config: dict[str, Any]) -> ImportSettings | None:
 
 
 def graph_language(path: str) -> str | None:
+    """A file's language in the import graph: None for a file in a folder no scan reads
+    and for a Go file go build leaves out of the package (a test file, an ignored path)."""
     language = language_of(path)
-    if language == "go" and (go.is_test_file(path) or not go.built_path(path)):
+    if conventions.ignored_path(path) or (
+        language == "go" and (go.is_test_file(path) or not go.built_path(path))
+    ):
         return None
     return language
 

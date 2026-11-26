@@ -120,6 +120,7 @@
     "id": "TEST.no-test-hooks",
     "language": "python",
     "scope": "production",
+    "inline_bindings": true,
     "message": "production code reads a test marker from the environment or loaded modules ({match})",
     "remediation": {
       "root_cause": "Production code reads a test marker from the environment or loaded modules, so it behaves differently while tests run.",
@@ -127,7 +128,7 @@
     },
     "rule": {
       "kind": "string",
-      "regex": "^[rRbBuU]*['\"]([A-Z0-9_]*_)?(PYTEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?['\"]$|^[rRbBuU]*['\"](pytest|unittest)['\"]$",
+      "regex": "^[rRbBuU]*['\"]%marker_name%['\"]$|^[rRbBuU]*['\"]%runner_module%['\"]$",
       "any": [
         {
           "inside": {
@@ -170,10 +171,54 @@
     }
   },
   {
+    "name": "no-test-hooks-environment-values",
+    "id": "TEST.no-test-hooks",
+    "language": "python",
+    "scope": "production",
+    "inline_bindings": true,
+    "message": "production code reads a test marker from the environment or loaded modules ({match})",
+    "remediation": {
+      "root_cause": "Production code compares an environment value with a test marker such as 'test', so its behaviour switches when the test runner sets that value.",
+      "fix": "Delete the comparison and pass the varying behaviour in as configuration or an injected dependency that tests and production callers both set."
+    },
+    "rule": {
+      "kind": "comparison_operator",
+      "all": [
+        {
+          "has": {
+            "kind": "string",
+            "regex": "^[rRbBuU]*['\"]%marker_value%['\"]$"
+          }
+        },
+        {
+          "has": {
+            "any": [
+              {
+                "kind": "call",
+                "has": {
+                  "field": "function",
+                  "regex": "(^|\\.)(getenv|environ\\.(get|pop|setdefault))$"
+                }
+              },
+              {
+                "kind": "subscript",
+                "has": {
+                  "field": "value",
+                  "regex": "(^|\\.)environ$"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
     "name": "no-test-hooks-names",
     "id": "TEST.no-test-hooks",
     "language": "python",
     "scope": "production",
+    "filter": "hook-phrase",
     "message": "production code declares a test-only hook ({match})",
     "remediation": {
       "root_cause": "Production code declares a hook named for tests, which exists only to let tests reach inside.",
@@ -181,7 +226,48 @@
     },
     "rule": {
       "kind": "identifier",
-      "regex": "(?i)(^|_)(for_tests?|for_testing|test_hooks?|testing_only|test_only|test_mode)$"
+      "any": [
+        {
+          "inside": {
+            "kind": "function_definition",
+            "field": "name"
+          }
+        },
+        {
+          "inside": {
+            "kind": "class_definition",
+            "field": "name"
+          }
+        },
+        {
+          "inside": {
+            "kind": "parameters"
+          }
+        },
+        {
+          "inside": {
+            "kind": "typed_parameter"
+          }
+        },
+        {
+          "inside": {
+            "kind": "default_parameter",
+            "field": "name"
+          }
+        },
+        {
+          "inside": {
+            "kind": "typed_default_parameter",
+            "field": "name"
+          }
+        },
+        {
+          "inside": {
+            "kind": "assignment",
+            "field": "left"
+          }
+        }
+      ]
     }
   },
   {
@@ -192,7 +278,7 @@
     "message": "Hypothesis property test neither fixes nor reports its seed ({match})",
     "remediation": {
       "root_cause": "The Hypothesis property test runs with a seed that is neither fixed nor reported, so a failure cannot be replayed.",
-      "fix": "Fix or report the seed for every property test through a shared Hypothesis settings profile: @seed, print_blob=True or derandomize=True."
+      "fix": "Fix or report the seed in each property test's own decorators: @seed with a fixed integer, @settings(derandomize=True) or @settings(print_blob=True); a settings profile registered elsewhere is not read."
     },
     "rule": {
       "kind": "decorated_definition",

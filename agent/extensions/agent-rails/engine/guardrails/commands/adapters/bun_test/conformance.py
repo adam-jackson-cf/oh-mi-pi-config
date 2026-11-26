@@ -25,7 +25,7 @@ BASE_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop": "shop/core.ts:publicApi"},
+        "public_entry_points": {"shop": ["shop/core.ts:publicApi"]},
         "tiers": {"t1": {"command": "bun test"}},
         "layout": {
             "test_file_patterns": ["*.test.ts"],

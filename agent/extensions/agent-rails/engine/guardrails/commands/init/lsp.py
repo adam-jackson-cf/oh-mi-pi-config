@@ -12,20 +12,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import IO, Any
 
+from guardrails.foundation import conventions
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding, config_label
+from guardrails.foundation.source.tree import languages
 from guardrails.host.process import start_piped
 
 RULE = "CONFIG.complete"
-SKIPPED_PARTS = frozenset({
-    ".git",
-    ".venv",
-    "venv",
-    "node_modules",
-    "build",
-    "dist",
-    "__pycache__",
-})
 DEFAULT_TIMEOUT_S = 60.0
 PYTHON_CANARY = (
     ("agent_rails_lsp_canary.py", "def agent_rails_lsp_canary():\n    return 1\n"),
@@ -54,7 +47,6 @@ class Stack:
     server: str
     install: str
     language_id: str
-    extensions: tuple[str, ...]
     definition: str
     canary_files: tuple[tuple[str, str], ...]
     arguments: tuple[str, ...] = ("--stdio",)
@@ -67,7 +59,6 @@ STACKS = (
         "pyright-langserver",
         "install pyright (npm install -g pyright, or uv tool install pyright)",
         "python",
-        (".py",),
         r"^(?:async\s+def|def|class)\s+(?P<name>[A-Za-z_]\w*)",
         PYTHON_CANARY,
     ),
@@ -77,7 +68,6 @@ STACKS = (
         "typescript-language-server",
         "npm install -g typescript typescript-language-server",
         "typescript",
-        (".ts", ".tsx", ".mts", ".cts"),
         r"^export\s+(?:async\s+)?(?:function|class|const|let)\s+(?P<name>[A-Za-z_$][\w$]*)",
         TYPESCRIPT_CANARY,
     ),
@@ -129,10 +119,12 @@ def notes(stacks: list[Stack]) -> list[dict[str, Any]]:
 def source_files(root: Path, stack: Stack) -> list[Path]:
     found = []
     for path in sorted(root.rglob("*")):
-        relative = path.relative_to(root).parts
-        if path.suffix not in stack.extensions or SKIPPED_PARTS & set(relative):
+        relative = path.relative_to(root)
+        if path.suffix not in languages()[stack.name] or conventions.ignored_path(
+            relative.as_posix()
+        ):
             continue
-        if any(part.startswith(".") for part in relative) or not path.is_file():
+        if any(part.startswith(".") for part in relative.parts) or not path.is_file():
             continue
         found.append(path)
     return found

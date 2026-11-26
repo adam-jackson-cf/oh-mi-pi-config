@@ -14,6 +14,12 @@ sys.path.insert(
 import pytest
 
 from guardrails.commands.structure_naming.name_pair import extract
+from guardrails.context.config.suite_files import is_test_source
+
+
+def in_test_source(path: str) -> bool:
+    return is_test_source(path, {})
+
 
 GO = """// Package store keeps users.
 package store
@@ -178,7 +184,7 @@ lower = 3
 def extracted(
     tree: dict[str, str],
 ) -> tuple[set[tuple[Any, ...]], set[tuple[Any, ...]]]:
-    found = extract.extract_tree(tree)
+    found = extract.extract_tree(tree, in_test_source)
     definitions = {
         (item["path"], item["name"], item["kind"], item["line"], item["end"])
         for item in found.definitions
@@ -250,7 +256,7 @@ class GoExtractionTests(unittest.TestCase):
         }
 
     def test_a_definition_carries_its_comment_value_and_block_end(self) -> None:
-        found = extract.extract_tree({"svc/store.go": GO}).definitions
+        found = extract.extract_tree({"svc/store.go": GO}, in_test_source).definitions
         by_name = {item["name"]: item for item in found}
         assert (by_name["Store"]["doc"], by_name["Store"]["end"]) == (
             "Store holds users.",
@@ -282,7 +288,7 @@ class RustExtractionTests(unittest.TestCase):
         }
 
     def test_doc_comments_skip_attributes(self) -> None:
-        found = extract.extract_tree({"svc/lib.rs": RUST}).definitions
+        found = extract.extract_tree({"svc/lib.rs": RUST}, in_test_source).definitions
         by_name = {item["name"]: item for item in found}
         assert by_name["Users"]["doc"] == "A user store."
         assert by_name["Users.new"]["doc"] == "Make one."
@@ -321,7 +327,7 @@ class ScriptExtractionTests(unittest.TestCase):
         }
 
     def test_a_class_records_its_base_and_a_constant_its_string(self) -> None:
-        found = extract.extract_tree({"web/api.ts": SCRIPT}).definitions
+        found = extract.extract_tree({"web/api.ts": SCRIPT}, in_test_source).definitions
         by_name = {item["name"]: item for item in found}
         assert by_name["Client"]["bases"] == ["Service"]
         assert by_name["LIMIT"]["value"] == "ten"
@@ -359,7 +365,9 @@ class PythonExtractionTests(unittest.TestCase):
         }
 
     def test_signatures_span_their_lines_and_classes_keep_their_bases(self) -> None:
-        found = extract.extract_tree({"src/shop/store.py": PYTHON}).definitions
+        found = extract.extract_tree(
+            {"src/shop/store.py": PYTHON}, in_test_source
+        ).definitions
         by_name = {item["name"]: item for item in found}
         assert by_name["fetch_user"]["sig"] == "def fetch_user(\n    uid,\n):"
         assert by_name["load_all"]["line"] == 24

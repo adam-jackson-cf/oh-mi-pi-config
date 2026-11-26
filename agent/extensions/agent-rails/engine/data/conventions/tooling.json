@@ -57,7 +57,19 @@
       ".oxlintrc.json": "https://oxc.rs/docs/guide/usage/linter/config.html",
       "oxlint.config.ts": "https://oxc.rs/docs/guide/usage/linter/config.html",
       "vitest.config.*": "https://vitest.dev/config/",
-      ".node-version": "https://github.com/shadowspawn/node-version-usage"
+      ".node-version": "https://github.com/shadowspawn/node-version-usage",
+      "setup.cfg": "https://setuptools.pypa.io/en/latest/userguide/declarative_config.html",
+      "pytest.ini": "https://docs.pytest.org/en/stable/reference/customize.html#pytest-ini",
+      ".eslintrc*": "https://eslint.org/docs/latest/use/configure/configuration-files-deprecated",
+      ".nycrc*": "https://github.com/istanbuljs/nyc#configuration-files",
+      "jest.config.*": "https://jestjs.io/docs/configuration",
+      "bun.lockb": "https://bun.com/docs/pm/lockfile",
+      "lefthook.yml": "https://lefthook.dev/configuration/",
+      ".pre-commit-config.yaml": "https://pre-commit.com/#2-add-a-pre-commit-configuration",
+      ".jscpd.json": "https://github.com/kucherenko/jscpd/tree/master/apps/jscpd#config-file",
+      ".dependency-cruiser.*": "https://github.com/sverweij/dependency-cruiser/blob/main/doc/cli.md#--config---validate",
+      ".ls-lint.yml": "https://ls-lint.org/2.3/configuration/the-basics.html",
+      ".gitleaks.toml": "https://github.com/gitleaks/gitleaks#configuration"
     },
     "fixed_folders": {
       ".devcontainer": "https://containers.dev/implementors/spec/#devcontainerjson",
@@ -72,6 +84,23 @@
       "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "support_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "beside_code": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping"
+    },
+    "comment_syntax": {
+      "hash_comments": {
+        "Dockerfile": "https://docs.docker.com/reference/dockerfile/#format",
+        "Dockerfile.*": "https://docs.docker.com/reference/dockerfile/#format",
+        "Containerfile": "https://docs.docker.com/reference/dockerfile/#format",
+        "Makefile": "https://www.gnu.org/software/make/manual/html_node/Makefile-Contents.html",
+        "GNUmakefile": "https://www.gnu.org/software/make/manual/html_node/Makefile-Contents.html",
+        "makefile": "https://www.gnu.org/software/make/manual/html_node/Makefile-Contents.html",
+        ".gitignore": "https://git-scm.com/docs/gitignore#_pattern_format",
+        ".gitattributes": "https://git-scm.com/docs/gitattributes#_description"
+      },
+      "parser_directives": {
+        "Dockerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives",
+        "Dockerfile.*": "https://docs.docker.com/reference/dockerfile/#parser-directives",
+        "Containerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives"
+      }
     }
   },
   "convention_notes": [
@@ -139,7 +168,19 @@
     ".oxlintrc.json",
     "oxlint.config.ts",
     "vitest.config.*",
-    ".node-version"
+    ".node-version",
+    "setup.cfg",
+    "pytest.ini",
+    ".eslintrc*",
+    ".nycrc*",
+    "jest.config.*",
+    "bun.lockb",
+    "lefthook.yml",
+    ".pre-commit-config.yaml",
+    ".jscpd.json",
+    ".dependency-cruiser.*",
+    ".ls-lint.yml",
+    ".gitleaks.toml"
   ],
   "fixed_folders": [".devcontainer", ".github", ".git"],
   "ignored_folders": [".git"],
@@ -164,5 +205,18 @@
     "fixtures_dir": "fixtures",
     "support_dir": "support",
     "beside_code": false
+  },
+  "comment_syntax": {
+    "hash_comments": [
+      "Dockerfile",
+      "Dockerfile.*",
+      "Containerfile",
+      "Makefile",
+      "GNUmakefile",
+      "makefile",
+      ".gitignore",
+      ".gitattributes"
+    ],
+    "parser_directives": ["Dockerfile", "Dockerfile.*", "Containerfile"]
   }
 }

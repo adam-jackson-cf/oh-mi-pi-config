@@ -6,23 +6,20 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.commands.structure_naming.package_placement import (
-    DATA_SUFFIXES,
     ENTRY_POINT,
     RUNTIME_DATA,
     TOP_TIER_DEPTH,
     CodeTree,
     Sources,
     data_finding,
-    held_by_tests,
     unreadable,
 )
-from guardrails.foundation import conventions
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.source import typescript
 from guardrails.foundation.source.modules import folder_of, joined
 from guardrails.foundation.source.tree import SourceError, languages
 
-BUNDLE_MANIFESTS = frozenset({"SKILL.md", "package.json"})
 PACKAGE_MANIFEST = "package.json"
 RELATIVE_PREFIXES = ("./", "../")
 
@@ -42,9 +39,7 @@ def imported_beside(path: str, sources: Sources) -> bool:
 
 
 def runtime_data_findings(path: str, tree: CodeTree, sources: Sources) -> list[Finding]:
-    if PurePosixPath(path).suffix not in DATA_SUFFIXES or conventions.fixed_file(path):
-        return []
-    folder = tree.enclosing(path)
+    folder = tree.misplaced_data(path)
     if folder is None:
         return []
     try:
@@ -123,7 +118,7 @@ def entry_point_findings(
                 entry is not None
                 and entry in tracked
                 and path in {entry, manifest}
-                and not held_by_tests(entry, config)
+                and not is_test_source(entry, config)
             ):
                 found.extend(entry_finding(entry, manifest, field))
     return found
@@ -136,11 +131,11 @@ def script_file_findings(
     config: dict[str, Any],
 ) -> list[Finding]:
     tracked = set(inventory)
-    tree = CodeTree(tracked, extensions(), BUNDLE_MANIFESTS)
+    tree = CodeTree(tracked, "typescript")
     sources = Sources(root, tracked)
     found: list[Finding] = []
     for path in paths:
         found.extend(entry_point_findings(path, tracked, sources, config))
-        if not held_by_tests(path, config):
+        if not is_test_source(path, config):
             found.extend(runtime_data_findings(path, tree, sources))
     return found

@@ -14,14 +14,14 @@ from typing import Any
 from guardrails.context.config.house_style import load_house_style
 from guardrails.context.config.section_schema import PLACEHOLDER, ConfigValueError
 from guardrails.context.config.validator import validate_section
+from guardrails.foundation import conventions
 
-DATA_FOLDER = Path(__file__).resolve().parents[3] / "data"
 SETUP_SECTIONS = ("commands", "checkers", "structure", "houseStyle", "tests")
 TEMPLATE = "config-template.json"
 
 
 def template() -> dict[str, Any]:
-    text = (DATA_FOLDER / TEMPLATE).read_text("utf-8")
+    text = (conventions.DATA_FOLDER / TEMPLATE).read_text("utf-8")
     loaded: dict[str, Any] = json.loads(text)
     return {name: loaded[name] for name in SETUP_SECTIONS}
 

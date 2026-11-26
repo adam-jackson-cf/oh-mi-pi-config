@@ -1,10 +1,11 @@
-"""tests.public_entry_points: the packages a repository owns and each one's public entry point.
+"""tests.public_entry_points: the packages a repository owns and each one's public entry points.
 
 Every adapter and python_policy read the section here. Each key is an owned package as its
-language names it (a Python package, a folder, a package.json name) and each value is
-"<module>:<symbol>"; section_schema.ENTRY_POINT is the form. Each language resolves the
-module itself: a dotted Python module, a TypeScript file path or package name, a Go
-import path.
+language names it (a Python package, a folder, a package.json name) and each value is a
+list of its entry points, each "<module>:<symbol>" (section_schema.ENTRY_POINT); a package
+may declare several, such as each adapter module's dynamically dispatched run. Each
+language resolves the module itself: a dotted Python module, a TypeScript file path or
+package name, a Go import path.
 """
 
 from __future__ import annotations
@@ -39,13 +40,14 @@ def entry_points(config: dict[str, Any]) -> tuple[EntryPoint, ...]:
     if problem is not None:
         raise ConfigValueError(f"tests.{SECTION} {problem}")
     found = []
-    for package, entry in value.items():
-        match = ENTRY_POINT.fullmatch(entry)
-        if match is not None:
-            found.append(EntryPoint(package, match["module"], match["symbol"]))
+    for package, entries in value.items():
+        for entry in entries:
+            match = ENTRY_POINT.fullmatch(entry)
+            if match is not None:
+                found.append(EntryPoint(package, match["module"], match["symbol"]))
     return tuple(found)
 
 
 def packages(config: dict[str, Any]) -> tuple[str, ...]:
-    """The owned packages, in config order."""
-    return tuple(point.package for point in entry_points(config))
+    """The owned packages, in config order, each once."""
+    return tuple(dict.fromkeys(point.package for point in entry_points(config)))

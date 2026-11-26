@@ -7,10 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming.scan_scope import (
-    is_test_path,
-    is_vendored_path,
-)
+from guardrails.commands.structure_naming.scan_scope import is_vendored_path, runs
 from guardrails.context.changes import (
     DiffError,
     changed_paths,
@@ -19,13 +16,14 @@ from guardrails.context.changes import (
 )
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.foundation.source import modules, python
 from guardrails.foundation.source.tree import SourceError, line, named, parse
 
 if TYPE_CHECKING:
-    from ast_grep_py import SgNode
+    from guardrails.foundation.source.tree import SgNode
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.kind-candidates"
@@ -153,9 +151,12 @@ def line_at(lines: list[str], number: int) -> str:
 
 
 class TreeModel:
-    def __init__(self, paths: list[str], sources: dict[str, str]) -> None:
+    def __init__(
+        self, paths: list[str], sources: dict[str, str], config: dict[str, Any]
+    ) -> None:
         self.sources = sources
-        self.python = sorted(path for path in paths if path.endswith(".py"))
+        self.config = config
+        self.python = sorted(path for path in paths if runs(path))
         self.trees = {path: parsed(path, sources.get(path, "")) for path in self.python}
         index = modules.PythonIndex(self.python)
         self.graph: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -192,7 +193,7 @@ class TreeModel:
         importers = sorted(
             self.graph.get(path, []),
             key=lambda item: (
-                is_test_path(item[0]),
+                is_test_source(item[0], self.config),
                 os.path.dirname(item[0]) == folder,
                 item[0],
             ),
@@ -207,11 +208,9 @@ class TreeModel:
         }
 
 
-def model_of(tree: dict[str, str]) -> TreeModel:
+def model_of(tree: dict[str, str], config: dict[str, Any]) -> TreeModel:
     paths = owned(sorted(tree))
-    return TreeModel(
-        paths, {path: tree[path] for path in paths if path.endswith(".py")}
-    )
+    return TreeModel(paths, {path: tree[path] for path in paths if runs(path)}, config)
 
 
 def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
@@ -224,7 +223,7 @@ def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str
     want = [
         (path, entries[path].oid)
         for path in paths
-        if path.endswith(".py") and entries[path].kind == "blob"
+        if runs(path) and entries[path].kind == "blob"
     ]
     found = dict.fromkeys(paths, "")
     blobs = read_blobs(repo, sorted({oid for _, oid in want}))
@@ -240,7 +239,7 @@ def exempt(path: str, config: dict[str, Any]) -> bool:
 def kind_candidates(
     tree: dict[str, str], changed: set[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    model = model_of(tree)
+    model = model_of(tree, config)
     return [
         {"path": path, "state": model.state(path)}
         for path in model.eligible()

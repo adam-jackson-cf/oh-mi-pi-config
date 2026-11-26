@@ -30,7 +30,7 @@ ENGINE = ROOT / "agent/extensions/agent-rails/engine"
 
 REPO_CONFIG: dict[str, Any] = {
     "tests": {
-        "public_entry_points": {"shop": "shop/core.ts:checkout"},
+        "public_entry_points": {"shop": ["shop/core.ts:checkout"]},
         "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
         "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
     }
@@ -345,6 +345,44 @@ class SourceLint(unittest.TestCase):
             "export function publicApi(testOnly?: boolean) { return testOnly; }",
             "TEST.no-test-hooks",
             path="shop/settings.ts",
+        )
+
+    def test_hook_names_are_declared_words_holding_a_hook_phrase(self) -> None:
+        for name in ("latestOnly", "attestingParty", "isTesting", "fortest"):
+            self.assert_rule(
+                f"export function {name}() {{}}",
+                "TEST.no-test-hooks",
+                False,
+                "shop/settings.ts",
+            )
+        for declared in (
+            "export const testMode = true;",
+            "export class SetTestHook {}",
+            "export function reset_for_testing() {}",
+        ):
+            self.assert_rule(declared, "TEST.no-test-hooks", path="shop/settings.ts")
+        self.assert_rule(
+            "import { resetForTests } from 'lib'; resetForTests();",
+            "TEST.no-test-hooks",
+            False,
+            "shop/settings.ts",
+        )
+
+    def test_loaded_runner_modules_are_test_markers(self) -> None:
+        for read in (
+            "'jest' in require.cache",
+            "require.cache[require.resolve('vitest')]",
+        ):
+            self.assert_rule(
+                f"export const flag = {read};",
+                "TEST.no-test-hooks",
+                path="shop/settings.ts",
+            )
+        self.assert_rule(
+            "delete require.cache[require.resolve('./config')];",
+            "TEST.no-test-hooks",
+            False,
+            "shop/settings.ts",
         )
 
     def test_environment_test_hooks(self) -> None:

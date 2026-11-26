@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 from typing import Any
-
-from guardrails.commands.structure_naming.scan_scope import is_test_path
 
 SOURCE_SUFFIXES = (".py", ".go", ".rs", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".jsx")
 SKIPPED_MODULES = frozenset({
@@ -574,14 +573,14 @@ class BraceSource:
         return self.found
 
 
-def extract_tree(tree: dict[str, str]) -> Found:
+def extract_tree(tree: dict[str, str], is_test: Callable[[str], bool]) -> Found:
     sources = {
         path: text for path, text in tree.items() if path.endswith(SOURCE_SUFFIXES)
     }
     roots = module_roots(list(sources))
     found = Found()
     for path in sorted(sources):
-        if is_test_path(path):
+        if is_test(path):
             continue
         place = Place(path, language_of(path), sources[path].split("\n"))
         part = (

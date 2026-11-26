@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.adapters import hook_vocabulary, owned_source
 from guardrails.commands.adapters.marker_bindings import inline_bindings
-from guardrails.commands.adapters.owned_source import (
-    Source,
-    configured_entry_points,
-    load_all,
-)
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.symbol_usage import (
     ScriptManifests,
@@ -20,25 +15,17 @@ from guardrails.commands.adapters.pytest.symbol_usage import (
 from guardrails.commands.adapters.pytest.syntax import import_map, string_value
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.suite_files import Suite, adapter_suite, in_suite
+from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding, Remediation, remediation
 from guardrails.foundation.source.tree import tolerant_tree
 
 if TYPE_CHECKING:
     from guardrails.foundation.source.tree import Config, SgNode
 
-DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
 PATTERNS_FILE = "pytest-patterns.json"
-INLINED_PATTERNS = frozenset({"no-test-hooks-environment"})
 PYPROJECT = "pyproject.toml"
-SKIPPED_PARTS = frozenset({
-    ".git",
-    ".venv",
-    "venv",
-    "node_modules",
-    "build",
-    "dist",
-    "__pycache__",
-})
+# A pattern's filter: a check its matched node's text must also pass.
+FILTERS = {"hook-phrase": hook_vocabulary.hook_phrase}
 
 
 @dataclass(frozen=True)
@@ -50,13 +37,16 @@ class Pattern:
     message: str
     remediation: Remediation
     config: Config
+    inline: bool = False
+    filter: str | None = None
 
 
 def load_patterns() -> list[Pattern]:
-    text = (DATA_FOLDER / PATTERNS_FILE).read_text(encoding="utf-8")
     patterns = []
-    for data in json.loads(text):
-        options: Config = {"rule": data["rule"]}
+    for data in conventions.data(PATTERNS_FILE):
+        if data.get("filter", None) not in {None, *FILTERS}:
+            raise ValueError(f"{PATTERNS_FILE}: unknown filter {data['filter']!r}")
+        options: Config = {"rule": hook_vocabulary.expanded(data["rule"])}
         if "constraints" in data:
             options["constraints"] = data["constraints"]
         if "utils" in data:
@@ -70,36 +60,32 @@ def load_patterns() -> list[Pattern]:
                 data["message"],
                 remediation(data["remediation"]),
                 options,
+                data.get("inline_bindings", False),
+                data.get("filter"),
             )
         )
     return patterns
 
 
 def is_pytest_test_file(path: str, suite: Suite) -> bool:
-    return PurePosixPath(path).name == "conftest.py" or in_suite(path, suite)
-
-
-def inventory(repo: Path) -> list[str]:
-    from guardrails.foundation.inventory import InventoryError, repo_paths
-
-    try:
-        paths = repo_paths(repo)
-    except InventoryError:
-        paths = [path.relative_to(repo).as_posix() for path in repo.rglob("*")]
-    return [
-        path for path in paths if not SKIPPED_PARTS & set(PurePosixPath(path).parts)
-    ]
+    return conventions.test_support_file(path) or in_suite(path, suite)
 
 
 def python_files(repo: Path, argv: list[str]) -> list[str]:
+    """The Python files that run (a stub holds no hooks, markers or test-only code)."""
+    runs = conventions.runtime_extensions("python")
     if argv:
-        return sorted({path for path in argv if path.endswith(".py")})
-    return sorted(path for path in inventory(repo) if path.endswith(".py"))
+        return sorted({path for path in argv if path.endswith(runs)})
+    return sorted(
+        path for path in owned_source.repository_paths(repo) if path.endswith(runs)
+    )
 
 
 def pyproject_files(repo: Path) -> list[str]:
     return sorted(
-        path for path in inventory(repo) if PurePosixPath(path).name == PYPROJECT
+        path
+        for path in owned_source.repository_paths(repo)
+        if PurePosixPath(path).name == PYPROJECT
     )
 
 
@@ -170,18 +156,22 @@ def owned_target(
 
 
 def file_findings(
-    source: Source, patterns: list[Pattern], owned: frozenset[str]
+    source: owned_source.Source, patterns: list[Pattern], owned: frozenset[str]
 ) -> list[Finding]:
     path = source.path
     roots = {
         False: source.root,
-        True: tolerant_tree(inline_bindings(source.text, "python"), "python"),
+        True: tolerant_tree(
+            inline_bindings(source.text, source.root, "python"), "python"
+        ),
     }
     imports = import_map(source.root)
     findings: list[Finding] = []
     for pattern in patterns:
-        root = roots[pattern.name in INLINED_PATTERNS]
+        root = roots[pattern.inline]
         for match in root.find_all(pattern.config):
+            if pattern.filter is not None and not FILTERS[pattern.filter](match.text()):
+                continue
             target = None
             if pattern.target:
                 target = owned_target(match, pattern.target, imports, owned)
@@ -202,7 +192,7 @@ def file_findings(
 
 
 def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
-    points = configured_entry_points(config)
+    points = owned_source.configured_entry_points(config)
     if isinstance(points, Finding):
         return [points]
     suite = adapter_suite(config, NAME)
@@ -214,7 +204,7 @@ def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
 
     selected = set(python_files(repo, paths)) if paths else set(every)
     read = [path for path in every if is_test(path) or owned.owns(path)]
-    sources, unreadable = load_all(repo, read, is_test)
+    sources, unreadable = owned_source.load_all(repo, read, is_test)
     findings = [item for item in unreadable if item.path in selected]
     patterns = load_patterns()
     production: set[str] = set()

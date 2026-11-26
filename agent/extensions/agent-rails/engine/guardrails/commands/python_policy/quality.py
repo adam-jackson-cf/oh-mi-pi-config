@@ -16,6 +16,7 @@ from guardrails.checker.python_rules.settings import (
     is_excluded,
     load_settings,
     python_files,
+    python_source,
     read_source,
 )
 from guardrails.commands.python_policy.call_names import (
@@ -392,7 +393,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         files = [
             path
             for path in selected.inventory
-            if path.endswith(".py") and not is_excluded(path, options)
+            if python_source(path) and not is_excluded(path, options)
         ]
         roots = options.paths("maintained_roots")
         found: list[Finding] = []

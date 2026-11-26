@@ -693,6 +693,16 @@ class LanguageNativeConfigTests(InitCase):
         )
         assert "lacks TSC.noImplicitOverride" in self.init()[1]
 
+    def test_a_zsh_only_repo_gets_the_shell_configs(self) -> None:
+        self.write("bin/run.zsh", "#!/bin/zsh\nprint ok\n")
+        code, output = self.init()
+        assert code == 0, output
+        for name in (".shellcheckrc", ".editorconfig"):
+            assert (
+                f"native: proposed {name} (apply it to the repository as a fix)"
+                in output
+            )
+
     def test_existing_linters_are_kept_and_never_doubled(self) -> None:
         self.write("package.json", "{}\n")
         self.write("eslint.config.js", "export default [];\n")

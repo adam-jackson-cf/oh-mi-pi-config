@@ -254,6 +254,19 @@ class CheckerTests(CheckerCase):
                 expected = {("TEST.placement", path)} if collected else set()
                 assert self.findings(path_check, [path]) == expected
 
+    def test_path_check_reports_tests_the_frameworks_collect_by_any_test_prefix(
+        self,
+    ) -> None:
+        path = "src/orders/engine/checks.py"
+        for source in (
+            "import unittest\n\nclass Orders(unittest.IsolatedAsyncioTestCase):\n"
+            "    async def testTotal(self):\n        self.assertTrue(True)\n",
+            "import pytest\n\ndef testTotal():\n    assert True\n",
+        ):
+            with self.subTest(source=source):
+                self.write(path, source)
+                assert ("TEST.placement", path) in self.findings(path_check, [path])
+
     def test_path_check_reports_a_directory_outside_git_as_a_gate_failure(
         self,
     ) -> None:

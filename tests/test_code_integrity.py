@@ -48,6 +48,24 @@ class IntegrityCommentTests(IntegrityCase):
         assert {item.path for item in findings} == set(files)
         assert {item.rule_id for item in findings} == {"CODE.no-comments"}
 
+    def test_tooling_pack_files_with_hash_comments_block_added_comments(self) -> None:
+        files = {
+            "Containerfile": "# explanation\nFROM scratch\n",
+            "GNUmakefile": "# explanation\nall:\n",
+            "Dockerfile.prod": "# explanation\nFROM scratch\n",
+            "lib/run.zsh": "# explanation\nprint ok\n",
+        }
+        findings = self.check(files)
+        assert {item.path for item in findings} == set(files)
+
+    def test_container_file_parser_directives_are_not_comments(self) -> None:
+        assert (
+            self.check({
+                "docker/Containerfile": "# syntax=docker/dockerfile:1\nFROM scratch\n"
+            })
+            == []
+        )
+
     def test_string_literals_and_rust_attributes_are_not_comments(self) -> None:
         assert (
             self.check({
@@ -229,6 +247,19 @@ class IntegrityCodeTests(IntegrityCase):
         })
         assert {item.path for item in findings} == set(sources)
         assert [item.rule_id for item in findings] == ["CODE.no-product-mocks"] * 6
+
+    def test_conftest_and_pack_test_files_hold_no_product_mocks_but_runner_mocks_block(
+        self,
+    ) -> None:
+        findings = self.check({
+            "conftest.py": "from unittest import mock\n",
+            "src/cart.test.ts": "vi.mock('./db');\n",
+            "src/app.ts": "mock.module('./db', () => ({}));\nvi.spyOn(api, 'get');\n",
+        })
+        assert sorted((item.path, item.message) for item in findings) == [
+            ("src/app.ts", "line 1: mock call in product code"),
+            ("src/app.ts", "line 2: mock call in product code"),
+        ]
 
     def test_excluded_fixture_trees_hold_no_product_code_but_still_ban_comments(
         self,

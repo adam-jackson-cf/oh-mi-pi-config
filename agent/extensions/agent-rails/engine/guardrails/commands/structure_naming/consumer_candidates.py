@@ -7,10 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming.scan_scope import (
-    is_test_path,
-    is_vendored_path,
-)
+from guardrails.commands.structure_naming.scan_scope import is_vendored_path, runs
 from guardrails.context.changes import (
     DiffError,
     changed_paths,
@@ -19,18 +16,19 @@ from guardrails.context.changes import (
 )
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.foundation.source import modules, python, tree
 from guardrails.foundation.source.tree import SourceError
 
 if TYPE_CHECKING:
-    from ast_grep_py import SgNode
+    from guardrails.foundation.source.tree import SgNode
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.consumer-candidates"
 EXCEPTION_RULE = "structure-naming/consumer_placement"
-ROOT_NON_PACKAGE = frozenset({"build", "fixtures", "migrations", "scripts", "tests"})
+ROOT_NON_PACKAGE = frozenset({"fixtures", "migrations", "scripts", "tests"})
 UI_LIBRARIES = frozenset({
     "altair",
     "blessed",
@@ -152,7 +150,7 @@ def string_literals(root: SgNode) -> list[str]:
         ):
             continue
         value = str(python.literal_value(node.text())).strip()
-        if value.endswith(".py") or DOTTED.match(value):
+        if runs(value) or DOTTED.match(value):
             found.append(value)
     return found
 
@@ -181,14 +179,14 @@ def readings(files: dict[str, str]) -> dict[str, Reading]:
     return {
         path: found
         for path, text in files.items()
-        if path.endswith(".py") and (found := reading(path, text)) is not None
+        if runs(path) and (found := reading(path, text)) is not None
     }
 
 
 class ImportIndex:
     def __init__(self, tree: dict[str, str], read: dict[str, Reading]) -> None:
         self.tree = tree
-        self.index = modules.PythonIndex(path for path in tree if path.endswith(".py"))
+        self.index = modules.PythonIndex(path for path in tree if runs(path))
         self.raw = {path: found.imports for path, found in read.items()}
         self.imported_by: dict[str, set[str]] = {}
         for path, found in self.raw.items():
@@ -204,12 +202,14 @@ DOTTED = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)+$")
 
 
 class PathReferences:
-    def __init__(self, index: ImportIndex, read: dict[str, Reading]) -> None:
+    def __init__(
+        self, index: ImportIndex, read: dict[str, Reading], config: dict[str, Any]
+    ) -> None:
         self.index = index
         self.literals = {
             path: found.literals
             for path, found in read.items()
-            if not is_test_path(path) and found.literals
+            if not is_test_source(path, config) and found.literals
         }
 
     def referenced(self, path: str) -> bool:
@@ -259,7 +259,10 @@ def run_markers(source: str) -> list[str]:
 
 
 def features(
-    index: ImportIndex, path: str, scripts: dict[str, list[str]]
+    index: ImportIndex,
+    path: str,
+    scripts: dict[str, list[str]],
+    config: dict[str, Any],
 ) -> dict[str, Any]:
     tree = index.tree
     nearest, top = package_dirs(tree, path)
@@ -280,7 +283,7 @@ def features(
     return {
         "package_dir": nearest,
         "package_name": top_name,
-        "package_init": join(top, "__init__.py") if top else None,
+        "package_init": join(top, modules.package_marker()) if top else None,
         "run_markers": markers,
         "imported_by": len(index.imported_by.get(path, ())),
         "own_package_imports": len(own),
@@ -290,7 +293,7 @@ def features(
             scripts.get(module) for module in index.module_names(path)
         ),
         "dunder_main": name == "__main__.py",
-        "test_path": is_test_path(path),
+        "test_path": is_test_source(path, config),
         "imports": [text for _, text in imports],
     }
 
@@ -309,7 +312,7 @@ def proposer_score(found: dict[str, Any]) -> float:
 
 
 def candidate_path(tree: dict[str, str], path: str) -> bool:
-    if not path.endswith(".py") or PurePosixPath(path).name == modules.package_marker():
+    if not runs(path) or PurePosixPath(path).name == modules.package_marker():
         return False
     if excluded(path, tree) or path.split("/")[0] in ROOT_NON_PACKAGE:
         return False
@@ -348,16 +351,18 @@ def unused(facts: dict[str, Any]) -> bool:
     )
 
 
-def propose(tree: dict[str, str]) -> list[tuple[str, dict[str, Any]]]:
+def propose(
+    tree: dict[str, str], config: dict[str, Any]
+) -> list[tuple[str, dict[str, Any]]]:
     read = readings(tree)
     index = ImportIndex(tree, read)
     scripts = project_scripts(tree)
-    references = PathReferences(index, read)
+    references = PathReferences(index, read, config)
     found = []
     for path in sorted(tree):
         if path not in read or not candidate_path(tree, path):
             continue
-        facts = features(index, path, scripts)
+        facts = features(index, path, scripts, config)
         facts["referenced_by_path"] = references.referenced(path)
         if unused(facts):
             facts["proposer_score"] = proposer_score(facts)
@@ -369,7 +374,7 @@ def wanted(path: str, kind: str, size: str) -> bool:
     name = PurePosixPath(path).name
     return (
         kind == "blob"
-        and (path.endswith(".py") or name in MANIFESTS)
+        and (runs(path) or name in MANIFESTS)
         and size.isdigit()
         and int(size) < MAX_SOURCE_BYTES
     )
@@ -405,7 +410,7 @@ def consumer_candidates(
             "run_markers": facts["run_markers"],
             "state": consumer_state(tree, path, facts),
         }
-        for path, facts in propose(tree)
+        for path, facts in propose(tree, config)
         if path in changed and not exempt(path, config)
     ]
 

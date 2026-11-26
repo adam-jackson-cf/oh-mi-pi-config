@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import Any
 
 from guardrails.checker.growth import CollectedFile, Snapshot, growth_findings
+from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
 from guardrails.test_report.junit import FAILING, Case
 
-DATA_FOLDER = Path(__file__).resolve().parents[3] / "data"
 CASES_FILE = "conformance-cases.json"
 CASE_TIMEOUT_S = 300
 # What a case can raise, from its fixture, its adapter or the framework: each fails only
@@ -88,7 +88,7 @@ class Harness:
 
 
 def load_cases() -> list[dict[str, Any]]:
-    text = (DATA_FOLDER / CASES_FILE).read_text("utf-8")
+    text = (conventions.DATA_FOLDER / CASES_FILE).read_text("utf-8")
     cases: list[dict[str, Any]] = json.loads(text)["cases"]
     return cases
 
