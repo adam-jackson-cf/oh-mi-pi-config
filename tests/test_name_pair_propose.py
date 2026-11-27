@@ -103,6 +103,40 @@ class ResolveTests(unittest.TestCase):
         }
 
 
+SCRIPT_TREE = {
+    "web/protocol.ts": "export type Ask = { kind: string };\n",
+    "server/protocol.ts": "export type Ask = { open: boolean };\n",
+    "web/host.ts": "import { Ask as HostAsk } from './protocol';\nexport const LIMIT = 1;\n",
+    "web/use.ts": "import { Ask } from './protocol';\nexport type Question = Ask;\n",
+    "web/again.ts": "export { Ask as Request } from './missing';\n",
+    "web/types.ts": "export type Payload = string;\nexport type Code = unknown;\n",
+    "web/fs.ts": "import { readFileSync } from 'node:fs';\nexport const read = readFileSync;\n",
+}
+
+
+@pytest.mark.fast
+class ScriptAliasTests(unittest.TestCase):
+    def test_an_imported_alias_resolves_through_its_specifier_or_pairs_nothing(
+        self,
+    ) -> None:
+        pairs = propose.Proposer(
+            propose.NameIndex(SCRIPT_TREE, not_test, ("typescript",))
+        ).propose()
+        assert {
+            (pair["a"]["name"], pair["b"]["name"], pair["b"].get("path"))
+            for pair in pairs
+            if "alias" in pair["rules"]
+        } == {
+            ("HostAsk", "Ask", "web/protocol.ts"),
+            ("Question", "Ask", "web/protocol.ts"),
+        }
+
+    def test_each_language_names_its_built_in_types(self) -> None:
+        assert {"string", "unknown"} <= propose.builtin_types("typescript")
+        assert {"str", "int"} <= propose.builtin_types("python")
+        assert {"string", "error"} <= propose.builtin_types("go")
+
+
 @pytest.mark.fast
 class ProposerRuleTests(unittest.TestCase):
     def test_aliases_pair_with_their_definition_member_or_external_name(self) -> None:

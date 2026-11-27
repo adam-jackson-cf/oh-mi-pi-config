@@ -492,11 +492,35 @@ class ScriptSource(DeclaredSource):
         statements = named(root)
         doc = doc_above(self.place, statements[0]) if statements else ""
         self.found.definitions.extend(module_definition(self.place, doc))
+        sites = typescript.imports(root)
+        # The names this file imports: a binding of one resolves through its specifier.
+        self.imported = {
+            binding.local: binding
+            for site in sites
+            for binding in site.bindings
+            if binding.local is not None and binding.form != "export-from"
+        }
         for item in typescript.declarations(root):
             self.declared(item)
-        for site in typescript.imports(root):
+        for site in sites:
             self.renames(site)
         return self.found
+
+    def bind(self, names: tuple[str, str], node: SgNode, how: str) -> None:
+        """A binding of an imported name aims at the export it imports, through the
+        import's specifier; any other binding resolves by name."""
+        local, target = names
+        parts = target.split(".")
+        source = self.imported.get(parts[0])
+        if source is None:
+            super().bind(names, node, how)
+            return
+        export = [] if source.imported in {None, "default"} else [source.imported]
+        aimed = ".".join([*export, *parts[1:]]) or target
+        text = self.place.lines[line(node) - 1].strip()
+        found = alias(self.place, (local, aimed), line(node), text, how)
+        found.update(internal=True, specifier=source.specifier)
+        self.found.aliases.append(found)
 
     def declared(self, item: Declaration) -> None:
         node = item.node
@@ -545,7 +569,8 @@ class ScriptSource(DeclaredSource):
                 continue
             text = self.place.lines[site.line - 1].strip()[:300]
             found = alias(self.place, (local, str(imported)), site.line, text, how)
-            found["internal"] = True
+            # The specifier the rename imports from: its target resolves through it.
+            found.update(internal=True, specifier=site.specifier)
             self.found.aliases.append(found)
 
 

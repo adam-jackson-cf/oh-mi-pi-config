@@ -215,22 +215,27 @@
           "shadow": {
             "by": "owner",
             "decided_on": "2026-11-27",
-            "reason": "TypeScript pairs alone reach leave-one-repository-out precision 24/38 = 0.63, below the 0.75 floor, so TypeScript runs at the cutoff tuned on all three languages until 10 labelled flags."
+            "reason": "The owner chose shadow until 10 labelled flags before the alias fix. After it, TypeScript pairs alone reach leave-one-repository-out precision 25/31 = 0.81 (bootstrap 95% 0.65-0.94), above the 0.75 floor; promotion is the owner's decision."
           },
           "measured": {
             "real_pairs": 160,
             "repositories": 5,
             "positives": 28,
+            "alias_fix": "2026-11-27: a TypeScript rename or a binding of an imported name resolves through its import specifier, and an alias of a built-in type proposes no pair. That drops 12 labelled pairs, all labelled different things (11 in game-system, 1 in omp), and re-targets 1 true alias pair (N17T-0105, scored on its earlier target)",
             "held_out": {
-              "method": "leave-one-repository-out over the 5 TypeScript repositories",
-              "precision": 0.63,
-              "flags": "24/38"
+              "method": "leave-one-repository-out over the 5 TypeScript repositories, after the alias fix",
+              "precision": 0.81,
+              "flags": "25/31",
+              "bootstrap_95": [0.65, 0.94],
+              "before_fix": "24/38 = 0.63"
             },
-            "pooled": "0.0732 is the cutoff tuned on Python, TypeScript and Go pairs together: leave-one-repository-out precision 44/61 = 0.72 (bootstrap 95% 0.61-0.82)",
+            "at_threshold": "25 of 26 flags correct at 0.0732 after the fix (25/34 before)",
+            "pooled": "tuned on Python, TypeScript and Go pairs together after the fix, the cutoff is 0.051143 (Python's): leave-one-repository-out precision 46/59 = 0.78 (bootstrap 95% 0.68-0.88); 44/60 at 0.0732 before the fix",
             "labels": "innovation council labels with the Claude arbiter's label for split votes (2026-11-27)"
           },
           "shortfalls": [
-            "9 of the 13 alias pairs flagged in game-system are labelled different things: an export alias renames a thing for a caller, which the proposer scores as a same-thing alias",
+            "shadow until 10 labelled flags, or until the owner promotes it on the held-out precision above",
+            "N17T-0105's score was measured on its earlier, wrong target",
             "probabilities are raw, not calibrated confidence"
           ]
         },

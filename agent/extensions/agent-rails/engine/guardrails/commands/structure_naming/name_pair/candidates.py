@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.commands.structure_naming.name_pair.propose import (
+    RESOLVER_FILES,
     NameIndex,
     Pair,
     Proposer,
@@ -240,7 +241,9 @@ def owned_sources(entries: dict[str, TreeEntry], excluded: list[str]) -> list[st
         for path, (mode, kind, _, size) in entries.items()
         if kind == "blob"
         and mode != "120000"
-        and language_of(path) is not None
+        and (
+            language_of(path) is not None or PurePosixPath(path).name in RESOLVER_FILES
+        )
         and not is_vendored_path(path)
         and not bundled(path)
         and size.isdigit()

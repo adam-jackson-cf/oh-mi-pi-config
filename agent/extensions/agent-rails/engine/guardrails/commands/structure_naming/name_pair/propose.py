@@ -17,7 +17,8 @@ from guardrails.commands.structure_naming.name_pair.extract import (
     words,
 )
 from guardrails.foundation import conventions
-from guardrails.foundation.source.tree import language_of
+from guardrails.foundation.source import modules
+from guardrails.foundation.source.tree import language_of, structure_languages
 
 TRIVIAL = re.compile(
     r"^(utf-?8|utf-?16|ascii|latin-?1|true|false|none|null|yes|no|on|off|json|yaml|text"
@@ -68,6 +69,19 @@ CLONE_SIMILARITY = 0.5
 HEAD_GROUP_CAP = 20
 MAX_DOCUMENT_FREQUENCY = 40
 Pair = dict[str, Any]
+
+
+# The files the alias resolver reads besides source: tsconfig.json, for a TypeScript
+# rename's specifier (modules.ScriptResolver).
+RESOLVER_FILES = frozenset({modules.TSCONFIG})
+
+
+@cache
+def builtin_types(language: str) -> frozenset[str]:
+    """A language's built-in type names (structure-languages.json proposers.signals
+    STRUCT.name-pairs builtin_types): an alias of one names a role, not a repository concept."""
+    signals = structure_languages()["proposers"]["signals"]["STRUCT.name-pairs"]
+    return frozenset(signals[language]["builtin_types"])
 
 
 @cache
@@ -136,6 +150,7 @@ class NameIndex:
         self.by_base: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for item in self.definitions:
             self.by_base[item["base"]].append(item)
+        self.scripts = modules.ScriptResolver(set(tree), tree.__getitem__)
 
     def resolve(
         self, name: str, near: str | None = None, module: str | None = None
@@ -162,9 +177,33 @@ class NameIndex:
 
         return sorted(found, key=rank)[0]
 
+    def resolve_imported(self, binding: dict[str, Any]) -> dict[str, Any] | None:
+        """A TypeScript rename's target through its specifier: the definition in the file
+        the specifier resolves to, else in that file's folder (an index that re-exports it);
+        None when the specifier names no tracked file or neither holds the name."""
+        found = self.scripts.resolve(binding["path"], binding["specifier"])
+        if found is None:
+            return None
+        base = binding["target"].split(".")[-1]
+        named = [
+            item
+            for item in self.by_base.get(base, [])
+            if item["kind"] != "module" and item["lang"] == "typescript"
+        ]
+        folder = PurePosixPath(found).parent
+        for held in (
+            [item for item in named if item["path"] == found],
+            [item for item in named if PurePosixPath(item["path"]).parent == folder],
+        ):
+            if held:
+                return sorted(held, key=lambda item: (item["path"], item["line"]))[0]
+        return None
+
     def resolve_alias(
         self, binding: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        if "specifier" in binding:
+            return self.resolve_imported(binding), None
         parts = binding["target"].split(".")
         if len(parts) == 1:
             return self.resolve(
@@ -282,7 +321,11 @@ class Proposer:
     def aliases(self) -> None:
         for binding in self.index.aliases:
             root = re.split(r"[.\[(]", binding["target"])[0]
-            if not BINDING.match(binding["target"]) or root in NOT_ALIAS_ROOTS:
+            if (
+                not BINDING.match(binding["target"])
+                or root in NOT_ALIAS_ROOTS
+                or binding["target"] in builtin_types(str(language_of(binding["path"])))
+            ):
                 continue
             first = {
                 "name": binding["alias"],

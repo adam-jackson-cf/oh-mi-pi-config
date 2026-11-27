@@ -360,16 +360,75 @@
       "STRUCT.name-pairs": {
         "python": {
           "definitions": "the shared name readers (name_pair/extract.py)",
-          "source": "https://docs.python.org/3/reference/lexical_analysis.html#identifiers"
+          "source": "https://docs.python.org/3/reference/lexical_analysis.html#identifiers",
+          "builtin_types": [
+            "bool",
+            "bytearray",
+            "bytes",
+            "complex",
+            "dict",
+            "float",
+            "frozenset",
+            "int",
+            "list",
+            "object",
+            "set",
+            "str",
+            "tuple",
+            "type"
+          ],
+          "builtin_source": "https://docs.python.org/3/library/stdtypes.html"
         },
         "typescript": {
           "definitions": "the shared name readers (name_pair/extract.py): declarations, aliases and import renames",
-          "source": "https://www.typescriptlang.org/docs/handbook/modules/reference.html"
+          "source": "https://www.typescriptlang.org/docs/handbook/modules/reference.html",
+          "builtin_types": [
+            "any",
+            "bigint",
+            "boolean",
+            "never",
+            "null",
+            "number",
+            "object",
+            "string",
+            "symbol",
+            "undefined",
+            "unknown",
+            "void"
+          ],
+          "builtin_source": "https://www.typescriptlang.org/docs/handbook/2/everyday-types.html",
+          "alias_targets": "an import rename or re-export resolves through its specifier as the import rules resolve it (modules.ScriptResolver): to a definition in the file it names, else in that file's folder; a specifier that names no tracked file names no repository concept and proposes no pair"
         },
         "go": {
           "definitions": "the shared name readers (name_pair/extract.py): package-level declarations and their members",
-          "source": "https://go.dev/ref/spec#Declarations_and_scope"
-        }
+          "source": "https://go.dev/ref/spec#Declarations_and_scope",
+          "builtin_types": [
+            "any",
+            "bool",
+            "byte",
+            "comparable",
+            "complex128",
+            "complex64",
+            "error",
+            "float32",
+            "float64",
+            "int",
+            "int16",
+            "int32",
+            "int64",
+            "int8",
+            "rune",
+            "string",
+            "uint",
+            "uint16",
+            "uint32",
+            "uint64",
+            "uint8",
+            "uintptr"
+          ],
+          "builtin_source": "https://go.dev/ref/spec#Predeclared_identifiers"
+        },
+        "about": "An alias of a language's built-in type (builtin_types) gives a role a type, never a second name for a repository concept, so it proposes no pair."
       }
     }
   }
