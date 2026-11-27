@@ -1691,7 +1691,7 @@ class StructureProposalTests(unittest.TestCase):
         }
         assert findings == {
             ("python", rails_kernel.PAIR_QUESTION): ("enforced", 0.051143),
-            ("typescript", rails_kernel.PAIR_QUESTION): ("shadow", 0.0732),
+            ("typescript", rails_kernel.PAIR_QUESTION): ("enforced", 0.0732),
             ("go", rails_kernel.KIND_QUESTION): ("shadow", 0.4),
         }
         go_question = self.asked[-2][1]["own_capability"]
@@ -1699,7 +1699,7 @@ class StructureProposalTests(unittest.TestCase):
         assert "In Go a folder is one package" in go_question["instructions"]
         assert {(row["language"], row["mode"]) for row in self.rows()} == {
             ("python", "enforced"),
-            ("typescript", "shadow"),
+            ("typescript", "enforced"),
             ("go", "shadow"),
         }
 

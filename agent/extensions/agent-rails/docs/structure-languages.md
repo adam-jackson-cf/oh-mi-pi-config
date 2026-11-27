@@ -39,8 +39,9 @@ Shell has no packages, imports or definitions, so no structure rule reads it.
 The candidate proposers behind the structure-naming judgments propose only for the languages their
 question has settings for in [thresholds.json](../judgments/structure-naming/thresholds.json)
 (`decisions.<question>.languages`); the rails pass them as `--languages`. Each language holds its
-own question version, mode and cutoff, so a TypeScript or Go question runs in shadow while Python's
-is enforced, and Go asks the kind question in its own wording (questions.json `variants`).
+own question version, mode and cutoff: `same_thing` is enforced for Python (0.051143) and
+TypeScript (0.0732) and runs in shadow for Go, and Go asks the kind question in its own wording
+(questions.json `variants`).
 `proposers.signals` defines each proposer's reading per language with its source. The proposers
 and every other structure scan leave test source out: a pack's test runner patterns
 (`test_*.py`, `*_test.go`, `*.test.ts`), `conftest.py`, the configured test file patterns, the

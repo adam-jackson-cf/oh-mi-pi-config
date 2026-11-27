@@ -22,6 +22,7 @@ Load `<extension>/lib/rails_kernel.py` in an eval cell; it needs `judge()`. `tri
 
 - The store is `<agent dir>/agent-rails/agent-rails.db` (`PI_CODING_AGENT_DIR`, else `~/.omp/agent`), with one schema,
   [decision-store.sql](../engine/data/decision-store.sql). Flags, errors and a stable 1-in-10 sample of passes keep their payload until reviewed.
+  A store at another schema version is refused: on upgrade, rename the old file (for example to `agent-rails.v2.db`).
 - It returns the logged record plus `answers`: `call_id`, `judgment`, `state_sha256`, `model`, `question_version`, `probabilities`,
   `outcomes`, `modes` and `timestamp`.
 - Choice questions return probabilities only. Treat `escalate` as uncertain: take the conservative branch or ask the owner, never read it as `no`.

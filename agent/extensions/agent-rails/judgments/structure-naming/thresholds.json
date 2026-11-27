@@ -206,17 +206,9 @@
         },
         "typescript": {
           "version_key": "cd4f40f4f58e59575c30685ca0682acad516afb74f9323a782fb3a8c74951c31",
-          "mode": "shadow",
-          "shadow_exit": {
-            "labelled_flags": 10
-          },
+          "mode": "enforced",
           "threshold": 0.0732,
           "labels": "label-guide.typescript.md (section N1)",
-          "shadow": {
-            "by": "owner",
-            "decided_on": "2026-11-27",
-            "reason": "The owner chose shadow until 10 labelled flags before the alias fix. After it, TypeScript pairs alone reach leave-one-repository-out precision 25/31 = 0.81 (bootstrap 95% 0.65-0.94), above the 0.75 floor; promotion is the owner's decision."
-          },
           "measured": {
             "real_pairs": 160,
             "repositories": 5,
@@ -234,10 +226,18 @@
             "labels": "innovation council labels with the Claude arbiter's label for split votes (2026-11-27)"
           },
           "shortfalls": [
-            "shadow until 10 labelled flags, or until the owner promotes it on the held-out precision above",
+            "the 95% bootstrap interval 0.65-0.94 rests on 31 held-out flags",
             "N17T-0105's score was measured on its earlier, wrong target",
             "probabilities are raw, not calibrated confidence"
-          ]
+          ],
+          "evidence": {
+            "accepted_by": "owner",
+            "accepted_on": "2026-11-27",
+            "held_out_precision": 0.81,
+            "held_out_flags": "25/31",
+            "at_threshold": "25/26 at 0.0732",
+            "note": "after the alias fix, TypeScript pairs alone reach leave-one-repository-out precision 25/31 = 0.81, above the 0.75 floor; the owner chose to enforce at 0.0732 rather than Python's 0.051143 (27/33)"
+          }
         },
         "go": {
           "version_key": "cd4f40f4f58e59575c30685ca0682acad516afb74f9323a782fb3a8c74951c31",

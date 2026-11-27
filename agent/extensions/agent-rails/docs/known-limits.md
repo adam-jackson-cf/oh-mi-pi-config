@@ -42,13 +42,13 @@ What the rails do not catch or measure today.
   by a computed string, a function fetched from a dictionary of helpers, or code held in a string
   does not, so such a function is reported unless it is the package's public entry point.
 - The structure-naming candidate proposers (`kind-candidates`, `consumer-candidates`, `name-pairs`)
-  propose for the languages their question has settings for in thresholds.json. Every TypeScript and
-  Go setting runs in shadow: those judgments rest on few labelled violations (Go `same_thing` 5,
-  TypeScript and Go `consumer_placement` none). The TypeScript consumer reading maps a package.json
-  `bin` path to TypeScript source only for the same stem (`bin/x.js` to `bin/x.ts`), not across a
-  build's output folder (`dist/` to `src/`); a Go import names a package, so every file of a package
-  has the package's importers. `name-pairs` reads every language's code with comments (and Python
-  docstrings) blanked from the parse tree.
+  propose for the languages their question has settings for in thresholds.json. Every Go setting and
+  TypeScript's kind and consumer settings run in shadow: those judgments rest on few labelled
+  violations (Go `same_thing` 5, TypeScript and Go `consumer_placement` none). The TypeScript
+  consumer reading maps a package.json `bin` path to TypeScript source only for the same stem
+  (`bin/x.js` to `bin/x.ts`), not across a build's output folder (`dist/` to `src/`); a Go import
+  names a package, so every file of a package has the package's importers. `name-pairs` reads every
+  language's code with comments (and Python docstrings) blanked from the parse tree.
 - `structure-naming/same_thing` judges only the name pairs `name-pairs` proposes (alias, head noun,
   synonym, constant value, clone); two names for one concept that none of those rules links are
   never asked. Its held-out precision is 0.72 (13/18), below the 0.75 floor, by owner acceptance.
