@@ -3,13 +3,16 @@ from __future__ import annotations
 import argparse
 import json
 import os.path
-from collections import defaultdict
+from collections.abc import Collection
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.structure_naming import importers, outline
 from guardrails.commands.structure_naming.scan_scope import (
+    checked,
     is_vendored_path,
-    proposed_source,
+    proposed,
+    runs,
 )
 from guardrails.context.changes import (
     DiffError,
@@ -22,8 +25,7 @@ from guardrails.context.config.reader import checker_settings
 from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
-from guardrails.foundation.source import modules, python
-from guardrails.foundation.source.tree import SourceError, line, named, parse
+from guardrails.foundation.source.tree import SourceError, parse
 
 if TYPE_CHECKING:
     from guardrails.foundation.source.tree import SgNode
@@ -56,7 +58,7 @@ KIND_WORDS = (
     "utils",
     "validators",
 )
-READS = frozenset({"python"})
+READS = frozenset({"python", "typescript", "go"})
 MAX_SYMBOLS = 12
 MAX_IMPORTERS = 3
 
@@ -98,140 +100,95 @@ def owned(paths: list[str]) -> list[str]:
     return [path for path in paths if not excluded(path, skills)]
 
 
-def parsed(path: str, source: str) -> SgNode | None:
-    """The tree of a Python file; an unparseable file is skipped (None): it proposes no
-    candidate and gives no import edges."""
+Parsed = tuple["SgNode", outline.Outline]
+
+
+def parsed(path: str, source: str) -> Parsed | None:
+    """The tree and outline of a source file; an unparseable file is skipped (None): it
+    proposes no candidate and gives no import edges."""
     try:
         root = parse(path, source)
-        python.body_docstring(root)
-        for node in python.members(root):
-            python.body_docstring(node.field("body"))
+        return root, outline.outline(path, root, source)
     except SourceError:
         return None
-    return root
-
-
-def first_line(doc: str) -> str:
-    for text in doc.strip().splitlines():
-        if text.strip():
-            return text.strip()[:200]
-    return ""
-
-
-def signature_of(node: SgNode, lines: list[str]) -> str:
-    body = node.field("body")
-    statements = [] if body is None else named(body)
-    start = line(node) - 1
-    end = line(statements[0]) - 1 if statements else start + 1
-    if statements and line(statements[0]) - 1 <= start:
-        end = start + 1
-    text = " ".join(text.strip() for text in lines[start : max(end, start + 1)])
-    depth = 0
-    for index, character in enumerate(text):
-        if character in "([{":
-            depth += 1
-        elif character in ")]}":
-            depth -= 1
-        elif character == ":" and depth == 0 and index > 0:
-            return text[:index].strip()[:300]
-    return text[:300]
-
-
-def definitions(source: str, root: SgNode | None) -> list[dict[str, str]]:
-    if root is None:
-        return []
-    lines = source.splitlines()
-    return [
-        {
-            "signature": signature_of(node, lines),
-            "doc": first_line(python.body_docstring(node.field("body"))),
-        }
-        for node in python.members(root)
-    ]
-
-
-def line_at(lines: list[str], number: int) -> str:
-    return lines[number - 1].strip()[:240] if 0 < number <= len(lines) else ""
 
 
 class TreeModel:
     def __init__(
-        self, paths: list[str], sources: dict[str, str], config: dict[str, Any]
+        self,
+        paths: list[str],
+        sources: dict[str, str],
+        config: dict[str, Any],
+        languages: Collection[str],
     ) -> None:
         self.sources = sources
         self.config = config
-        self.python = sorted(path for path in paths if proposed_source(path, READS))
-        self.trees = {path: parsed(path, sources.get(path, "")) for path in self.python}
-        index = modules.PythonIndex(self.python)
-        self.graph: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for importer in self.python:
-            root = self.trees[importer]
-            if root is None:
-                continue
-            lines = sources.get(importer, "").splitlines()
-            seen: set[str] = set()
-            for item in python.imports(root):
-                for target in index.resolve(importer, item):
-                    if target not in seen:
-                        seen.add(target)
-                        self.graph[target].append((importer, line_at(lines, item.line)))
+        self.files = sorted(path for path in paths if runs(path, languages))
+        self.read = {
+            path: found
+            for path in self.files
+            if (found := parsed(path, sources.get(path, ""))) is not None
+        }
+        roots = {path: found[0] for path, found in self.read.items()}
+        self.graph = importers.graph(self.files, sources, roots)
 
     def eligible(self) -> list[str]:
         return [
             path
-            for path in self.python
-            if os.path.basename(path) != modules.package_marker()
+            for path in self.files
+            if not outline.folder_entry(path)
             and os.path.dirname(path)
             and os.path.dirname(path).split("/")[-1].lower() in KIND_FORMS
-            and definitions(self.sources.get(path, ""), self.trees[path])
+            and path in self.read
+            and self.read[path][1].entries
         ]
 
     def state(self, path: str) -> dict[str, Any]:
-        source = self.sources.get(path, "")
-        root = self.trees[path]
+        found = self.read[path][1]
         symbols = [
-            item["signature"] + (f"  # {item['doc']}" if item["doc"] else "")
-            for item in definitions(source, root)[:MAX_SYMBOLS]
+            item.signature + (f"  # {item.doc}" if item.doc else "")
+            for item in found.entries[:MAX_SYMBOLS]
         ]
         folder = os.path.dirname(path)
-        importers = sorted(
+        chosen = sorted(
             self.graph.get(path, []),
             key=lambda item: (
-                is_test_source(item[0], self.config),
-                os.path.dirname(item[0]) == folder,
-                item[0],
+                is_test_source(item.path, self.config),
+                os.path.dirname(item.path) == folder,
+                item.path,
             ),
         )[:MAX_IMPORTERS]
-        doc = python.body_docstring(root).strip()[:600] if root is not None else ""
         return {
-            "file": {"path": path, "docstring": doc, "symbols": symbols},
+            "file": {"path": path, "docstring": found.doc, "symbols": symbols},
             "folder": folder,
-            "importers": [
-                {"path": importer, "import": text} for importer, text in importers
-            ],
+            "importers": [{"path": item.path, "import": item.text} for item in chosen],
         }
 
 
-def model_of(tree: dict[str, str], config: dict[str, Any]) -> TreeModel:
+def model_of(
+    tree: dict[str, str], config: dict[str, Any], languages: Collection[str]
+) -> TreeModel:
     paths = owned(sorted(tree))
-    return TreeModel(
-        paths,
-        {path: tree[path] for path in paths if proposed_source(path, READS)},
-        config,
-    )
+    return TreeModel(paths, {path: tree[path] for path in paths}, config, languages)
 
 
-def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
+def head_tree(
+    repo: Path, head: str, excluded_paths: list[str], languages: Collection[str]
+) -> dict[str, str]:
+    """The owned paths of a head commit, with the text of the source files of the
+    languages and of the files their imports resolve through."""
     entries = {
         path: entry
         for path, entry in tree_entries(repo, head).items()
         if not matches_any(path, excluded_paths)
     }
     paths = owned(sorted(entries))
+    resolving = importers.manifests(languages)
     want = [
         (path, entries[path].oid)
         for path in paths
-        if proposed_source(path, READS) and entries[path].kind == "blob"
+        if (runs(path, languages) or os.path.basename(path) in resolving)
+        and entries[path].kind == "blob"
     ]
     found = dict.fromkeys(paths, "")
     blobs = read_blobs(repo, sorted({oid for _, oid in want}))
@@ -245,9 +202,14 @@ def exempt(path: str, config: dict[str, Any]) -> bool:
 
 
 def kind_candidates(
-    tree: dict[str, str], changed: set[str], config: dict[str, Any]
+    tree: dict[str, str],
+    changed: set[str],
+    config: dict[str, Any],
+    languages: Collection[str],
 ) -> list[dict[str, Any]]:
-    model = model_of(tree, config)
+    """The changed kind-folder files of the languages asked for: the subcommand asks for
+    proposers.languages, a measurement for any language this proposer reads."""
+    model = model_of(tree, config, checked(languages, READS))
     return [
         {"path": path, "state": model.state(path)}
         for path in model.eligible()
@@ -264,9 +226,10 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         checker_settings(config, "check").get("exclude")
     ) + as_list(checker_settings(config, "python").get("excluded_paths"))
     try:
-        tree = head_tree(repo, args.head, excluded_paths)
+        languages = proposed(READS)
+        tree = head_tree(repo, args.head, excluded_paths, languages)
         found = kind_candidates(
-            tree, changed_paths(repo, args.base, args.head, "AMR"), config
+            tree, changed_paths(repo, args.base, args.head, "AMR"), config, languages
         )
     except (DiffError, ValueError) as error:
         return [

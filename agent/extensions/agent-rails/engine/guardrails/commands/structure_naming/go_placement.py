@@ -12,6 +12,7 @@ from guardrails.commands.structure_naming.package_placement import (
     data_finding,
     unreadable,
 )
+from guardrails.commands.structure_naming.programs import command_folder
 from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.source import go
@@ -54,11 +55,6 @@ def is_command(path: str, sources: Sources) -> bool:
     return go.package_name(root) == MAIN_PACKAGE and go.built(path, root)
 
 
-def top_tier(folder: str, module: str) -> bool:
-    parts = PurePosixPath(folder).relative_to(module).parts
-    return not parts or (len(parts) == 2 and parts[0] == COMMANDS)
-
-
 def entry_point_findings(
     path: str, tracked: Collection[str], sources: Sources
 ) -> list[Finding]:
@@ -73,7 +69,7 @@ def entry_point_findings(
     except SourceError as error:
         return [unreadable(ENTRY_POINT, path, error)]
     module, folder = folder_of(manifest), folder_of(path)
-    if top_tier(folder, module):
+    if command_folder(folder, module):
         return []
     root = "" if module == "." else f"{module}/"
     return [

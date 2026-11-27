@@ -33,14 +33,16 @@ runs, so `oracle2_client` still holds `oracle`.
 Duplicate code is `STRUCT.overlapping-responsibilities`; prefix folder is `STRUCT.prefix-folder`,
 which does not apply to Go because a Go folder is a package. A scored rule runs for a language only
 with a measured cutoff. Shell has no packages, imports or definitions, so no structure rule reads
-it. The candidate proposers behind the structure-naming judgments still propose Python only: those
-judgments were measured on Python cases, and `proposers.languages` in structure-languages.json is the
-one switch all three proposers read. They and every other structure scan leave test source
-out: a pack's test runner patterns (`test_*.py`, `*_test.go`, `*.test.ts`), `conftest.py`, the
-configured test file patterns, the `tests/`, `fixtures/` and `support/` folders, and the data
-(not source) under a tier location. A name that only starts like a test (`testimonials/`,
-`testing.go`, `fixture_loader.py`) is product code, and so is source under a tier location that
-runs tests beside code (vitest, go test) unless its name is a test's.
+it. The candidate proposers behind the structure-naming judgments propose only for
+`proposers.languages` in structure-languages.json (Python): those judgments were measured on Python
+cases. `proposers.signals` defines each proposer's TypeScript and Go reading with its source, and
+only a measurement asks for those languages, through the proposer's explicit `languages` argument.
+They and every other structure scan leave test source out: a pack's test runner patterns
+(`test_*.py`, `*_test.go`, `*.test.ts`), `conftest.py`, the configured test file patterns, the
+`tests/`, `fixtures/` and `support/` folders, and the data (not source) under a tier location. A
+name that only starts like a test (`testimonials/`, `testing.go`, `fixture_loader.py`) is product
+code, and so is source under a tier location that runs tests beside code (vitest, go test) unless
+its name is a test's.
 
 Python module names and imports have one owner, `guardrails/foundation/source/modules.py`:
 

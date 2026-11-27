@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Collection, Iterable
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -14,6 +13,7 @@ from guardrails.commands.structure_naming.package_placement import (
     data_finding,
     unreadable,
 )
+from guardrails.commands.structure_naming.programs import manifest_entries
 from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.source import typescript
@@ -48,30 +48,6 @@ def runtime_data_findings(path: str, tree: CodeTree, sources: Sources) -> list[F
     except SourceError as error:
         return [unreadable(RUNTIME_DATA, path, error)]
     return [data_finding(path, folder)]
-
-
-def manifest_entries(manifest: str, text: str) -> list[tuple[str, str]]:
-    try:
-        data = json.loads(text)
-    except ValueError as error:
-        raise SourceError(f"cannot parse {manifest}: {error}") from error
-    if not isinstance(data, dict):
-        raise SourceError(f"{manifest} must hold a JSON object")
-    found: list[tuple[str, str]] = []
-    commands, main = data.get("bin"), data.get("main")
-    if isinstance(commands, str):
-        found.append(("bin", commands))
-    elif isinstance(commands, dict) and all(
-        isinstance(value, str) for value in commands.values()
-    ):
-        found.extend(("bin", value) for value in commands.values())
-    elif commands is not None:
-        raise SourceError(f"{manifest}: bin must be a path or a map of names to paths")
-    if isinstance(main, str):
-        found.append(("main", main))
-    elif main is not None:
-        raise SourceError(f"{manifest}: main must be a path")
-    return found
 
 
 def manifests_above(path: str, tracked: Collection[str]) -> list[str]:

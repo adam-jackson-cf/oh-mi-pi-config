@@ -3,13 +3,15 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming.scan_scope import (
-    is_vendored_path,
-    proposed_source,
+from guardrails.commands.structure_naming import (
+    consumer_languages,
+    programs,
+    scan_scope,
 )
 from guardrails.context.changes import (
     DiffError,
@@ -31,95 +33,34 @@ from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.consumer-candidates"
 EXCEPTION_RULE = "structure-naming/consumer_placement"
-ROOT_NON_PACKAGE = frozenset({"fixtures", "migrations", "scripts", "tests"})
-UI_LIBRARIES = frozenset({
-    "altair",
-    "blessed",
-    "bokeh",
-    "curses",
-    "dash",
-    "flet",
-    "gradio",
-    "jinja2",
-    "matplotlib",
-    "nicegui",
-    "panel",
-    "plotly",
-    "prettytable",
-    "prompt_toolkit",
-    "pygal",
-    "questionary",
-    "rich",
-    "seaborn",
-    "streamlit",
-    "tabulate",
-    "textual",
-    "tkinter",
-    "urwid",
-})
-MARKERS = (
-    ("main_guard", re.compile(r"""^\s*if\s+__name__\s*==\s*['"]__main__['"]""", re.M)),
-    ("argparse", re.compile(r"\bArgumentParser\s*\(")),
-    ("click", re.compile(r"@click\.(command|group)\b")),
-    ("typer", re.compile(r"\btyper\.(Typer|run)\s*\(")),
-    ("fire", re.compile(r"\bfire\.Fire\s*\(")),
-    ("streamlit", re.compile(r"^\s*(import\s+streamlit|from\s+streamlit\b)", re.M)),
-    ("dash", re.compile(r"\b(dash\.)?Dash\s*\(\s*__name__")),
-    ("gradio", re.compile(r"^\s*(import\s+gradio|from\s+gradio\b)", re.M)),
-    ("flask", re.compile(r"\bFlask\s*\(\s*__name__")),
-    ("fastapi", re.compile(r"\bFastAPI\s*\(")),
-    (
-        "textual_app",
-        re.compile(r"^\s*class\s+\w+\(\s*(textual\.app\.)?App(\[[^\]]*\])?\s*\)", re.M),
-    ),
-    ("rich_live", re.compile(r"from\s+rich\.live\s+import|rich\.live\.Live\b")),
-)
-UI_APP_MARKERS = frozenset({"dash", "gradio", "rich_live", "streamlit", "textual_app"})
-MANIFESTS = frozenset({"pyproject.toml", "setup.cfg", "setup.py"})
-READS = frozenset({"python"})
+PYTHON = "python"
+MANIFESTS = programs.command_manifests(PYTHON)
+READS = frozenset({"python", "typescript", "go"})
 MAX_SOURCE_BYTES = 1_500_000
 STATE_LINES = 60
 STRING_KINDS = frozenset({"string", "concatenated_string"})
 Import = tuple[python.PythonImport, str]
 
 
-def parent(path: str) -> str:
-    folder = PurePosixPath(path).parent.as_posix()
-    return "" if folder == "." else folder
-
-
-def join(folder: str, name: str) -> str:
-    return f"{folder}/{name}" if folder else name
-
-
-def excluded(path: str, tree: dict[str, str]) -> bool:
-    if is_vendored_path(path):
-        return True
-    folder = parent(path)
-    while True:
-        if join(folder, "SKILL.md") in tree:
-            return True
-        if not folder:
-            return False
-        folder = parent(folder)
-
-
 def has_init(tree: dict[str, str], folder: str) -> bool:
-    return bool(folder) and join(folder, modules.package_marker()) in tree
+    return (
+        bool(folder)
+        and consumer_languages.join(folder, modules.package_marker()) in tree
+    )
 
 
 def package_dirs(tree: dict[str, str], path: str) -> tuple[str | None, str | None]:
-    folder, nearest = parent(path), None
+    folder, nearest = consumer_languages.parent(path), None
     while folder:
         if has_init(tree, folder):
             nearest = folder
             break
-        folder = parent(folder)
+        folder = consumer_languages.parent(folder)
     if not nearest:
         return None, None
     top = nearest
-    while has_init(tree, parent(top)):
-        top = parent(top)
+    while has_init(tree, consumer_languages.parent(top)):
+        top = consumer_languages.parent(top)
     return nearest, top
 
 
@@ -154,7 +95,7 @@ def string_literals(root: SgNode) -> list[str]:
         ):
             continue
         value = str(python.literal_value(node.text())).strip()
-        if proposed_source(value, READS) or DOTTED.match(value):
+        if scan_scope.runs(value, (PYTHON,)) or DOTTED.match(value):
             found.append(value)
     return found
 
@@ -175,7 +116,7 @@ def reading(path: str, source: str) -> Reading | None:
         return Reading(
             parse_imports(root), string_literals(root), python.body_docstring(root)
         )
-    except tree.SourceError:
+    except SourceError:
         return None
 
 
@@ -183,7 +124,8 @@ def readings(files: dict[str, str]) -> dict[str, Reading]:
     return {
         path: found
         for path, text in files.items()
-        if proposed_source(path, READS) and (found := reading(path, text)) is not None
+        if scan_scope.runs(path, (PYTHON,))
+        and (found := reading(path, text)) is not None
     }
 
 
@@ -191,7 +133,7 @@ class ImportIndex:
     def __init__(self, tree: dict[str, str], read: dict[str, Reading]) -> None:
         self.tree = tree
         self.index = modules.PythonIndex(
-            path for path in tree if proposed_source(path, READS)
+            path for path in tree if scan_scope.runs(path, (PYTHON,))
         )
         self.raw = {path: found.imports for path, found in read.items()}
         self.imported_by: dict[str, set[str]] = {}
@@ -219,22 +161,14 @@ class PathReferences:
         }
 
     def referenced(self, path: str) -> bool:
-        tree = self.index.tree
-        name = PurePosixPath(path).name
-        top = package_dirs(tree, path)[1] or parent(path)
+        top = package_dirs(self.index.tree, path)[1] or consumer_languages.parent(path)
         dotted = set(self.index.module_names(path))
-        for source, literals in self.literals.items():
-            if source == path:
-                continue
-            for literal in literals:
-                if literal in dotted:
-                    return True
-                text = literal.removeprefix("./")
-                if "/" in text and (path == text or path.endswith("/" + text)):
-                    return True
-                if text == name and (source == top or source.startswith(top + "/")):
-                    return True
-        return False
+        return any(
+            consumer_languages.names_file(literal, path, dotted, top, source)
+            for source, literals in self.literals.items()
+            if source != path
+            for literal in literals
+        )
 
 
 def manifest_targets(path: str, text: str) -> list[tuple[str, str]]:
@@ -260,10 +194,6 @@ def project_scripts(tree: dict[str, str]) -> dict[str, list[str]]:
     return found
 
 
-def run_markers(source: str) -> list[str]:
-    return [name for name, pattern in MARKERS if pattern.search(source)]
-
-
 def features(
     index: ImportIndex,
     path: str,
@@ -282,23 +212,29 @@ def features(
     ui = sorted({
         item.module.split(".")[0]
         for item, _ in imports
-        if not item.level and item.module.split(".")[0] in UI_LIBRARIES
+        if not item.level and item.module.split(".")[0] in programs.ui_libraries(PYTHON)
     })
-    markers = run_markers(tree[path])
+    markers = programs.run_markers(PYTHON, tree[path])
     name = PurePosixPath(path).name
+    init = consumer_languages.join(top, modules.package_marker()) if top else None
     return {
         "package_dir": nearest,
         "package_name": top_name,
-        "package_init": join(top, modules.package_marker()) if top else None,
+        "package_init": init,
+        "description": docstring_line(reading(init, tree.get(init, "")))
+        if init
+        else "",
         "run_markers": markers,
         "imported_by": len(index.imported_by.get(path, ())),
         "own_package_imports": len(own),
         "ui_libs": ui,
-        "ui_app_marker": any(marker in UI_APP_MARKERS for marker in markers),
+        "ui_app_marker": any(
+            marker in programs.ui_app_markers(PYTHON) for marker in markers
+        ),
         "in_project_scripts": any(
             scripts.get(module) for module in index.module_names(path)
         ),
-        "dunder_main": name == "__main__.py",
+        "dunder_main": name == programs.package_run_module(PYTHON),
         "test_path": is_test_source(path, config),
         "imports": [text for _, text in imports],
     }
@@ -319,11 +255,13 @@ def proposer_score(found: dict[str, Any]) -> float:
 
 def candidate_path(tree: dict[str, str], path: str) -> bool:
     if (
-        not proposed_source(path, READS)
+        not scan_scope.runs(path, (PYTHON,))
         or PurePosixPath(path).name == modules.package_marker()
     ):
         return False
-    if excluded(path, tree) or path.split("/")[0] in ROOT_NON_PACKAGE:
+    if consumer_languages.excluded(path, tree) or consumer_languages.in_root_folder(
+        path
+    ):
         return False
     return bool(package_dirs(tree, path)[0])
 
@@ -337,10 +275,8 @@ def consumer_state(
     tree: dict[str, str], path: str, found: dict[str, Any]
 ) -> dict[str, Any]:
     package: dict[str, str] = {"name": found["package_name"] or "(none)"}
-    init = found["package_init"]
-    description = docstring_line(reading(init, tree.get(init, ""))) if init else ""
-    if description:
-        package["description"] = description
+    if found["description"]:
+        package["description"] = found["description"]
     return {
         "file": {
             "path": path,
@@ -360,7 +296,7 @@ def unused(facts: dict[str, Any]) -> bool:
     )
 
 
-def propose(
+def python_facts(
     tree: dict[str, str], config: dict[str, Any]
 ) -> list[tuple[str, dict[str, Any]]]:
     read = readings(tree)
@@ -373,23 +309,49 @@ def propose(
             continue
         facts = features(index, path, scripts, config)
         facts["referenced_by_path"] = references.referenced(path)
+        found.append((path, facts))
+    return found
+
+
+def propose(
+    tree: dict[str, str], config: dict[str, Any], languages: Collection[str]
+) -> list[tuple[str, dict[str, Any]]]:
+    """The unused programs of the languages: Python's by its own reading, TypeScript's
+    and Go's by consumer_languages."""
+    read = [
+        *(python_facts(tree, config) if PYTHON in languages else []),
+        *(
+            item
+            for language in languages
+            if language != PYTHON
+            for item in consumer_languages.propose(tree, config, language)
+        ),
+    ]
+    found = []
+    for path, facts in sorted(read, key=lambda item: item[0]):
         if unused(facts):
             facts["proposer_score"] = proposer_score(facts)
             found.append((path, facts))
     return found
 
 
-def wanted(path: str, kind: str, size: str) -> bool:
+def wanted(path: str, kind: str, size: str, languages: Collection[str]) -> bool:
     name = PurePosixPath(path).name
     return (
         kind == "blob"
-        and (proposed_source(path, READS) or name in MANIFESTS)
+        and (
+            scan_scope.runs(path, languages)
+            or name in consumer_languages.wanted_names(languages)
+            or ("typescript" in languages and programs.is_page(path))
+        )
         and size.isdigit()
         and int(size) < MAX_SOURCE_BYTES
     )
 
 
-def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
+def head_tree(
+    repo: Path, head: str, excluded_paths: list[str], languages: Collection[str]
+) -> dict[str, str]:
     tree: dict[str, str] = {}
     want: list[tuple[str, str]] = []
     for path, (_, kind, oid, size) in tree_entries(repo, head).items():
@@ -397,7 +359,7 @@ def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str
             continue
         if kind == "blob" and PurePosixPath(path).name == "SKILL.md":
             tree[path] = ""
-        elif wanted(path, kind, size):
+        elif wanted(path, kind, size, languages):
             want.append((path, oid))
     blobs = read_blobs(repo, sorted({oid for _, oid in want}))
     for path, oid in want:
@@ -410,8 +372,14 @@ def exempt(path: str, config: dict[str, Any]) -> bool:
 
 
 def consumer_candidates(
-    tree: dict[str, str], changed: set[str], config: dict[str, Any]
+    tree: dict[str, str],
+    changed: set[str],
+    config: dict[str, Any],
+    languages: Collection[str],
 ) -> list[dict[str, Any]]:
+    """The changed unused programs of the languages asked for: the subcommand asks for
+    proposers.languages, a measurement for any language this proposer reads."""
+    asked = scan_scope.checked(languages, READS)
     return [
         {
             "path": path,
@@ -419,7 +387,7 @@ def consumer_candidates(
             "run_markers": facts["run_markers"],
             "state": consumer_state(tree, path, facts),
         }
-        for path, facts in propose(tree, config)
+        for path, facts in propose(tree, config, asked)
         if path in changed and not exempt(path, config)
     ]
 
@@ -435,9 +403,10 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         checker_settings(config, "check").get("exclude")
     ) + as_list(checker_settings(config, "python").get("excluded_paths"))
     try:
-        tree = head_tree(repo, args.head, excluded_paths)
+        languages = scan_scope.proposed(READS)
+        tree = head_tree(repo, args.head, excluded_paths, languages)
         found = consumer_candidates(
-            tree, changed_paths(repo, args.base, args.head, "AMR"), config
+            tree, changed_paths(repo, args.base, args.head, "AMR"), config, languages
         )
     except SourceError as error:
         return [

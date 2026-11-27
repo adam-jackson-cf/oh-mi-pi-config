@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -13,7 +13,11 @@ from guardrails.commands.structure_naming.name_pair.propose import (
     Pair,
     Proposer,
 )
-from guardrails.commands.structure_naming.scan_scope import is_vendored_path, proposed
+from guardrails.commands.structure_naming.scan_scope import (
+    checked,
+    is_vendored_path,
+    proposed,
+)
 from guardrails.context.changes import (
     DiffError,
     TreeEntry,
@@ -240,10 +244,15 @@ def head_tree(repo: Path, head: str, excluded: list[str]) -> dict[str, str]:
 
 
 def name_pair_candidates(
-    tree: dict[str, str], changed: set[str], config: dict[str, Any]
+    tree: dict[str, str],
+    changed: set[str],
+    config: dict[str, Any],
+    languages: Collection[str],
 ) -> list[dict[str, Any]]:
+    """The changed same-thing name pairs of the languages asked for: the subcommand asks
+    for proposers.languages, a measurement for any language this proposer reads."""
     sources = Sources(tree, lambda path: is_test_source(path, config))
-    index = NameIndex(tree, sources.is_test, proposed(READS))
+    index = NameIndex(tree, sources.is_test, checked(languages, READS))
     found = []
     for pair in Proposer(index).propose():
         paths = {pair["a"].get("path"), pair["b"].get("path")}
@@ -269,7 +278,10 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         tree = head_tree(repo, args.head, excluded)
         pairs = name_pair_candidates(
-            tree, changed_paths(repo, args.base, args.head, "AMR"), config
+            tree,
+            changed_paths(repo, args.base, args.head, "AMR"),
+            config,
+            proposed(READS),
         )
     except (DiffError, ValueError) as error:
         return [

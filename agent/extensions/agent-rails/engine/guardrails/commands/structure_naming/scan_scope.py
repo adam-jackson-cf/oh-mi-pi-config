@@ -1,5 +1,5 @@
 """Which repository paths the structure-naming scans read: not vendored ones, and for the
-candidate proposers only source that runs in a language they propose for. Test source is
+candidate proposers only source that runs in a language they are asked for. Test source is
 suite_files.is_test_source's to say."""
 
 from __future__ import annotations
@@ -17,6 +17,15 @@ def is_vendored_path(path: str) -> bool:
     return conventions.ignored_path(path) or any(
         part.startswith(".") for part in PurePosixPath(path).parts[:-1]
     )
+
+
+def checked(languages: Collection[str], reads: Collection[str]) -> tuple[str, ...]:
+    """The languages a proposer is asked for, in order; ValueError when it is asked for
+    one it cannot read (a measurement may ask for any language a proposer reads)."""
+    unread = sorted(set(languages) - set(reads))
+    if unread:
+        raise ValueError(f"this proposer cannot read {', '.join(unread)}")
+    return tuple(languages)
 
 
 def proposed(reads: Collection[str]) -> tuple[str, ...]:
@@ -41,8 +50,3 @@ def runs(path: str, languages: Collection[str]) -> bool:
         and language in languages
         and path.endswith(conventions.runtime_extensions(language))
     )
-
-
-def proposed_source(path: str, reads: Collection[str]) -> bool:
-    """A file that runs in a language the proposers propose for (proposed)."""
-    return runs(path, proposed(reads))

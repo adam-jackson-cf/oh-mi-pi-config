@@ -43,7 +43,11 @@ What the rails do not catch or measure today.
   does not, so such a function is reported unless it is the package's public entry point.
 - The structure-naming candidate proposers (`kind-candidates`, `consumer-candidates`, `name-pairs`)
   propose Python only (`proposers.languages` in structure-languages.json): their judgments were
-  measured on Python cases. `name-pairs` keeps the Python 3-gram reading `same_thing` was measured
+  measured on Python cases. Their TypeScript and Go readings (`proposers.signals`) run only when a
+  measurement asks for them. The TypeScript consumer reading maps a package.json `bin` path to
+  TypeScript source only for the same stem (`bin/x.js` to `bin/x.ts`), not across a build's output
+  folder (`dist/` to `src/`); a Go import names a package, so every file of a package has the
+  package's importers. `name-pairs` keeps the Python 3-gram reading `same_thing` was measured
   on, which drops triple-quoted strings and cuts from a `#` to the line end even inside a string;
   reading comments and docstrings from the tree instead drops labelled pair N17-0083 from the clone
   rule, so the change waits for a new measurement.

@@ -32,6 +32,7 @@ from guardrails.context import changes
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "agent/extensions/agent-rails/engine"
 FIXTURE = json.loads((ROOT / "tests/fixtures/structure/name-pairs.json").read_text())
+PYTHON = ("python",)
 
 
 def proposed(pairs: list[dict[str, Any]]) -> set[tuple[str, frozenset[str]]]:
@@ -53,7 +54,10 @@ class NamePairTests(unittest.TestCase):
         for case in FIXTURE["cases"]:
             with self.subTest(case=case["name"]):
                 pairs = candidates.name_pair_candidates(
-                    FIXTURE["tree"], set(case["changed"]), case.get("config", {})
+                    FIXTURE["tree"],
+                    set(case["changed"]),
+                    case.get("config", {}),
+                    PYTHON,
                 )
                 assert proposed(pairs) == {
                     (rule, frozenset((first, second)))
@@ -72,7 +76,10 @@ class NamePairTests(unittest.TestCase):
             with self.subTest(folder=folder):
                 tree = {folder + path: text for path, text in FIXTURE["tree"].items()}
                 changed = {folder + path for path in case["changed"]}
-                assert candidates.name_pair_candidates(tree, changed, repo_config) == []
+                assert (
+                    candidates.name_pair_candidates(tree, changed, repo_config, PYTHON)
+                    == []
+                )
 
     def test_folders_only_named_like_tests_still_propose_pairs(self) -> None:
         case = next(case for case in FIXTURE["cases"] if case["pairs"])
@@ -80,20 +87,27 @@ class NamePairTests(unittest.TestCase):
             with self.subTest(folder=folder):
                 tree = {folder + path: text for path, text in FIXTURE["tree"].items()}
                 changed = {folder + path for path in case["changed"]}
-                assert candidates.name_pair_candidates(tree, changed, {})
+                assert candidates.name_pair_candidates(tree, changed, {}, PYTHON)
 
-    def test_typescript_and_go_propose_no_pairs_while_the_data_proposes_python(
+    def test_typescript_and_go_pairs_come_only_when_a_measurement_asks(
         self,
     ) -> None:
         tree = {
             "web/store.ts": "export function fetchUser() {}\nexport const getUser = fetchUser;\n",
             "svc/store.go": "package svc\n\nfunc FetchUser() {}\n\nvar GetUser = FetchUser\n",
         }
-        assert candidates.name_pair_candidates(tree, set(tree), {}) == []
+        assert candidates.name_pair_candidates(tree, set(tree), {}, PYTHON) == []
+        asked = candidates.name_pair_candidates(
+            tree, set(tree), {}, ("typescript", "go")
+        )
+        assert [pair["id"] for pair in asked] == [
+            "svc/store.go::GetUser<>svc/store.go::FetchUser",
+            "web/store.ts::getUser<>web/store.ts::fetchUser",
+        ]
 
     def test_each_pair_carries_both_names_evidence_and_its_proposer_score(self) -> None:
         (pair,) = candidates.name_pair_candidates(
-            FIXTURE["tree"], {"src/shop/api.py"}, {}
+            FIXTURE["tree"], {"src/shop/api.py"}, {}, PYTHON
         )
         first, second = pair["state"]["first"], pair["state"]["second"]
         assert (first["kind"], second["kind"]) == ("alias binding", "function")
@@ -116,7 +130,9 @@ class NamePairTests(unittest.TestCase):
         }
         pairs = {
             pair["id"]: pair["state"]["second"]
-            for pair in candidates.name_pair_candidates(tree, {"app/views.py"}, {})
+            for pair in candidates.name_pair_candidates(
+                tree, {"app/views.py"}, {}, PYTHON
+            )
         }
         external = pairs["app/views.py::other<>::thing.value"]
         member = pairs["app/views.py::reader<>app/models.py::Store.missing"]
