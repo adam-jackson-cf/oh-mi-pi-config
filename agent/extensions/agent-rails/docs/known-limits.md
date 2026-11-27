@@ -47,10 +47,8 @@ What the rails do not catch or measure today.
   measurement asks for them. The TypeScript consumer reading maps a package.json `bin` path to
   TypeScript source only for the same stem (`bin/x.js` to `bin/x.ts`), not across a build's output
   folder (`dist/` to `src/`); a Go import names a package, so every file of a package has the
-  package's importers. `name-pairs` keeps the Python 3-gram reading `same_thing` was measured
-  on, which drops triple-quoted strings and cuts from a `#` to the line end even inside a string;
-  reading comments and docstrings from the tree instead drops labelled pair N17-0083 from the clone
-  rule, so the change waits for a new measurement.
+  package's importers. `name-pairs` reads every language's code with comments (and Python docstrings)
+  blanked from the parse tree.
 - `structure-naming/same_thing` judges only the name pairs `name-pairs` proposes (alias, head noun,
   synonym, constant value, clone); two names for one concept that none of those rules links are
   never asked. Its held-out precision is 0.72 (13/18), below the 0.75 floor, by owner acceptance.

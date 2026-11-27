@@ -42,8 +42,6 @@ UPPER = re.compile(r"^_?[A-Z][A-Z0-9_]*$")
 CAPITALISED = re.compile(r"^_?[A-Z][a-z0-9]+[A-Za-z0-9]*$")
 IDENTIFIER = re.compile(r"^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$")
 TOKEN = re.compile(r"[A-Za-z_$][\w$]*|\S")
-PYTHON_TRIPLE_QUOTED = re.compile(r"(?s)(\"\"\"|''').*?\1")
-PYTHON_TO_LINE_END = re.compile(r"#[^\n]*")
 CODE_LINES = 30
 DOC_LINES = 8
 PYTHON_VALUES = frozenset({"identifier", "attribute"})
@@ -86,19 +84,7 @@ def grams(code: str) -> frozenset[Gram]:
     return frozenset(zip(tokens, tokens[1:], tokens[2:], strict=False))
 
 
-def measured_python_code(text: str) -> str:
-    """The Python code whose 3-grams same_thing was measured on (held-out precision
-    0.72): a definition's lines without triple-quoted strings and without # to the line
-    end, a # inside a string included. The tree's comment and docstring spans give
-    other 3-grams, which drop labelled pair N17-0083 from the clone rule, so Python
-    keeps this reading until same_thing is measured again."""
-    text = PYTHON_TRIPLE_QUOTED.sub("", text)
-    return PYTHON_TO_LINE_END.sub("", text)
-
-
 def body_code(place: Place, start: int, end: int) -> str:
-    if place.language == "python":
-        return measured_python_code("\n".join(place.lines[start - 1 : end]))
     return "\n".join(place.code[start - 1 : end])
 
 
@@ -110,7 +96,7 @@ def first_lines(lines: list[str], start: int, end: int) -> str:
 @dataclass(frozen=True)
 class Place:
     """A file being read: its path, language, source lines and the same lines with
-    comments and docstrings blanked (the code TypeScript and Go 3-grams read)."""
+    comments and docstrings blanked (the code every language's 3-grams read)."""
 
     path: str
     language: str
@@ -591,12 +577,8 @@ def extracted(path: str, text: str, roots: set[str]) -> Found:
     language = str(language_of(path))
     try:
         root = parse(path, text)
-        code = (
-            ""
-            if language == "python"
-            else cleaned(text, removed_spans(language, root, text)).decode(
-                errors="replace"
-            )
+        code = cleaned(text, removed_spans(language, root, text)).decode(
+            errors="replace"
         )
         place = Place(path, language, text.split("\n"), code.split("\n"))
         return READERS[language](place, roots, root)

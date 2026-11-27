@@ -10,7 +10,7 @@
     "route": "omp eval judge_batch with modelRoles.judge typesafe/jev-1.14.0 (direct TypeSafe); per-question scoring runs are recorded in each decision's measured block",
     "note": "same_thing scored 2026-11-23 (k3), consumer_placement 2026-11-23 (k3) and 2026-11-24 (k5 full history), technical_kind_grouping 2026-11-23 (k4) and 2026-11-24 (full history)"
   },
-  "scores_sha256": "59fe1d32d02d5a22de9f2530209cbb6ac8e4115da013b7dc3a1a15f9eec6af81",
+  "scores_sha256": "9e3ef5637a73a71dd799e19e4c70e0e3111be1605f0aeaf2a67207c17301166f",
   "rekey": "2026-11-25 (plan step S7a): questions.json lost the unused state.unit_state, which fed every version key. The questions are unchanged, and the registry sends the judge only the questions with states the guardrails proposers build, never the state description, so the judge input is byte-identical: labels.jsonl, scores.csv and the questions/ files moved to the new keys with their labels and scores unchanged, and scores_sha256 pins the rekeyed scores.csv",
   "minimums": {
     "precision": 0.75,
