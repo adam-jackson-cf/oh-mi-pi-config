@@ -14,8 +14,8 @@ The import rules are `dependency-direction`, `tier-readership`, `sibling-isolati
 | Import rules | Dotted modules | Files, `tsconfig` paths | Module packages |
 | Runtime data | Code folders | Exempts imported JSON | Exempts embeds, `testdata/` |
 | Entry points | `__main__.py`, `cli.py` | `bin`, `main` | `package main` in root or `cmd/` |
-| Duplicate code | Cutoff 0.336, measured | Runs once measured | Runs once measured |
-| Prefix folder | Cutoff 0.15, measured | Runs once measured | Does not apply |
+| Duplicate code | Cutoff 0.336, measured | Cutoff 0.476, measured | Runs once measured |
+| Prefix folder | Cutoff 0.15, measured | Cutoff 0.25, measured | Does not apply |
 | Rename residue | Bound names | Declared names | Declared names |
 
 Runtime data is one check in every language. A tooling-pack config file (`pyproject.toml`,

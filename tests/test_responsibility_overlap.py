@@ -133,10 +133,10 @@ class DefinitionTests(unittest.TestCase):
     ) -> None:
         assert overlap.pair_score_cutoffs() == {
             "python": 0.336,
-            "typescript": None,
+            "typescript": 0.476,
             "go": None,
         }
-        assert overlap.measured_cutoffs() == {"python": 0.336}
+        assert overlap.measured_cutoffs() == {"python": 0.336, "typescript": 0.476}
         rule = next(item for item in catalogue_rules() if item["id"] == overlap.RULE)
         evidence = rule["contract"]["evidence"]
         assert (evidence["accepted_by"], evidence["accepted_on"]) == (
@@ -210,7 +210,11 @@ class OverlapCommandTests(unittest.TestCase):
             "src/shipping/summary.go": GO_COPY,
         }
         repo, base, head = self.repository({"head": files})
-        assert overlap.run(repo, {}, ["--base", base, "--head", head]) == []
+        (found,) = overlap.run(repo, {}, ["--base", base, "--head", head])
+        assert ("report.ts" in found.message, "report.go" in found.message) == (
+            True,
+            False,
+        )
         for language, suffix in (("typescript", "ts"), ("go", "go")):
             with self.subTest(language=language):
                 pairs = overlap.overlap_candidates(repo, head, language, {})

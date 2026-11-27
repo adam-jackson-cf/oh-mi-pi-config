@@ -259,7 +259,7 @@
         "definition_similarity": "Jaccard similarity of the two 3-gram sets",
         "pair_score": "the highest definition similarity between two units, over candidates sharing a 3-gram held by at most 40 definitions in the head tree",
         "scope": "units holding a source file added, modified or renamed in base..head, compared with every other unit at head",
-        "pair_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.336 (measured); a language with no measured cutoff does not run",
+        "pair_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.336 and TypeScript 0.476 (measured); a language with no measured cutoff does not run",
         "evidence": {
           "language": "python",
           "accepted_by": "owner",
@@ -299,10 +299,10 @@
           "co_change": "commits touching both divided by commits touching either, over the last 200 first-parent commits up to head (merges diffed against their first parent)",
           "prefix_is_domain_word": "the singular prefix appears as a word in a Python docstring or class name, or a TypeScript comment or class, interface or type alias name, of either member"
         },
-        "weights": "per language in engine/data/structure-languages.json: Python measured (import_edge 0.35, shared_reader 0.25, co_change 0.25, prefix_is_domain_word 0.15)",
+        "weights": "per language in engine/data/structure-languages.json: Python measured (import_edge 0.35, shared_reader 0.25, co_change 0.25, prefix_is_domain_word 0.15); TypeScript uses the Python weights",
         "pair_score": "sum of weight * feature, co_change capped at 1",
         "cluster_score": "the highest pair score among the cluster's members",
-        "cluster_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.15 (measured); TypeScript runs once measured; not applicable to Go, where a folder is a package",
+        "cluster_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.15 and TypeScript 0.25 (measured); not applicable to Go, where a folder is a package",
         "evidence": {
           "language": "python",
           "accepted_by": "owner",

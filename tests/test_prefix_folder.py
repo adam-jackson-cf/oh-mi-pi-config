@@ -176,10 +176,10 @@ class PrefixFolderScoreTests(unittest.TestCase):
         contracts = prefix_folder.contracts()
         assert contracts["python"]["cluster_score_cutoff"] == 0.15
         assert set(contracts["python"]["weights"]) == set(prefix_folder.FEATURES)
-        assert contracts["typescript"]["weights"] is None
-        assert contracts["typescript"]["cluster_score_cutoff"] is None
+        assert contracts["typescript"]["weights"] == contracts["python"]["weights"]
+        assert contracts["typescript"]["cluster_score_cutoff"] == 0.25
         assert "go" not in contracts
-        assert prefix_folder.measured() == ["python"]
+        assert prefix_folder.measured() == ["python", "typescript"]
 
     def test_the_owner_evidence_lives_in_the_catalogue(self) -> None:
         rule = next(
@@ -400,14 +400,18 @@ class PrefixFolderCommandTests(unittest.TestCase):
             "src/shop/grading/coverage_scorer.py"
         }
 
-    def test_script_clusters_do_not_run_but_yield_candidate_features(self) -> None:
+    def test_script_clusters_run_at_their_measured_cutoff(self) -> None:
         head_files = {
             "web/src/records/auditLog.ts": "// audit records\nexport const log = 1;\n",
             "web/src/records/audit-view.ts": "import { log } from './auditLog';\n",
             "web/src/records/other.go": "package audit\n",
         }
         repo, base, head = self.repository({"head": head_files})
-        assert prefix_folder.run(repo, {}, ["--base", base, "--head", head]) == []
+        (found,) = prefix_folder.run(repo, {}, ["--base", base, "--head", head])
+        assert (found.path, "at or above 0.25" in found.message) == (
+            "web/src/records/",
+            True,
+        )
         assert prefix_folder.cluster_candidates(repo, head, "typescript", {}) == [
             {
                 "folder": "web/src/records",
