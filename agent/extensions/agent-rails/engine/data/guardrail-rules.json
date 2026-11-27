@@ -251,7 +251,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "unit": "the source files of one language directly in one folder; units of different languages are never compared below the repository root, except test files (names starting with test or fixture, *_test.py, conftest.py), outside hidden folders, vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), test folders (names starting with test or fixture, __tests__, spec, specs), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
+        "unit": "the source files of one language directly in one folder; units of different languages are never compared; below the repository root, excluding test source (suite_files.is_test_source: the language pack's test_patterns and test_support_files, files in its tests, fixtures and support folders, and the config's test file patterns, test holders and tests data), files under hidden folders or folders the language packs ignore (ignored_folders, and the language's own output_folders, through conventions.ignored_path), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
         "definitions": "per language in engine/data/structure-languages.json, spanning at least 5 lines, with comments (and Python docstrings) removed",
         "tokens": "identifiers and single non-space characters",
         "features": "the set of token 3-grams; definitions with fewer than 15 are dropped",
@@ -291,7 +291,7 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "candidates": "prefix clusters: sibling source files of one language in one folder (Python .py, or TypeScript and JavaScript; not __init__.py, not test files by the config's test file patterns or by name (names starting with test or fixture, *_test.py, conftest.py), not under a test folder (names starting with test or fixture, __tests__, spec, specs); not under hidden or vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and - (TypeScript also at . and lower-to-upper case boundaries), of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
+        "candidates": "prefix clusters: sibling source files of one language in one folder (Python .py, or TypeScript and JavaScript; not __init__.py, not test source (suite_files.is_test_source: the language pack's test_patterns and test_support_files, files in its tests, fixtures and support folders, and the config's test file patterns, test holders and tests data), not under hidden folders or folders the language packs ignore (ignored_folders and the language's output_folders, through conventions.ignored_path), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and - (TypeScript also at . and lower-to-upper case boundaries), of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
         "pair_features": {
           "import_edge": "either member imports the other",
           "shared_reader": "another owned source file of the same language, tests included, imports both",
