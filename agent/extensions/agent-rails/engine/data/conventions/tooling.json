@@ -69,7 +69,16 @@
       ".jscpd.json": "https://github.com/kucherenko/jscpd/tree/master/apps/jscpd#config-file",
       ".dependency-cruiser.*": "https://github.com/sverweij/dependency-cruiser/blob/main/doc/cli.md#--config---validate",
       ".ls-lint.yml": "https://ls-lint.org/2.3/configuration/the-basics.html",
-      ".gitleaks.toml": "https://github.com/gitleaks/gitleaks#configuration"
+      ".gitleaks.toml": "https://github.com/gitleaks/gitleaks#configuration",
+      "knip.json": "https://knip.dev/overview/configuration",
+      "knip.jsonc": "https://knip.dev/overview/configuration",
+      ".knip.json": "https://knip.dev/overview/configuration",
+      ".knip.jsonc": "https://knip.dev/overview/configuration",
+      "knip.config.*": "https://knip.dev/overview/configuration",
+      ".prettierrc": "https://prettier.io/docs/configuration",
+      ".prettierrc.*": "https://prettier.io/docs/configuration",
+      "prettier.config.*": "https://prettier.io/docs/configuration",
+      ".prettierignore": "https://prettier.io/docs/ignore"
     },
     "fixed_folders": {
       ".devcontainer": "https://containers.dev/implementors/spec/#devcontainerjson",
@@ -182,7 +191,16 @@
     ".jscpd.json",
     ".dependency-cruiser.*",
     ".ls-lint.yml",
-    ".gitleaks.toml"
+    ".gitleaks.toml",
+    "knip.json",
+    "knip.jsonc",
+    ".knip.json",
+    ".knip.jsonc",
+    "knip.config.*",
+    ".prettierrc",
+    ".prettierrc.*",
+    "prettier.config.*",
+    ".prettierignore"
   ],
   "fixed_folders": [".devcontainer", ".github", ".git"],
   "ignored_folders": [".git"],
@@ -200,7 +218,9 @@
     "https://docs.astral.sh/uv/concepts/projects/layout/",
     "https://golangci-lint.run/docs/configuration/file/",
     "https://oxc.rs/docs/guide/usage/linter/config.html",
-    "https://eslint.org/docs/latest/use/configure/configuration-files"
+    "https://eslint.org/docs/latest/use/configure/configuration-files",
+    "https://knip.dev/overview/configuration",
+    "https://prettier.io/docs/configuration"
   ],
   "placement": {
     "root": "tests",

@@ -177,6 +177,16 @@ class ScriptRuntimeDataTests(SourceRepoCase):
         })
         assert found == []
 
+    def test_knip_and_prettier_configs_are_not_runtime_data(self) -> None:
+        found = self.script({
+            "tools/lint/index.js": "",
+            "tools/lint/knip.json": "{}",
+            "tools/lint/.prettierrc.json": "{}",
+            "tools/lint/.prettierignore": "",
+            "tools/lint/rules.json": "{}",
+        })
+        assert pairs(found) == {(DATA, "tools/lint/rules.json")}
+
     def test_a_bundle_manifest_ends_the_code_folder_search(self) -> None:
         found = self.script({
             "tools/index.js": "",
