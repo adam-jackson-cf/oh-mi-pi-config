@@ -49,14 +49,18 @@ def is_test_source(path: str, config: dict[str, Any]) -> bool:
     """Test source: a file a test runner reads as support by name (conftest.py), a test
     file by its language pack's runner discovery patterns or the configured test file
     patterns, a file in a folder its pack names as a test holder (tests/, fixtures/,
-    support/), a file under test_holders, or tests_data."""
+    support/) or as test data (golden/, __snapshots__/), a file under test_holders, or
+    tests_data."""
     if conventions.test_support_file(path):
         return True
     patterns = [*conventions.test_patterns(path), *test_patterns(config)]
     if any(name_matches(path, pattern) for pattern in patterns):
         return True
     placement = conventions.placement(path)
-    folders = {placement[key] for key in ("root", "fixtures_dir", "support_dir")}
+    folders = {
+        *(placement[key] for key in ("root", "fixtures_dir", "support_dir")),
+        *placement["test_data_dirs"],
+    }
     return (
         bool(folders.intersection(PurePosixPath(path).parts[:-1]))
         or matches_any(path, test_holders(config))

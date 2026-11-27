@@ -38,6 +38,7 @@
     },
     "STRUCT.runtime-data-placement": {
       "python": {
+        "data_folders": ["data", "data-*", "data_*", "*-data", "*_data"],
         "code_folder": "nearest folder holding .py or .pyi source",
         "bundle_manifests": [
           "SKILL.md",
@@ -45,22 +46,31 @@
           "setup.cfg",
           "setup.py"
         ],
-        "exempt": [],
+        "exempt": [
+          "files below a folder data_folders names, between the file and its code folder: the data already has its own folder",
+          "files under a hidden folder (tool state such as .moon/) or a test data folder (the language pack's placement test_data_dirs)"
+        ],
         "source": "https://packaging.python.org/en/latest/guides/using-manifest-in/"
       },
       "typescript": {
+        "data_folders": ["data", "data-*", "data_*", "*-data", "*_data"],
         "code_folder": "nearest folder holding TypeScript or JavaScript source",
         "bundle_manifests": ["SKILL.md", "package.json"],
         "exempt": [
+          "files below a folder data_folders names, between the file and its code folder: the data already has its own folder",
+          "files under a hidden folder (tool state such as .moon/) or a test data folder (the language pack's placement test_data_dirs)",
           "a data file a source file in the same folder imports by a relative specifier (a JSON module is part of the code)",
           "tooling fixed files (package.json, tsconfig*.json and the other tooling-pack names)"
         ],
         "source": "https://www.typescriptlang.org/tsconfig/#resolveJsonModule"
       },
       "go": {
+        "data_folders": ["data", "data-*", "data_*", "*-data", "*_data"],
         "code_folder": "nearest folder holding .go source",
         "bundle_manifests": ["SKILL.md", "go.mod"],
         "exempt": [
+          "files below a folder data_folders names, between the file and its code folder: the data already has its own folder",
+          "files under a hidden folder (tool state such as .moon/) or a test data folder (the language pack's placement test_data_dirs)",
           "a file a //go:embed pattern in a .go file of the same package matches (embed patterns may not leave the package folder)",
           "files under testdata/, which the go tool ignores"
         ],

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import fnmatch
 from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.structure_naming.scan_scope import is_vendored_path
 from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
@@ -39,6 +41,11 @@ DATA_SUFFIXES = frozenset({
 TOP_TIER_DEPTH = 1
 
 
+def data_folders(language: str) -> tuple[str, ...]:
+    """The folder name patterns that hold data apart from code (structure-languages.json)."""
+    return tuple(rule_definitions(RUNTIME_DATA)[language]["data_folders"])
+
+
 def bundle_manifests(language: str) -> frozenset[str]:
     """The files that make a folder a distribution of a language (structure-languages.json)."""
     manifests = rule_definitions(RUNTIME_DATA)[language]["bundle_manifests"]
@@ -52,11 +59,13 @@ def entry_modules() -> frozenset[str]:
 
 class CodeTree:
     """The folders of one language's source and of its bundle manifests: where runtime
-    data does not belong (inside code) and where it does (a distribution's own folder)."""
+    data does not belong (inside code) and where it does (a distribution's own folder or
+    a data folder)."""
 
     def __init__(self, inventory: Iterable[str], language: str) -> None:
         extensions = languages()[language]
         self.manifests = bundle_manifests(language)
+        self.data_folders = data_folders(language)
         self.code: set[str] = set()
         self.bundles: set[str] = set()
         for path in inventory:
@@ -71,27 +80,32 @@ class CodeTree:
 
     def enclosing(self, path: str) -> str | None:
         """The nearest code folder above a file, unless a bundle folder (a folder with a
-        bundle manifest) comes first: a distribution's own folder holds its manifests and
-        data beside its code."""
+        bundle manifest) or a data folder without code comes first: a distribution's own
+        folder holds its manifests and data beside its code, and a data folder already
+        keeps the data apart from it."""
         for parent in PurePosixPath(path).parents:
             folder = parent.as_posix()
             if folder in self.bundles:
                 return None
             if folder in self.code:
                 return folder
+            if any(
+                fnmatch.fnmatchcase(parent.name, name) for name in self.data_folders
+            ):
+                return None
         return None
 
     def misplaced_data(self, path: str) -> str | None:
         """The code folder a runtime data file sits in, or None when the file is no
         runtime data (not a data suffix, a bundle manifest, a tooling fixed file such as
-        pyproject.toml, ruff.toml or .golangci.yml, or in an ignored folder) or sits
-        outside code."""
+        pyproject.toml, ruff.toml or .golangci.yml, or in a hidden or ignored folder) or
+        sits outside code."""
         pure = PurePosixPath(path)
         if (
             pure.suffix not in DATA_SUFFIXES
             or pure.name in self.manifests
             or conventions.fixed_file(path)
-            or conventions.ignored_path(path)
+            or is_vendored_path(path)
         ):
             return None
         return self.enclosing(path)
@@ -154,7 +168,8 @@ def data_finding(path: str, folder: str) -> Finding:
         RUNTIME_DATA,
         path,
         f"runtime data file inside code folder {folder}/",
-        "move it to a root data folder outside the code and read it from there",
+        "move it to a data folder (a root data folder, or a data/ folder of its own "
+        "that holds no code) and read it from there",
     )
 
 
