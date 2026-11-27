@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import re
 from dataclasses import dataclass
 from fnmatch import fnmatchcase
@@ -8,18 +7,16 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, Any
 
 from guardrails.foundation.source.tree import (
+    Declaration,
     Definition,
     Offsets,
     SourceError,
-    Span,
     definition,
     language_pack,
     languages,
     line,
     named,
     of_kinds,
-    spans,
-    unique_texts,
 )
 
 if TYPE_CHECKING:
@@ -28,10 +25,25 @@ if TYPE_CHECKING:
 TEST_NAME = re.compile(r"^(Test|Fuzz|Example)(?![a-z])\w*$")
 EMBED = re.compile(r"//go:embed\s(.*)")
 BUILD = re.compile(r"//go:build\s(.*)")
-GO_STRING = re.compile(
-    r'"(?:[^"\\\n]|\\(?:[abfnrtv\\"]|[0-7]{3}|x[0-9A-Fa-f]{2}'
-    r'|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}))*"'
+INTERPRETED = re.compile(r'"((?:[^"\\\n]|\\.)*)"', re.DOTALL)
+GO_ESCAPE = re.compile(
+    r"\\(?:([abfnrtv\\\"])|([0-7]{3})|x([0-9A-Fa-f]{2})|u([0-9A-Fa-f]{4})"
+    r"|U([0-9A-Fa-f]{8})|(.))",
+    re.DOTALL,
 )
+SINGLE_ESCAPES = {
+    "a": 0x07,
+    "b": 0x08,
+    "f": 0x0C,
+    "n": 0x0A,
+    "r": 0x0D,
+    "t": 0x09,
+    "v": 0x0B,
+    "\\": 0x5C,
+    '"': 0x22,
+}
+SURROGATES = range(0xD800, 0xE000)
+LAST_CODE_POINT = 0x10FFFF
 EMBED_PATTERN = re.compile(r'"(?:[^"\\]|\\.)*"|`[^`]*`|\S+')
 VERSION_ELEMENT = re.compile(r"^v\d+$")
 HIDDEN_ALIASES = frozenset({".", "_"})
@@ -39,12 +51,7 @@ RECEIVER_WRAPPERS = frozenset({"pointer_type", "generic_type", "parenthesized_ty
 STRING_KINDS = frozenset({"interpreted_string_literal", "raw_string_literal"})
 QUALIFIED_KINDS = frozenset({"selector_expression", "qualified_type"})
 LOCAL_NAMES = frozenset({"identifier", "type_identifier"})
-IDENTIFIERS = frozenset({
-    "identifier",
-    "field_identifier",
-    "type_identifier",
-    "package_identifier",
-})
+VALUE_DECLARATIONS = {"const_declaration": "constant", "var_declaration": "variable"}
 
 
 @dataclass(frozen=True)
@@ -63,12 +70,63 @@ class GoReference:
     at: int
 
 
-def imports(root: SgNode) -> list[GoImport]:
+def literal(text: str) -> str | None:
+    """The value of a Go string literal's source text, as the compiler reads it: a raw
+    string verbatim without carriage returns, an interpreted string with its escapes
+    decoded; None when it is no valid string literal."""
+    if len(text) >= 2 and text[0] == text[-1] == "`":
+        return text[1:-1].replace("\r", "")
+    match = INTERPRETED.fullmatch(text)
+    if match is None:
+        return None
+    data = bytearray()
+    at = 0
+    body = match.group(1)
+    for escape in GO_ESCAPE.finditer(body):
+        data += body[at : escape.start()].encode()
+        value = escaped(escape)
+        if value is None:
+            return None
+        data += value
+        at = escape.end()
+    data += body[at:].encode()
+    return data.decode("utf-8", "replace")
+
+
+def escaped(escape: re.Match[str]) -> bytes | None:
+    single, octal, byte, short, long, other = escape.groups()
+    if single is not None:
+        return bytes([SINGLE_ESCAPES[single]])
+    if octal is not None:
+        value = int(octal, 8)
+        return bytes([value]) if value <= 0xFF else None
+    if byte is not None:
+        return bytes([int(byte, 16)])
+    if other is not None:
+        return None
+    point = int(short or long, 16)
+    if point in SURROGATES or point > LAST_CODE_POINT:
+        return None
+    return chr(point).encode()
+
+
+def string_value(node: SgNode | None) -> str | None:
+    """The value of a string literal node, or None for any other node."""
+    if node is None or node.kind() not in STRING_KINDS:
+        return None
+    return literal(node.text())
+
+
+def import_paths(root: SgNode) -> list[tuple[SgNode, str]]:
     return [
-        GoImport(path.text()[1:-1], line(node))
+        (node, value)
         for node in root.find_all(kind="import_spec")
-        if (path := node.field("path")) is not None and path.kind() in STRING_KINDS
+        if (value := string_value(node.field("path"))) is not None
     ]
+
+
+def imports(root: SgNode) -> list[GoImport]:
+    return [GoImport(value, line(node)) for node, value in import_paths(root)]
 
 
 def default_alias(path: str) -> str:
@@ -86,14 +144,11 @@ def import_aliases(root: SgNode) -> dict[str, str]:
     """Each package name a file's imports bind, with the import path it names; dot and
     blank imports bind no name."""
     found: dict[str, str] = {}
-    for node in root.find_all(kind="import_spec"):
-        path = node.field("path")
-        if path is None or path.kind() not in STRING_KINDS:
-            continue
+    for node, value in import_paths(root):
         name = node.field("name")
-        alias = name.text() if name is not None else default_alias(path.text()[1:-1])
+        alias = name.text() if name is not None else default_alias(value)
         if alias not in HIDDEN_ALIASES:
-            found[alias] = path.text()[1:-1]
+            found[alias] = value
     return found
 
 
@@ -174,22 +229,86 @@ def references(root: SgNode) -> list[GoReference]:
     return found
 
 
-def comment_spans(root: SgNode, source: str) -> list[Span]:
-    return spans(source, root.find_all(kind="comment"))
+def type_members(spec: SgNode) -> list[tuple[str, str, SgNode]]:
+    """The fields of a struct type and the methods of an interface type a type spec
+    declares, each with its kind."""
+    body = spec.field("type")
+    kind = body.kind() if body is not None else ""
+    if body is None or kind not in {"struct_type", "interface_type"}:
+        return []
+    if kind == "interface_type":
+        return [
+            (name.text(), "method", item)
+            for item in named(body)
+            if item.kind() == "method_elem" and (name := item.field("name")) is not None
+        ]
+    return [
+        (name.text(), "field", field)
+        for fields in named(body)
+        for field in named(fields)
+        if field.kind() == "field_declaration"
+        for name in field.field_children("name")
+    ]
 
 
-def identifiers(root: SgNode) -> list[str]:
-    return unique_texts(root, IDENTIFIERS)
+def type_declarations(node: SgNode) -> list[Declaration]:
+    found: list[Declaration] = []
+    for spec in named(node):
+        name = spec.field("name")
+        if name is None:
+            continue
+        kind = "type_alias" if spec.kind() == "type_alias" else "type"
+        found.append(Declaration(name.text(), kind, spec))
+        found.extend(
+            Declaration(member, member_kind, item, name.text())
+            for member, member_kind, item in type_members(spec)
+        )
+    return found
+
+
+def value_specs(node: SgNode) -> list[SgNode]:
+    """The const or var specs of a declaration, grouped in parentheses or not."""
+    specs = named(node)
+    if len(specs) == 1 and specs[0].kind() == "var_spec_list":
+        specs = named(specs[0])
+    return [spec for spec in specs if spec.kind() in {"const_spec", "var_spec"}]
+
+
+def declarations(root: SgNode) -> list[Declaration]:
+    """The package name and every package-level declaration: functions, methods (owned
+    by their receiver type), types with their struct fields and interface methods,
+    constants and variables; the blank name declares nothing."""
+    found = [Declaration(package_name(root), "package", package_clause(root))]
+    for node in named(root):
+        kind = node.kind()
+        name = node.field("name")
+        if kind == "function_declaration" and name is not None:
+            found.append(Declaration(name.text(), "function", node))
+        elif kind == "method_declaration" and name is not None:
+            found.append(Declaration(name.text(), "method", node, receiver_type(node)))
+        elif kind == "type_declaration":
+            found.extend(type_declarations(node))
+        elif kind in VALUE_DECLARATIONS:
+            found.extend(
+                Declaration(item.text(), VALUE_DECLARATIONS[kind], spec)
+                for spec in value_specs(node)
+                for item in spec.field_children("name")
+                if item.text() != "_"
+            )
+    return found
+
+
+def bound_names(root: SgNode) -> list[str]:
+    return list(dict.fromkeys(item.name for item in declarations(root)))
 
 
 def embed_value(token: str) -> str:
-    if token.startswith("`"):
-        return token[1:-1]
-    if token.startswith('"'):
-        if GO_STRING.fullmatch(token) is None:
-            raise SourceError(f"invalid //go:embed pattern {token}")
-        return str(ast.literal_eval(token))
-    return token
+    if not token.startswith(('"', "`")):
+        return token
+    value = literal(token)
+    if value is None:
+        raise SourceError(f"invalid //go:embed pattern {token}")
+    return value
 
 
 def class_pattern(pattern: str, start: int) -> tuple[str, int]:

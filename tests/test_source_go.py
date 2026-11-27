@@ -12,7 +12,7 @@ import pytest
 
 from guardrails.foundation.source import go
 from guardrails.foundation.source.go import GoImport
-from guardrails.foundation.source.tree import SourceError, parse
+from guardrails.foundation.source.tree import SourceError, comment_spans, parse
 
 pytestmark = pytest.mark.fast
 
@@ -77,9 +77,9 @@ class DefinitionTests(unittest.TestCase):
         assert texts(SOURCE, [found[3].span]) == ["func Top() { /* inner é */ }"]
 
 
-class CommentAndIdentifierTests(unittest.TestCase):
+class CommentAndDeclarationTests(unittest.TestCase):
     def test_comment_spans(self) -> None:
-        spans = go.comment_spans(parse("server.go", SOURCE), SOURCE)
+        spans = comment_spans(parse("server.go", SOURCE), SOURCE)
         assert texts(SOURCE, spans) == [
             "//go:build ignore",
             "// Package server runs things.",
@@ -88,18 +88,87 @@ class CommentAndIdentifierTests(unittest.TestCase):
             "/* inner é */",
         ]
 
-    def test_identifier_kinds(self) -> None:
-        source = 'package a\n\nimport f "fmt"\n\ntype T struct{ size int }\n\nfunc (t T) Show() { f.Println(t.size) }\n'
-        assert go.identifiers(parse("a.go", source)) == [
+    def test_bound_names_are_package_level_declarations_not_imports_or_reads(
+        self,
+    ) -> None:
+        source = (
+            'package a\n\nimport f "fmt"\n\n'
+            "type T struct{ size, depth int }\n"
+            "type Shape interface{ Area() float64 }\n"
+            "type Alias = *T\n"
+            "const (\n\tFirst = iota\n\tSecond\n)\n"
+            "var left, right = 1, 2\n"
+            "var _ = f.Sprint\n"
+            "func (t T) Show() { local := t.size; f.Println(local) }\n"
+            "func Make() T { return T{} }\n"
+        )
+        assert go.bound_names(parse("a.go", source)) == [
             "a",
-            "f",
             "T",
             "size",
-            "int",
-            "t",
+            "depth",
+            "Shape",
+            "Area",
+            "Alias",
+            "First",
+            "Second",
+            "left",
+            "right",
             "Show",
-            "Println",
+            "Make",
         ]
+        methods = [
+            (item.name, item.owner)
+            for item in go.declarations(parse("a.go", source))
+            if item.kind == "method"
+        ]
+        assert methods == [("Area", "Shape"), ("Show", "T")]
+
+
+class LiteralTests(unittest.TestCase):
+    def test_interpreted_strings_decode_go_escapes(self) -> None:
+        cases = {
+            '"plain"': "plain",
+            r'"tab\tquote\"slash\\"': 'tab\tquote"slash\\',
+            r'"\a\b\f\n\r\v"': "\a\b\f\n\r\v",
+            r'"\x41\101"': "AA",
+            r'"\xc3\xa9"': "\N{LATIN SMALL LETTER E WITH ACUTE}",
+            '"\\'
+            + "u00e9\\"
+            + 'U0001F600"': "\N{LATIN SMALL LETTER E WITH ACUTE}\N{GRINNING FACE}",
+        }
+        for text, value in cases.items():
+            with self.subTest(text=text):
+                assert go.literal(text) == value
+
+    def test_raw_strings_are_verbatim_without_carriage_returns(self) -> None:
+        assert go.literal("`C:\\dir\\n\r\nnext`") == "C:\\dir\\n\nnext"
+
+    def test_escapes_the_compiler_rejects_give_no_value(self) -> None:
+        rejected = (
+            r'"\q"',
+            r'"\400"',
+            '"\\' + 'uD800"',
+            '"\\' + 'U00110000"',
+            r'"\'"',
+            "x",
+        )
+        for text in rejected:
+            with self.subTest(text=text):
+                assert go.literal(text) is None
+
+    def test_import_paths_and_string_values_are_decoded(self) -> None:
+        source = (
+            'package a\n\nimport (\n\tq "a\\x2fb"\n\t`raw/path`\n)\n\nvar s = "x\\ty"\n'
+        )
+        root = parse("a.go", source)
+        assert go.imports(root) == [GoImport("a/b", 4), GoImport("raw/path", 5)]
+        assert go.import_aliases(root) == {"q": "a/b", "path": "raw/path"}
+        values = [
+            go.string_value(node)
+            for node in root.find_all(kind="interpreted_string_literal")
+        ]
+        assert values == ["a/b", "x\ty"]
 
 
 class DirectiveTests(unittest.TestCase):

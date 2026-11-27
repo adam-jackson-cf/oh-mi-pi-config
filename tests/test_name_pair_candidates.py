@@ -82,6 +82,15 @@ class NamePairTests(unittest.TestCase):
                 changed = {folder + path for path in case["changed"]}
                 assert candidates.name_pair_candidates(tree, changed, {})
 
+    def test_typescript_and_go_propose_no_pairs_while_the_data_proposes_python(
+        self,
+    ) -> None:
+        tree = {
+            "web/store.ts": "export function fetchUser() {}\nexport const getUser = fetchUser;\n",
+            "svc/store.go": "package svc\n\nfunc FetchUser() {}\n\nvar GetUser = FetchUser\n",
+        }
+        assert candidates.name_pair_candidates(tree, set(tree), {}) == []
+
     def test_each_pair_carries_both_names_evidence_and_its_proposer_score(self) -> None:
         (pair,) = candidates.name_pair_candidates(
             FIXTURE["tree"], {"src/shop/api.py"}, {}
@@ -168,7 +177,6 @@ class NamePairsCommandTests(unittest.TestCase):
             [
                 sys.executable,
                 "-I",
-                "-S",
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                 "from guardrails.commands.cli import main; raise SystemExit(main())",

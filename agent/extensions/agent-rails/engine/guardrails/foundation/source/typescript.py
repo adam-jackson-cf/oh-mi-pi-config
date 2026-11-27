@@ -8,15 +8,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from guardrails.foundation.source.tree import (
+    Declaration,
     Definition,
     Offsets,
-    Span,
     definition,
     line,
     named,
     of_kinds,
-    spans,
-    unique_texts,
 )
 
 if TYPE_CHECKING:
@@ -55,15 +53,29 @@ FUNCTION_VALUES = frozenset({
     "function_expression",
     "generator_function",
 })
-TYPE_IDENTIFIERS = frozenset({"type_identifier"})
-IDENTIFIERS = frozenset({
-    "identifier",
-    "property_identifier",
-    "private_property_identifier",
-    "type_identifier",
-    "shorthand_property_identifier",
-    "shorthand_property_identifier_pattern",
+SIGNATURE_KINDS = frozenset({"function_signature"})
+TYPE_KINDS = CLASS_KINDS | {
+    "interface_declaration",
+    "enum_declaration",
+    "type_alias_declaration",
+}
+NAMESPACE_KINDS = frozenset({"internal_module", "module"})
+DECLARATION_WRAPPERS = frozenset({
+    "export_statement",
+    "ambient_declaration",
+    "expression_statement",
 })
+DESTRUCTURING = frozenset({"object_pattern", "array_pattern", "rest_pattern"})
+MEMBER_KINDS = {
+    "method_definition": "method",
+    "method_signature": "method",
+    "abstract_method_signature": "method",
+    "public_field_definition": "field",
+    "field_definition": "field",
+    "property_signature": "field",
+    "property_identifier": "field",
+    "enum_assignment": "field",
+}
 
 
 @dataclass(frozen=True)
@@ -377,10 +389,98 @@ def definitions(root: SgNode, source: str) -> list[Definition]:
     return found
 
 
-def comment_spans(root: SgNode, source: str) -> list[Span]:
-    return spans(source, root.find_all(kind="comment"))
+def pattern_names(pattern: SgNode) -> list[SgNode]:
+    """The identifiers a destructuring pattern binds (not its property keys or defaults)."""
+    kind = pattern.kind()
+    if kind in {"identifier", "shorthand_property_identifier_pattern"}:
+        return [pattern]
+    if kind == "pair_pattern":
+        value = pattern.field("value")
+        return [] if value is None else pattern_names(value)
+    if kind in {"assignment_pattern", "object_assignment_pattern"}:
+        left = pattern.field("left")
+        return [] if left is None else pattern_names(left)
+    if kind in DESTRUCTURING:
+        return [name for item in named(pattern) for name in pattern_names(item)]
+    return []
 
 
-def identifiers(root: SgNode, grammar: str) -> list[str]:
-    kinds = IDENTIFIERS - TYPE_IDENTIFIERS if grammar == "javascript" else IDENTIFIERS
-    return unique_texts(root, kinds)
+def variable_declarations(node: SgNode) -> list[Declaration]:
+    return [
+        Declaration(name.text(), "variable", declarator)
+        for declarator in named(node)
+        if declarator.kind() == "variable_declarator"
+        and (target := declarator.field("name")) is not None
+        for name in pattern_names(target)
+    ]
+
+
+def member_name(member: SgNode) -> SgNode | None:
+    if member.kind() in {"property_identifier", "private_property_identifier"}:
+        return member
+    return member.field("name") or member.field("property")
+
+
+def members(owner: str, body: SgNode | None) -> list[Declaration]:
+    """The methods, fields, signatures and enum members a type body declares."""
+    found = []
+    for member in [] if body is None else named(body):
+        kind = MEMBER_KINDS.get(member.kind())
+        name = member_name(member) if kind is not None else None
+        if kind is not None and name is not None:
+            found.append(Declaration(name.text(), kind, member, owner))
+    return found
+
+
+def type_declarations(node: SgNode, name: str) -> list[Declaration]:
+    kind = node.kind()
+    if kind in CLASS_KINDS:
+        return [Declaration(name, "class", node), *members(name, node.field("body"))]
+    if kind == "type_alias_declaration":
+        value = node.field("value")
+        body = value if value is not None and value.kind() == "object_type" else None
+        return [Declaration(name, "type_alias", node), *members(name, body)]
+    return [Declaration(name, "type", node), *members(name, node.field("body"))]
+
+
+def declaration(node: SgNode) -> SgNode | None:
+    """The declaration a top-level statement holds: through export, declare and the
+    expression statement a namespace sits in."""
+    while node.kind() in DECLARATION_WRAPPERS:
+        inner = (
+            node.field("declaration")
+            if node.kind() == "export_statement"
+            else next(iter(named(node)), None)
+        )
+        if inner is None:
+            return None
+        node = inner
+    return node
+
+
+def declarations(root: SgNode) -> list[Declaration]:
+    """Every top-level declaration, exported or not: functions, classes, interfaces,
+    enums and type aliases with the members their bodies declare, namespaces, and the
+    names variable declarations bind; imports declare nothing here."""
+    found: list[Declaration] = []
+    for statement in named(root):
+        node = declaration(statement)
+        if node is None:
+            continue
+        kind = node.kind()
+        name = node.field("name")
+        if kind in {"lexical_declaration", "variable_declaration"}:
+            found.extend(variable_declarations(node))
+        elif name is None:
+            continue
+        elif kind in FUNCTION_KINDS | SIGNATURE_KINDS:
+            found.append(Declaration(name.text(), "function", node))
+        elif kind in TYPE_KINDS:
+            found.extend(type_declarations(node, name.text()))
+        elif kind in NAMESPACE_KINDS:
+            found.append(Declaration(name.text(), "namespace", node))
+    return found
+
+
+def bound_names(root: SgNode) -> list[str]:
+    return list(dict.fromkeys(item.name for item in declarations(root)))

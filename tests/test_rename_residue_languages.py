@@ -12,6 +12,7 @@ sys.path.insert(
 import pytest
 
 from guardrails.commands.structure_naming import rename_residue as residue
+from guardrails.foundation.source import python
 from guardrails.foundation.source.tree import parse
 
 pytestmark = pytest.mark.fast
@@ -37,6 +38,8 @@ import oracle "example.com/oracle"
 const wire = "oracle"
 
 type OracleClient struct{ oracleField int }
+
+func (c OracleClient) runOracle() { oracle.NewOracle() }
 
 func RunOracle() { oracle.Call() }
 """
@@ -155,9 +158,8 @@ def leftovers(path: str, source: bytes) -> set[str]:
 
 
 class ScriptResidueTests(unittest.TestCase):
-    def test_typescript_identifiers_include_imports_properties_and_types(self) -> None:
+    def test_typescript_declared_names_include_members_but_not_imports(self) -> None:
         assert leftovers("verifier/api.ts", TYPESCRIPT) == {
-            "oracleClient",
             "runOracle",
             "OraclePlugin",
             "oracleState",
@@ -183,13 +185,19 @@ class ScriptResidueTests(unittest.TestCase):
 
 
 class GoResidueTests(unittest.TestCase):
-    def test_go_identifiers_include_package_field_and_type_names(self) -> None:
+    def test_go_declared_names_include_fields_and_methods_but_not_imports_or_calls(
+        self,
+    ) -> None:
         assert leftovers("verifier/api.go", GO) == {
-            "oracle",
             "OracleClient",
             "oracleField",
+            "runOracle",
             "RunOracle",
         }
+
+    def test_a_go_package_clause_keeping_the_old_name_is_residue(self) -> None:
+        source = b"package oracle\n\nfunc Run() {}\n"
+        assert leftovers("verifier/api.go", source) == {"oracle"}
 
     def test_invalid_go_fails_closed(self) -> None:
         findings = residue.residue_findings(
@@ -210,7 +218,7 @@ class GoResidueTests(unittest.TestCase):
 
 class PythonEquivalenceTests(unittest.TestCase):
     def test_every_binding_shape_matches_the_ast_reader(self) -> None:
-        names = residue.python_names(parse("m.py", SHAPES))
+        names = python.bound_names(parse("m.py", SHAPES))
         assert names == ast_names(SHAPES)
         assert "oracle_ab" in names
         assert "oracle_aj" in names
@@ -223,7 +231,7 @@ class PythonEquivalenceTests(unittest.TestCase):
         for path in paths:
             source = path.read_text(encoding="utf-8")
             with self.subTest(path=path.relative_to(ENGINE).as_posix()):
-                assert residue.python_names(parse("m.py", source)) == ast_names(source)
+                assert python.bound_names(parse("m.py", source)) == ast_names(source)
 
     def test_stub_files_are_read_as_python(self) -> None:
         assert leftovers("verifier/api.pyi", b"def run_oracle() -> None: ...\n") == {

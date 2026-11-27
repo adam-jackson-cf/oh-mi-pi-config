@@ -126,15 +126,15 @@
     },
     "RENAME.residue": {
       "python": {
-        "identifiers": "defined names: functions, classes and assignment, for, with, walrus, type-alias and except-handler targets at module and class level; imports and comprehensions excluded"
+        "identifiers": "bound names at module and class level: functions, classes and assignment, for, with, walrus, type-alias, except-handler and match-as targets; imports and the names functions, lambdas and comprehensions bind excluded"
       },
       "typescript": {
-        "identifiers": "identifier, property, type and shorthand-property identifier nodes"
+        "identifiers": "declared names at top level: functions, classes with their methods and fields, interfaces with their members, enums with their members, type aliases with the members of an object type, namespaces, and every name a variable declaration binds (destructuring included); imports excluded"
       },
       "go": {
-        "identifiers": "identifier, field, type and package identifier nodes"
+        "identifiers": "declared names at package level: the package clause, functions, methods, types with their struct fields and interface methods, constants and variables; imports excluded"
       },
-      "source": "a rename retires the old name in every language file; no cutoff"
+      "source": "a rename retires the old name in every language file; a name's words split at underscores, case changes and digit runs (guardrails/foundation/source/names.py); no cutoff"
     }
   },
   "not_applicable": {
@@ -151,7 +151,14 @@
       }
     }
   },
-  "later": {
-    "candidate proposers (kind-candidates, consumer-candidates, name-pairs)": "Extraction exists for all three languages, but they propose Python only: the judgments they feed were measured on Python cases, so TypeScript and Go proposals wait for labelled TypeScript and Go cases."
+  "proposers": {
+    "rules": [
+      "STRUCT.kind-candidates",
+      "STRUCT.consumer-candidates",
+      "STRUCT.name-pairs"
+    ],
+    "languages": ["python"],
+    "reason": "The candidate proposers (kind-candidates, consumer-candidates, name-pairs) propose only for these languages: the judgments they feed (technical_kind_grouping, consumer_placement, same_thing) were measured on Python cases, so TypeScript and Go proposals wait for labelled TypeScript and Go cases. name-pairs reads TypeScript and Go definitions through the shared readers; kind-candidates and consumer-candidates read Python only.",
+    "source": "agent/extensions/agent-rails/judgments/structure-naming/thresholds.json"
   }
 }

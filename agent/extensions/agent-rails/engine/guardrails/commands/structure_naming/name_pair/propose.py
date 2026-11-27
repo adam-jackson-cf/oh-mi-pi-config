@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from functools import cache
 from pathlib import PurePosixPath
 from typing import Any
 
 from guardrails.commands.structure_naming.name_pair.extract import (
-    SOURCE_SUFFIXES,
     Found,
     Gram,
     extract_tree,
@@ -18,6 +17,7 @@ from guardrails.commands.structure_naming.name_pair.extract import (
     words,
 )
 from guardrails.foundation import conventions
+from guardrails.foundation.source.tree import language_of
 
 TRIVIAL = re.compile(
     r"^(utf-?8|utf-?16|ascii|latin-?1|true|false|none|null|yes|no|on|off|json|yaml|text"
@@ -105,10 +105,6 @@ def name_similarity(first: str, second: str) -> float:
     )
 
 
-def suffix(path: str | None) -> str:
-    return PurePosixPath(path or "").suffix[:3]
-
-
 def definition_entry(item: dict[str, Any]) -> Pair:
     return {
         "name": item["name"],
@@ -120,14 +116,22 @@ def definition_entry(item: dict[str, Any]) -> Pair:
 
 
 class NameIndex:
-    def __init__(self, tree: dict[str, str], is_test: Callable[[str], bool]) -> None:
-        found: Found = extract_tree(tree, is_test)
+    """The definitions and aliases of a tree's source in the proposed languages, and
+    how often each word occurs in all its source."""
+
+    def __init__(
+        self,
+        tree: dict[str, str],
+        is_test: Callable[[str], bool],
+        languages: Collection[str],
+    ) -> None:
+        found: Found = extract_tree(tree, is_test, languages)
         self.tree = tree
         self.definitions = found.definitions
         self.aliases = found.aliases
         self.words: Counter[str] = Counter()
         for path, text in tree.items():
-            if path.endswith(SOURCE_SUFFIXES):
+            if language_of(path) is not None:
                 self.words.update(re.findall(r"[A-Za-z_$][\w$]*", text))
         self.by_base: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for item in self.definitions:
@@ -152,7 +156,7 @@ class NameIndex:
                 and PurePosixPath(item["path"]).parent == PurePosixPath(near).parent
             ):
                 score -= 1
-            if near and suffix(item["path"]) != suffix(near):
+            if near and item["lang"] != language_of(near):
                 score += 5
             return score, item["path"], item["line"]
 
@@ -166,12 +170,10 @@ class NameIndex:
             return self.resolve(
                 binding["target"], binding["path"], binding.get("module")
             ), None
-        language = suffix(binding["path"])
+        language = language_of(binding["path"])
         wanted = ".".join(parts[-2:])
         exact = [
-            d
-            for d in self.definitions
-            if d["name"] == wanted and suffix(d["path"]) == language
+            d for d in self.definitions if d["name"] == wanted and d["lang"] == language
         ]
         if exact:
             return exact[0], None
@@ -181,14 +183,14 @@ class NameIndex:
                 for d in self.by_base.get(root, [])
                 if d["top"]
                 and d["kind"] in {"class", "type", "constant"}
-                and suffix(d["path"]) == language
+                and d["lang"] == language
             ]
             if owners:
                 return None, owners[0]
         tops = [
             d
             for d in self.by_base.get(parts[-1], [])
-            if d["top"] and d["kind"] != "module" and suffix(d["path"]) == language
+            if d["top"] and d["kind"] != "module" and d["lang"] == language
         ]
         if not tops:
             return None, None

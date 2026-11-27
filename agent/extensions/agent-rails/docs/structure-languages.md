@@ -16,7 +16,7 @@ The import rules are `dependency-direction`, `tier-readership`, `sibling-isolati
 | Entry points | `__main__.py`, `cli.py` | `bin`, `main` | `package main` in root or `cmd/` |
 | Duplicate code | Cutoff 0.336, measured | Runs once measured | Runs once measured |
 | Prefix folder | Cutoff 0.15, measured | Runs once measured | Does not apply |
-| Rename residue | Defined names | Identifiers | Identifiers |
+| Rename residue | Bound names | Declared names | Declared names |
 
 Runtime data is one check in every language. A tooling-pack config file (`pyproject.toml`,
 `setup.cfg`, `ruff.toml`, `mypy.ini`, `.golangci.yml`, `biome.json`) and the language's bundle
@@ -25,11 +25,17 @@ root: its own data sits beside its code there. Folders no scan reads (installed,
 tool-state trees such as `node_modules/`, `.venv/`, Python's `build/`, Go's `testdata/`) are
 skipped.
 
+Rename residue reads the names a file declares: module- and class-level bindings in Python, and
+top-level declarations with their members in TypeScript and Go (a Go file's package clause too). It
+never reads imports or calls, and it splits a name into words at underscores, case changes and digit
+runs, so `oracle2_client` still holds `oracle`.
+
 Duplicate code is `STRUCT.overlapping-responsibilities`; prefix folder is `STRUCT.prefix-folder`,
 which does not apply to Go because a Go folder is a package. A scored rule runs for a language only
 with a measured cutoff. Shell has no packages, imports or definitions, so no structure rule reads
 it. The candidate proposers behind the structure-naming judgments still propose Python only: those
-judgments were measured on Python cases. They and every other structure scan leave test source
+judgments were measured on Python cases, and `proposers.languages` in structure-languages.json is the
+one switch all three proposers read. They and every other structure scan leave test source
 out: a pack's test runner patterns (`test_*.py`, `*_test.go`, `*.test.ts`), `conftest.py`, the
 configured test file patterns, the `tests/`, `fixtures/` and `support/` folders, and the data
 (not source) under a tier location. A name that only starts like a test (`testimonials/`,

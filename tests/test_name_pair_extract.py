@@ -1,4 +1,5 @@
-"""Definitions and alias bindings the structure-naming name extractor reads from each language."""
+"""Definitions and alias bindings the structure-naming name extractor reads from each
+language through the shared source readers."""
 
 from __future__ import annotations
 
@@ -55,42 +56,6 @@ const (
 var (
 \tCached = "x"
 )
-"""
-
-RUST = """//! crate root
-use crate::store::Store as Repo;
-use self::inner::Thing as Thing;
-use crate::other::Item as _;
-use std::fmt as f;
-
-/// A user store.
-#[derive(Debug)]
-pub struct Users {
-    items: Vec<String>,
-}
-
-pub(crate) enum Mode { A, B }
-
-pub type Alias = crate::store::Store;
-type Strange<T> = Vec<T>;
-
-pub const NAME: &str = "users";
-static COUNT: usize = 3;
-
-impl Users {
-    /// Make one.
-    pub fn new() -> Self {
-        Users { items: vec![] }
-    }
-        fn deep() {}
-}
-
-impl<T> Display for Mode {
-    fn fmt(&self) {}
-}
-
-pub async fn load() {}
-fn helper() {}
 """
 
 SCRIPT = """/**
@@ -182,9 +147,9 @@ lower = 3
 
 
 def extracted(
-    tree: dict[str, str],
+    tree: dict[str, str], language: str
 ) -> tuple[set[tuple[Any, ...]], set[tuple[Any, ...]]]:
-    found = extract.extract_tree(tree, in_test_source)
+    found = extract.extract_tree(tree, in_test_source, (language,))
     definitions = {
         (item["path"], item["name"], item["kind"], item["line"], item["end"])
         for item in found.definitions
@@ -223,19 +188,12 @@ class WordTests(unittest.TestCase):
             "lib/x.py",
             "web/a.ts",
         ]) == {"a", "src", "pkg", "lib", "x"}
-        assert (
-            extract.language_of("a.go"),
-            extract.language_of("a.mjs"),
-        ) == (
-            "go",
-            "ts",
-        )
 
 
 @pytest.mark.fast
 class GoExtractionTests(unittest.TestCase):
     def test_functions_methods_types_values_and_aliases(self) -> None:
-        definitions, aliases = extracted({"svc/store.go": GO})
+        definitions, aliases = extracted({"svc/store.go": GO}, "go")
         assert {item[1:4] for item in definitions} == {
             ("store", "module", 1),
             ("Store", "class", 7),
@@ -256,8 +214,11 @@ class GoExtractionTests(unittest.TestCase):
         }
 
     def test_a_definition_carries_its_comment_value_and_block_end(self) -> None:
-        found = extract.extract_tree({"svc/store.go": GO}, in_test_source).definitions
+        found = extract.extract_tree(
+            {"svc/store.go": GO}, in_test_source, ("go",)
+        ).definitions
         by_name = {item["name"]: item for item in found}
+        assert by_name["store"]["doc"] == "Package store keeps users."
         assert (by_name["Store"]["doc"], by_name["Store"]["end"]) == (
             "Store holds users.",
             9,
@@ -267,32 +228,18 @@ class GoExtractionTests(unittest.TestCase):
         assert by_name["Label"]["value"] == "users"
         assert by_name["Store.Get"]["end"] == 18
 
+    def test_a_method_on_an_unnamed_receiver_is_its_receiver_types(self) -> None:
+        source = "package store\n\nfunc (Repo) Get() {}\nfunc (*Repo) Put() {}\n"
+        definitions, _ = extracted({"svc/repo.go": source}, "go")
+        assert {item[1] for item in definitions} == {"repo", "Repo.Get", "Repo.Put"}
 
-@pytest.mark.fast
-class RustExtractionTests(unittest.TestCase):
-    def test_items_impl_methods_constants_and_internal_use_aliases(self) -> None:
-        definitions, aliases = extracted({"svc/lib.rs": RUST})
-        assert {item[1:4] for item in definitions} == {
-            ("Users", "class", 9),
-            ("Mode", "class", 13),
-            ("NAME", "constant", 18),
-            ("COUNT", "constant", 19),
-            ("Users.new", "method", 23),
-            ("Mode.fmt", "method", 30),
-            ("load", "function", 33),
-            ("helper", "function", 34),
-        }
-        assert {item[1:] for item in aliases} == {
-            ("Repo", "Store", "use_as", True),
-            ("Alias", "Store", "type_alias", None),
-        }
-
-    def test_doc_comments_skip_attributes(self) -> None:
-        found = extract.extract_tree({"svc/lib.rs": RUST}, in_test_source).definitions
-        by_name = {item["name"]: item for item in found}
-        assert by_name["Users"]["doc"] == "A user store."
-        assert by_name["Users.new"]["doc"] == "Make one."
-        assert by_name["NAME"]["value"] == "users"
+    def test_string_constants_hold_their_go_value(self) -> None:
+        source = 'package store\n\nconst Path = "a\\tb"\nconst Raw = `a\\tb`\n'
+        found = extract.extract_tree(
+            {"svc/paths.go": source}, in_test_source, ("go",)
+        ).definitions
+        values = {item["name"]: item["value"] for item in found}
+        assert (values["Path"], values["Raw"]) == ("a\tb", "a\\tb")
 
 
 @pytest.mark.fast
@@ -303,7 +250,7 @@ class ScriptExtractionTests(unittest.TestCase):
             "web/index.ts": "export const x = 1;\n",
             "web/widget.spec.ts": "export const Y = 1;\n",
         }
-        definitions, aliases = extracted(tree)
+        definitions, aliases = extracted(tree, "typescript")
         assert {item[1:3] for item in definitions} == {
             ("api", "module"),
             ("fetchAll", "function"),
@@ -327,8 +274,11 @@ class ScriptExtractionTests(unittest.TestCase):
         }
 
     def test_a_class_records_its_base_and_a_constant_its_string(self) -> None:
-        found = extract.extract_tree({"web/api.ts": SCRIPT}, in_test_source).definitions
+        found = extract.extract_tree(
+            {"web/api.ts": SCRIPT}, in_test_source, ("typescript",)
+        ).definitions
         by_name = {item["name"]: item for item in found}
+        assert by_name["api"]["doc"] == "The api module."
         assert by_name["Client"]["bases"] == ["Service"]
         assert by_name["LIMIT"]["value"] == "ten"
 
@@ -342,7 +292,7 @@ class PythonExtractionTests(unittest.TestCase):
             "src/shop/broken.py": "def broken(:\n",
             "tools/run.sh": "echo hi\n",
         }
-        definitions, aliases = extracted(tree)
+        definitions, aliases = extracted(tree, "python")
         assert {item[1:5] for item in definitions} == {
             ("store", "module", 1, 60),
             ("fetch_user", "function", 17, 21),
@@ -366,7 +316,7 @@ class PythonExtractionTests(unittest.TestCase):
 
     def test_signatures_span_their_lines_and_classes_keep_their_bases(self) -> None:
         found = extract.extract_tree(
-            {"src/shop/store.py": PYTHON}, in_test_source
+            {"src/shop/store.py": PYTHON}, in_test_source, ("python",)
         ).definitions
         by_name = {item["name"]: item for item in found}
         assert by_name["fetch_user"]["sig"] == "def fetch_user(\n    uid,\n):"

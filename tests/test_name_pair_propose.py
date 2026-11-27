@@ -15,6 +15,8 @@ import pytest
 
 from guardrails.commands.structure_naming.name_pair import propose
 
+BOTH = ("python", "typescript")
+
 
 def not_test(path: str) -> bool:
     return False
@@ -55,7 +57,7 @@ def named(pairs: list[dict[str, Any]]) -> set[tuple[str, str, str, str, str]]:
 def body(name: str, path: str, line: int, **extra: Any) -> dict[str, Any]:
     return {
         "base": name,
-        "lang": "py",
+        "lang": "python",
         "path": path,
         "line": line,
         "end": line + 9,
@@ -67,7 +69,7 @@ def body(name: str, path: str, line: int, **extra: Any) -> dict[str, Any]:
 @pytest.mark.fast
 class ResolveTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.index = propose.NameIndex(TREE, not_test)
+        self.index = propose.NameIndex(TREE, not_test, BOTH)
 
     def test_resolve_prefers_definitions_in_the_named_module_and_the_same_language(
         self,
@@ -104,7 +106,7 @@ class ResolveTests(unittest.TestCase):
 @pytest.mark.fast
 class ProposerRuleTests(unittest.TestCase):
     def test_aliases_pair_with_their_definition_member_or_external_name(self) -> None:
-        pairs = propose.Proposer(propose.NameIndex(TREE, not_test)).propose()
+        pairs = propose.Proposer(propose.NameIndex(TREE, not_test, BOTH)).propose()
         assert named(pairs) == {
             ("alias", "loader", "alias", "Store.get", "method"),
             ("alias", "reader", "alias", "Store.missing", "member"),
@@ -115,7 +117,7 @@ class ProposerRuleTests(unittest.TestCase):
         }
 
     def test_a_pair_found_twice_keeps_one_entry_with_both_rules(self) -> None:
-        proposer = propose.Proposer(propose.NameIndex({}, not_test))
+        proposer = propose.Proposer(propose.NameIndex({}, not_test, BOTH))
         first = {"name": "load_user", "kind": "function", "path": "a.py"}
         second = {"name": "fetch_user", "kind": "function", "path": "b.py"}
         proposer.put(first, {**first, "path": "c.py"}, "clone")
@@ -134,10 +136,22 @@ class ProposerRuleTests(unittest.TestCase):
             "app/c.py": "class Store2:\n    pass\n",
             "web/d.ts": "export class RemoteUserStore {}\n",
         }
-        pairs = propose.Proposer(propose.NameIndex(tree, not_test)).propose()
+        pairs = propose.Proposer(propose.NameIndex(tree, not_test, BOTH)).propose()
         assert named(pairs) == {
             ("head_noun", "CachedUserStore", "class", "UserStore", "class"),
         }
+
+    def test_an_unproposed_language_does_not_hide_a_pair_of_the_proposed_one(
+        self,
+    ) -> None:
+        tree = {
+            "cmd/main.ts": "export function parse() {}\n",
+            "tools/read.py": "def parse():\n    pass\n\ndef decode():\n    pass\n",
+        }
+        pairs = propose.Proposer(
+            propose.NameIndex(tree, not_test, ("python",))
+        ).propose()
+        assert named(pairs) == {("synonym", "decode", "function", "parse", "function")}
 
     def test_a_constant_pairs_with_its_value_only_when_the_value_is_a_new_name(
         self,
@@ -148,7 +162,7 @@ class ProposerRuleTests(unittest.TestCase):
                 "SHORT = 'ab cd'\nLANE = 'fast lane'\nNUMBER = 'x 12 y'\n"
             ),
         }
-        pairs = propose.Proposer(propose.NameIndex(tree, not_test)).propose()
+        pairs = propose.Proposer(propose.NameIndex(tree, not_test, BOTH)).propose()
         assert named(pairs) == {
             ("const_value", "MODE", "constant", '"fast lane"', "string_value"),
         }
@@ -162,7 +176,7 @@ class ProposerRuleTests(unittest.TestCase):
         left = body("load", "a.py", 1)
         assert propose.clone_pair(left, body("fetch", "b.py", 1))
         assert not propose.clone_pair(left, body("Load", "b.py", 1))
-        assert not propose.clone_pair(left, body("fetch", "b.ts", 1, lang="ts"))
+        assert not propose.clone_pair(left, body("fetch", "b.ts", 1, lang="typescript"))
         assert not propose.clone_pair(left, body("fetch", "a.py", 5))
         assert not propose.clone_pair(body("fetch", "a.py", 5), left)
         assert propose.clone_pair(left, body("fetch", "a.py", 20))

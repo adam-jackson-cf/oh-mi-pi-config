@@ -175,22 +175,27 @@ class DocstringTests(unittest.TestCase):
         assert python.docstring_spans(root_of("# only\n"), "# only\n") == []
 
 
-class CommentAndIdentifierTests(unittest.TestCase):
+class CommentAndBoundNameTests(unittest.TestCase):
     def test_comment_spans_cover_each_comment(self) -> None:
         source = "#!/usr/bin/env python\nx = '#no'  # yes é\n"
-        spans = python.comment_spans(root_of(source), source)
+        spans = tree.comment_spans(root_of(source), source)
         assert texts(source, spans) == ["#!/usr/bin/env python", "# yes é"]
 
-    def test_identifiers_are_unique_in_source_order(self) -> None:
-        source = "import os.path as p\ndef run(arg):\n    total = arg.size + arg\n"
-        assert python.identifiers(root_of(source)) == [
-            "os",
-            "path",
-            "p",
+    def test_bound_names_are_module_and_class_level_targets_not_imports(
+        self,
+    ) -> None:
+        source = (
+            "import os.path as p\n"
+            "def run(arg):\n    total = arg.size + arg\n"
+            "class Box:\n    size = 1\n"
+            "limit, *rest = 1, 2\n"
+        )
+        assert python.bound_names(root_of(source)) == [
             "run",
-            "arg",
-            "total",
+            "Box",
             "size",
+            "limit",
+            "rest",
         ]
 
 

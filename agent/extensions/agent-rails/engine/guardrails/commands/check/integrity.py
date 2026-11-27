@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,7 +20,7 @@ from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
-from guardrails.foundation.source import modules, python, tree
+from guardrails.foundation.source import comments, modules, python, tree, typescript
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -38,84 +37,10 @@ DIRECTIVE = re.compile(
     r".*(?:-\*-.*-\*-|vim:|vi:|ex:)|.*coding[:=]\s*[-\w.]+)"
 )
 PARSER_DIRECTIVE = re.compile(r"#\s*(?:syntax|escape)\s*=\s*\S+\s*", re.IGNORECASE)
-SHELL = frozenset(conventions.load_pack("shell")["extensions"])
-WORD_BREAKS = " \t\n;&|()<>"
-HASH = SHELL | {
-    ".fish",
-    ".yml",
-    ".yaml",
-    ".toml",
-    ".conf",
-    ".rb",
-    ".pl",
-    ".pm",
-    ".r",
-    ".ps1",
-    ".dockerfile",
-    ".mk",
-    ".nix",
-    ".jl",
-    ".tcl",
-    ".awk",
-    ".tf",
-    ".tfvars",
-    ".hcl",
-    ".env",
-    ".graphql",
-    ".gql",
-    ".ex",
-    ".exs",
-    ".cmake",
-    ".gemspec",
-    ".rake",
-}
-SLASH = {
-    ".js",
-    ".jsx",
-    ".ts",
-    ".tsx",
-    ".mjs",
-    ".cjs",
-    ".mts",
-    ".cts",
-    ".jsonc",
-    ".json5",
-    ".c",
-    ".h",
-    ".cc",
-    ".cpp",
-    ".cxx",
-    ".hpp",
-    ".java",
-    ".cs",
-    ".go",
-    ".rs",
-    ".swift",
-    ".kt",
-    ".kts",
-    ".scala",
-    ".dart",
-    ".php",
-    ".css",
-    ".scss",
-    ".less",
-    ".vue",
-    ".svelte",
-    ".proto",
-    ".groovy",
-    ".gradle",
-    ".sol",
-    ".m",
-    ".mm",
-    ".tf",
-    ".tfvars",
-    ".hcl",
-    ".prisma",
-}
-HTML = {".html", ".htm", ".xml", ".svg", ".md", ".markdown", ".mdx"}
 DECLARERS = frozenset({"typing", "typing_extensions", "abc"})
 CLASSES = frozenset({"class_definition"})
 FUNCTIONS = frozenset({"function_definition"})
+SCRIPT_CALLS = frozenset({"call_expression"})
 MOCK_MODULES = {
     "mock",
     "pytest_mock",
@@ -129,17 +54,15 @@ MOCK_MODULES = {
 }
 
 
-def mock_call_pattern() -> re.Pattern[str]:
-    """A call of a JavaScript runner's mock API by its namespace (jest.mock, vi.spyOn,
-    mock.module): every dotted name the runner vocabularies list. A bare name (bun's
-    mock) is an imported binding the lexer cannot resolve, so it is not read."""
+def mock_calls() -> frozenset[str]:
+    """The JavaScript runners' mock APIs called through their namespace (jest.mock,
+    vi.spyOn, mock.module): every dotted name the runner vocabularies list. A bare name
+    (bun's mock) is an imported binding, so it is not read."""
     apis = conventions.data("javascript-patterns.json")["mock_apis"]
-    names = sorted({name for calls in apis.values() for name in calls if "." in name})
-    spelled = (r"\s*\.\s*".join(map(re.escape, name.split("."))) for name in names)
-    return re.compile(r"(?<![\w$.])(?:" + "|".join(spelled) + r")\s*\(")
+    return frozenset(name for calls in apis.values() for name in calls if "." in name)
 
 
-MOCK_CALL = mock_call_pattern()
+MOCK_CALLS = mock_calls()
 
 
 def finding(rule: str, path: str, line: int, message: str) -> Finding:
@@ -151,98 +74,8 @@ def finding(rule: str, path: str, line: int, message: str) -> Finding:
     )
 
 
-HASH_NAMES = frozenset({"cmakelists.txt", "rakefile", ".env"})
-COMMENT_SYNTAX = conventions.load_pack("tooling")["comment_syntax"]
-SUFFIX_MARKERS: tuple[tuple[frozenset[str], tuple[tuple[str, str], ...]], ...] = (
-    (
-        frozenset({".sql", ".lua", ".hs", ".elm", ".vhd", ".vhdl", ".ada"}),
-        (("--", "\n"),),
-    ),
-    (frozenset({".sql"}), (("/*", "*/"),)),
-    (frozenset({".hs", ".elm"}), (("{-", "-}"),)),
-    (frozenset({".tex", ".erl", ".hrl", ".pro"}), (("%", "\n"),)),
-    (
-        frozenset({".el", ".lisp", ".clj", ".cljs", ".edn", ".scm", ".rkt", ".asm"}),
-        ((";", "\n"),),
-    ),
-    (frozenset({".ini", ".cfg"}), (("#", "\n"), (";", "\n"))),
-    (frozenset({".properties"}), (("#", "\n"), ("!", "\n"))),
-    (frozenset({*HTML, ".vue", ".svelte"}), (("<!--", "-->"),)),
-)
-
-
-def tool_file(path: str, syntax: str) -> bool:
-    """Whether the tooling pack names the file as one written in a comment syntax."""
-    name = Path(path).name
-    return any(fnmatchcase(name, pattern) for pattern in COMMENT_SYNTAX[syntax])
-
-
-def comment_markers(path: str) -> list[tuple[str, str]]:
-    suffix = Path(path).suffix.lower()
-    markers: list[tuple[str, str]] = []
-    if (
-        suffix in HASH
-        or Path(path).name.lower() in HASH_NAMES
-        or tool_file(path, "hash_comments")
-    ):
-        markers.append(("#", "\n"))
-    if suffix in SLASH:
-        markers.append(("/*", "*/"))
-        if suffix != ".css":
-            markers.append(("//", "\n"))
-    for suffixes, extra in SUFFIX_MARKERS:
-        if suffix in suffixes:
-            markers.extend(extra)
-    if suffix == ".lua":
-        markers.insert(0, ("--[[", "]]"))
-    return markers
-
-
-def comment_stop(text: str, at: int, marker: tuple[str, str]) -> int:
-    start, end = marker
-    stop = text.find(end, at + len(start))
-    return len(text) if stop < 0 else stop + (0 if end == "\n" else len(end))
-
-
-def comment_span(
-    text: str, at: int, stop: int, marker: tuple[str, str]
-) -> tuple[int, int, str]:
-    start, end = marker
-    content_end = stop - len(end) if end != "\n" and text[:stop].endswith(end) else stop
-    return (
-        text.count("\n", 0, at) + 1,
-        text.count("\n", 0, max(at, stop - 1)) + 1,
-        text[at + len(start) : content_end],
-    )
-
-
-def string_stop(text: str, at: int) -> int:
-    quote = text[at] * (3 if text.startswith(text[at] * 3, at) else 1)
-    stop = at + len(quote)
-    while stop < len(text):
-        if text[stop] == "\\":
-            stop += 2
-        elif text.startswith(quote, stop):
-            stop += len(quote)
-            if len(quote) == 1 and text.startswith(quote, stop):
-                stop += 1
-                continue
-            break
-        else:
-            stop += 1
-    return stop
-
-
-def opens_comment(text: str, at: int, start: str, suffix: str) -> bool:
-    return text.startswith(start, at) and not (
-        suffix in SHELL and at > 0 and text[at - 1] not in WORD_BREAKS
-    )
-
-
 def parser_directives(text: str, path: str) -> set[int]:
-    if Path(path).suffix.lower() != ".dockerfile" and not tool_file(
-        path, "parser_directives"
-    ):
+    if not conventions.parser_directive_file(path):
         return set()
     lines: set[int] = set()
     for number, line in enumerate(text.splitlines(), 1):
@@ -250,37 +83,6 @@ def parser_directives(text: str, path: str) -> set[int]:
             break
         lines.add(number)
     return lines
-
-
-def lex(text: str, path: str) -> tuple[list[tuple[int, int, str]], str]:
-    suffix = Path(path).suffix.lower()
-    markers = comment_markers(path)
-    masked = list(text)
-    comments = []
-    at = 0
-    while at < len(text):
-        marker = next(
-            (
-                (start, end)
-                for start, end in markers
-                if opens_comment(text, at, start, suffix)
-            ),
-            None,
-        )
-        if marker:
-            stop = comment_stop(text, at, marker)
-            if not (at == 0 and text.startswith("#!")):
-                comments.append(comment_span(text, at, stop, marker))
-        elif text[at] in "\"'`" and suffix not in HTML:
-            stop = string_stop(text, at)
-        else:
-            at += 1
-            continue
-        for index in range(at, min(stop, len(text))):
-            if masked[index] != "\n":
-                masked[index] = " "
-        at = stop
-    return comments, "".join(masked)
 
 
 def product_source(path: str, config: dict[str, Any]) -> bool:
@@ -292,16 +94,6 @@ def product_source(path: str, config: dict[str, Any]) -> bool:
 
 def added_lines(node: SgNode, added: set[int]) -> list[int]:
     return sorted(added.intersection(python.statement_lines(node)))
-
-
-def comment_findings_of(root: SgNode, path: str, added: set[int]) -> list[Finding]:
-    return [
-        finding(COMMENTS, path, tree.line(node), "added comment")
-        for node in root.find_all(kind="comment")
-        if tree.line(node) in added
-        and not DIRECTIVE.match(node.text()[1:].strip())
-        and not (tree.line(node) == 1 and node.text().startswith("#!"))
-    ]
 
 
 def declaration_names(found: list[python.PythonImport]) -> dict[str, str]:
@@ -409,7 +201,7 @@ def python_findings(
     names = declaration_names(found_imports)
     protocol_methods = protocol_members(root, names)
     findings = [
-        *comment_findings_of(root, path, added),
+        *comment_findings(tree_comments(root, path), text, path, added),
         *docstring_findings(root, path, added),
     ]
     if not path.endswith(modules.stub_extension()):
@@ -434,53 +226,84 @@ def python_findings(
     return findings
 
 
+def tree_comments(root: SgNode, path: str) -> list[comments.Comment]:
+    return comments.tree_comments(root, conventions.comment_syntax(path))
+
+
 def inspect(
     text: str, path: str, added: set[int], config: dict[str, Any]
 ) -> list[Finding]:
     if not added:
         return []
-    if tree.language_of(path) == "python":
+    language = tree.language_of(path)
+    if language == "python":
         return python_findings(text, path, added, config)
-    comments, code = lex(text, path)
-    findings = comment_findings(comments, path, added - parser_directives(text, path))
-    if product_source(path, config):
-        findings.extend(script_mock_findings(text, code, path, added))
-    return findings
+    if language is not None:
+        return script_findings(text, path, added, config)
+    found = comments.lexed(text, conventions.comment_syntax(path))
+    return comment_findings(found, text, path, added - parser_directives(text, path))
 
 
 def comment_findings(
-    comments: list[tuple[int, int, str]], path: str, added: set[int]
+    found: list[comments.Comment], text: str, path: str, added: set[int]
 ) -> list[Finding]:
     findings = []
-    for start, end, content in comments:
-        lines = [line.strip().lstrip("*").strip() for line in content.split("\n")]
+    for comment in found:
+        if comment.line == 1 and text.startswith("#!"):
+            continue
+        lines = [line.strip().lstrip("*").strip() for line in comment.text.split("\n")]
         has_directive = any(DIRECTIVE.match(line) for line in lines)
-        for line in sorted(added.intersection(range(start, end + 1))):
-            value = lines[line - start]
+        for line in sorted(
+            added.intersection(range(comment.line, comment.end_line + 1))
+        ):
+            value = lines[line - comment.line]
             if not DIRECTIVE.match(value) and (value or not has_directive):
                 findings.append(finding(COMMENTS, path, line, "added comment"))
     return findings
 
 
-def script_mock_findings(
-    text: str, code: str, path: str, added: set[int]
+def script_findings(
+    text: str, path: str, added: set[int], config: dict[str, Any]
 ) -> list[Finding]:
-    findings = []
-    for match in MOCK_CALL.finditer(code):
-        line = code.count("\n", 0, match.start()) + 1
-        if line in added:
-            findings.append(finding(MOCKS, path, line, "mock call in product code"))
-    import_pattern = re.compile(
-        r"(?:\bfrom\s*|\brequire\s*\(\s*|\bimport\s*(?:\(\s*)?)[\"']("
-        + "|".join(re.escape(name) for name in MOCK_MODULES)
-        + r")(?:/[^\"']*)?[\"']"
+    """TypeScript, JavaScript and Go: the comments their grammar reads and, in
+    TypeScript and JavaScript product code, mock imports and mock API calls."""
+    try:
+        root = tree.parse(path, text)
+    except tree.SourceError as error:
+        return [finding(COMMENTS, path, error.line or 1, str(error))]
+    findings = comment_findings(tree_comments(root, path), text, path, added)
+    if tree.language_of(path) == "typescript" and product_source(path, config):
+        findings.extend(script_mock_findings(root, path, added))
+    return findings
+
+
+def mocked(specifier: str) -> bool:
+    return any(
+        specifier == module or specifier.startswith(module + "/")
+        for module in MOCK_MODULES
     )
-    for match in import_pattern.finditer(text):
-        line = text.count("\n", 0, match.start()) + 1
-        if line in added and code[match.start() : match.start() + 1].strip():
-            findings.append(
-                finding(MOCKS, path, line, "mock library imported in product code")
-            )
+
+
+def mock_call(node: SgNode) -> bool:
+    function = node.field("function")
+    return function is not None and "".join(function.text().split()) in MOCK_CALLS
+
+
+def script_mock_findings(root: SgNode, path: str, added: set[int]) -> list[Finding]:
+    findings = [
+        finding(MOCKS, path, tree.line(node), "mock call in product code")
+        for node in tree.of_kinds(root, SCRIPT_CALLS)
+        if tree.line(node) in added and mock_call(node)
+    ]
+    ends: dict[int, int] = {}
+    for node in tree.of_kinds(root, typescript.IMPORT_KINDS):
+        ends[tree.line(node)] = max(ends.get(tree.line(node), 0), tree.end_line(node))
+    findings.extend(
+        finding(MOCKS, path, item.line, "mock library imported in product code")
+        for item in typescript.imports(root)
+        if mocked(item.specifier)
+        and added.intersection(range(item.line, ends[item.line] + 1))
+    )
     return findings
 
 

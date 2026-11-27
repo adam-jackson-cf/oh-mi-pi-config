@@ -7,7 +7,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming.scan_scope import is_vendored_path, runs
+from guardrails.commands.structure_naming.scan_scope import (
+    is_vendored_path,
+    proposed_source,
+)
 from guardrails.context.changes import (
     DiffError,
     changed_paths,
@@ -53,6 +56,7 @@ KIND_WORDS = (
     "utils",
     "validators",
 )
+READS = frozenset({"python"})
 MAX_SYMBOLS = 12
 MAX_IMPORTERS = 3
 
@@ -156,7 +160,7 @@ class TreeModel:
     ) -> None:
         self.sources = sources
         self.config = config
-        self.python = sorted(path for path in paths if runs(path))
+        self.python = sorted(path for path in paths if proposed_source(path, READS))
         self.trees = {path: parsed(path, sources.get(path, "")) for path in self.python}
         index = modules.PythonIndex(self.python)
         self.graph: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -210,7 +214,11 @@ class TreeModel:
 
 def model_of(tree: dict[str, str], config: dict[str, Any]) -> TreeModel:
     paths = owned(sorted(tree))
-    return TreeModel(paths, {path: tree[path] for path in paths if runs(path)}, config)
+    return TreeModel(
+        paths,
+        {path: tree[path] for path in paths if proposed_source(path, READS)},
+        config,
+    )
 
 
 def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
@@ -223,7 +231,7 @@ def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str
     want = [
         (path, entries[path].oid)
         for path in paths
-        if runs(path) and entries[path].kind == "blob"
+        if proposed_source(path, READS) and entries[path].kind == "blob"
     ]
     found = dict.fromkeys(paths, "")
     blobs = read_blobs(repo, sorted({oid for _, oid in want}))

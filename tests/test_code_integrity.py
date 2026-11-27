@@ -211,6 +211,28 @@ class IntegrityCommentTests(IntegrityCase):
             ("src/again.py", "line 10: added comment")
         ]
 
+    def test_grammar_read_literals_neither_hide_nor_fake_comments(self) -> None:
+        findings = self.check({
+            "src/raw.go": "package a\n\nvar root = `C:\\` // drive\n",
+            "src/regex.ts": "const slash = /\\/\\//;\nconst tick = /[`]/; // after\n",
+        })
+        assert sorted((item.path, item.message) for item in findings) == [
+            ("src/raw.go", "line 3: added comment"),
+            ("src/regex.ts", "line 2: added comment"),
+        ]
+
+    def test_unparseable_typescript_and_go_are_one_finding_each(self) -> None:
+        findings = self.check({
+            "src/broken.ts": "const x = foo(1;\n",
+            "src/broken.go": "package a\n\nfunc (\n",
+        })
+        assert sorted(
+            (item.path, item.message.split(":")[1].strip()) for item in findings
+        ) == [
+            ("src/broken.go", "cannot parse src/broken.go as go"),
+            ("src/broken.ts", "cannot parse src/broken.ts as typescript"),
+        ]
+
     def test_staged_moves_keep_existing_comments_out_of_the_commit_check(self) -> None:
         self.repo.git("mv", "src/existing.py", "src/renamed.py")
         assert integrity.commit_findings(self.repo.path, BASE_REPO_CONFIG) == []
@@ -297,6 +319,9 @@ class IntegrityCodeTests(IntegrityCase):
         (found,) = self.check({"src/broken.py": "x = 1\ndef f(:\n"})
         assert (found.rule_id, found.path) == ("CODE.no-comments", "src/broken.py")
         assert found.message.startswith("line 2: cannot parse src/broken.py as python")
+
+    def test_mock_text_in_markdown_is_not_product_code(self) -> None:
+        assert self.check({"docs/guide.md": "Call vi.mock('x') in tests.\n"}) == []
 
     def test_mock_words_in_strings_and_comments_do_not_count_as_imports(self) -> None:
         findings = self.check({

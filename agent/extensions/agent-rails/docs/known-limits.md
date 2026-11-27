@@ -28,9 +28,11 @@ What the rails do not catch or measure today.
   own tree (they compare `ast.unparse` text with configured annotations) and accept it.
 - The tree-sitter TSX and JavaScript grammars reject a bare `&` in JSX text
   (`<span>Findings & annotations</span>`), which React accepts. Such a file gets a blocking
-  "cannot parse source" finding from the bun_test and vitest adapters and is unreadable to the
-  structure rules. ast-grep-py 0.51.3, the newest release on 2026-11-26, still rejects it; the engine
-  pins 0.51.0. Writing `&amp;` or `{"&"}` avoids it.
+  "cannot parse source" finding from the bun_test and vitest adapters and from
+  `CODE.no-comments` (which reads TypeScript, JavaScript and Go comments through the grammars),
+  and is unreadable to the structure rules. ast-grep-py 0.51.3, the newest release on 2026-11-26,
+  still rejects it; the engine pins 0.51.0. Writing `&amp;` or `{"&"}` avoids it. A Go file using
+  Go 1.26 `new(expression)` likewise gets a `CODE.no-comments` "cannot parse" finding.
 - `TEST.no-test-hooks` tallies top-level functions and classes (Python), package-level
   functions and types (Go) and top-level declarations (TypeScript): a method only tests call is
   not reported. A reference resolves through imports and module attributes, so a call through an
@@ -40,7 +42,11 @@ What the rails do not catch or measure today.
   by a computed string, a function fetched from a dictionary of helpers, or code held in a string
   does not, so such a function is reported unless it is the package's public entry point.
 - The structure-naming candidate proposers (`kind-candidates`, `consumer-candidates`, `name-pairs`)
-  propose Python only: their judgments were measured on Python cases.
+  propose Python only (`proposers.languages` in structure-languages.json): their judgments were
+  measured on Python cases. `name-pairs` keeps the Python 3-gram reading `same_thing` was measured
+  on, which drops triple-quoted strings and cuts from a `#` to the line end even inside a string;
+  reading comments and docstrings from the tree instead drops labelled pair N17-0083 from the clone
+  rule, so the change waits for a new measurement.
 - `structure-naming/same_thing` judges only the name pairs `name-pairs` proposes (alias, head noun,
   synonym, constant value, clone); two names for one concept that none of those rules links are
   never asked. Its held-out precision is 0.72 (13/18), below the 0.75 floor, by owner acceptance.

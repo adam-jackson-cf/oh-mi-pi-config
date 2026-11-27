@@ -20,7 +20,6 @@ from guardrails.commands.adapters.go.syntax import (
     call_name,
     first_parameter,
     go_files,
-    string_value,
     test_functions,
     walk,
 )
@@ -182,7 +181,7 @@ def evasion(source: Source) -> list[Finding]:
     ]
     for call in calls(source.root):
         values = arguments(call)
-        reason = string_value(values[0]) if values else None
+        reason = go_source.string_value(values[0]) if values else None
         if (
             skip_call(call, None)
             and reason is not None
@@ -303,7 +302,7 @@ def value_comparison(node: SgNode, source: Source) -> bool:
         return False
     sides = [node.field("left"), node.field("right")]
     return operator.text() in COMPARISONS and any(
-        (value := string_value(side)) is not None
+        (value := go_source.string_value(side)) is not None
         and hook_vocabulary.matches("marker_value", value)
         and reads(other, source, "value_reads")
         for side, other in (sides, sides[::-1])
@@ -318,7 +317,7 @@ def marker_reads(source: Source) -> list[tuple[SgNode, str]]:
         (node, MARKER_MESSAGE.format(snippet(node)))
         for node in walk(inlined)
         if (
-            (value := string_value(node)) is not None
+            (value := go_source.string_value(node)) is not None
             and marker_name(value)
             and marker_read(node, source)
         )

@@ -8,13 +8,12 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure_naming.name_pair.extract import SOURCE_SUFFIXES
 from guardrails.commands.structure_naming.name_pair.propose import (
     NameIndex,
     Pair,
     Proposer,
 )
-from guardrails.commands.structure_naming.scan_scope import is_vendored_path
+from guardrails.commands.structure_naming.scan_scope import is_vendored_path, proposed
 from guardrails.context.changes import (
     DiffError,
     TreeEntry,
@@ -27,11 +26,13 @@ from guardrails.context.config.reader import checker_settings
 from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.source.tree import language_of
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.name-pairs"
 EXCEPTION_RULE = "structure-naming/same_thing"
 BUNDLE_MANIFEST = "SKILL.md"
+READS = frozenset({"python", "typescript", "go"})
 MAX_SOURCE_BYTES = 300_000
 USE_SITES = 3
 USE_TEXT = 160
@@ -74,7 +75,7 @@ def site_hits(
     hits: list[tuple[str, int, str]] = []
     for path in sorted(tree, key=lambda path: (sources.is_test(path), path)):
         text = tree[path]
-        if not path.endswith(SOURCE_SUFFIXES) or not pattern.search(text):
+        if language_of(path) is None or not pattern.search(text):
             continue
         for number, line in enumerate(text.split("\n"), 1):
             if path == site.path and site.lines[0] <= number <= site.lines[1]:
@@ -222,7 +223,7 @@ def owned_sources(entries: dict[str, TreeEntry], excluded: list[str]) -> list[st
         for path, (mode, kind, _, size) in entries.items()
         if kind == "blob"
         and mode != "120000"
-        and path.endswith(SOURCE_SUFFIXES)
+        and language_of(path) is not None
         and not is_vendored_path(path)
         and not bundled(path)
         and size.isdigit()
@@ -242,8 +243,9 @@ def name_pair_candidates(
     tree: dict[str, str], changed: set[str], config: dict[str, Any]
 ) -> list[dict[str, Any]]:
     sources = Sources(tree, lambda path: is_test_source(path, config))
+    index = NameIndex(tree, sources.is_test, proposed(READS))
     found = []
-    for pair in Proposer(NameIndex(tree, sources.is_test)).propose():
+    for pair in Proposer(index).propose():
         paths = {pair["a"].get("path"), pair["b"].get("path")}
         if not paths & changed or exempt(pair, config):
             continue

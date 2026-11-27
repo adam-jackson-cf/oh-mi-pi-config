@@ -12,7 +12,7 @@ sys.path.insert(
 import pytest
 
 from guardrails.foundation.source import typescript
-from guardrails.foundation.source.tree import parse
+from guardrails.foundation.source.tree import comment_spans, parse
 from guardrails.foundation.source.typescript import Binding, ScriptImport
 
 if TYPE_CHECKING:
@@ -224,29 +224,61 @@ class DefinitionTests(unittest.TestCase):
         ]
 
 
-class CommentAndIdentifierTests(unittest.TestCase):
+class CommentAndDeclarationTests(unittest.TestCase):
     def test_line_and_block_comments(self) -> None:
         source = "/* block\n é */ const a = '// not' // line\n"
-        spans = typescript.comment_spans(parse("m.ts", source), source)
+        spans = comment_spans(parse("m.ts", source), source)
         assert texts(source, spans) == ["/* block\n é */", "// line"]
 
-    def test_identifier_kinds(self) -> None:
+    def test_regex_and_template_text_is_no_comment(self) -> None:
+        source = "const r = /\\/\\//;\nconst t = `// ${a /* x */}`;\nconst w = 'C:\\\\' // real\n"
+        spans = comment_spans(parse("m.ts", source), source)
+        assert texts(source, spans) == ["/* x */", "// real"]
+
+    def test_bound_names_are_top_level_declarations_and_their_members(self) -> None:
         source = (
-            "class Box { #inner = 1 }\n"
-            "type Label = string\n"
-            "const {width} = shape\n"
-            "const item = {height, size: shape.depth}\n"
+            'import { oracle } from "./oracle";\n'
+            "export class Box extends base.Shape { #inner = 1; size = 2; grow(): void {} }\n"
+            "interface Shape { area: number; scale(): void }\n"
+            "type Label = { text: string };\n"
+            "enum Mode { Fast, Slow = 2 }\n"
+            "declare function measure(): number;\n"
+            "export const { width, height: tall, ...rest } = shape;\n"
+            "const [first, second = 1] = pair;\n"
+            "namespace Tools { export const inner = 1 }\n"
+            "function run() { const local = 1; return local }\n"
+            "oracle.call();\n"
         )
-        assert typescript.identifiers(parse("m.ts", source), "typescript") == [
+        assert typescript.bound_names(parse("m.ts", source)) == [
             "Box",
             "#inner",
-            "Label",
-            "width",
-            "shape",
-            "item",
-            "height",
             "size",
-            "depth",
+            "grow",
+            "Shape",
+            "area",
+            "scale",
+            "Label",
+            "text",
+            "Mode",
+            "Fast",
+            "Slow",
+            "measure",
+            "width",
+            "tall",
+            "rest",
+            "first",
+            "second",
+            "Tools",
+            "run",
+        ]
+
+    def test_javascript_fields_are_members(self) -> None:
+        source = "class Box { size = 1; grow() {} }\n"
+        found = typescript.declarations(parse("m.js", source))
+        assert [(item.name, item.kind, item.owner) for item in found] == [
+            ("Box", "class", None),
+            ("size", "field", "Box"),
+            ("grow", "method", "Box"),
         ]
 
 

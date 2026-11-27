@@ -26,7 +26,6 @@ from guardrails.foundation.source.tree import (
     named,
     of_kinds,
     spans,
-    unique_texts,
 )
 
 if TYPE_CHECKING:
@@ -41,7 +40,34 @@ DOCUMENTED = frozenset({"function_definition", "class_definition"})
 TEXT_KINDS = frozenset({"string", "concatenated_string"})
 NON_TEXT_PREFIXES = frozenset("bBfFtT")
 TRAILING_KINDS = frozenset({"comment", "line_continuation"})
-IDENTIFIERS = frozenset({"identifier"})
+NON_BINDING = IMPORT_KINDS | {
+    "lambda",
+    "list_comprehension",
+    "set_comprehension",
+    "dictionary_comprehension",
+    "generator_expression",
+}
+TARGET_FIELDS = {
+    "assignment": "left",
+    "augmented_assignment": "left",
+    "for_statement": "left",
+    "named_expression": "name",
+    "type_alias_statement": "left",
+    "as_pattern": "alias",
+}
+TARGET_PATTERNS = frozenset({
+    "pattern_list",
+    "tuple_pattern",
+    "list_pattern",
+    "list_splat_pattern",
+    "tuple",
+    "list",
+    "list_splat",
+    "parenthesized_expression",
+    "as_pattern_target",
+    "type",
+    "generic_type",
+})
 CALLS = frozenset({"call"})
 DYNAMIC_IMPORT_CALLS = frozenset({
     "importlib.import_module",
@@ -335,9 +361,52 @@ def cpython_expression(source: str) -> ast.expr | None:
             return None
 
 
-def comment_spans(root: SgNode, source: str) -> list[Span]:
-    return spans(source, root.find_all(kind="comment"))
+def bound(target: SgNode, found: list[str]) -> None:
+    if target.kind() == "identifier":
+        found.append(target.text())
+    elif target.kind() in TARGET_PATTERNS:
+        for item in named(target):
+            bound(item, found)
+    else:
+        declared(target, found)
 
 
-def identifiers(root: SgNode) -> list[str]:
-    return unique_texts(root, IDENTIFIERS)
+def visited(node: SgNode) -> list[SgNode]:
+    kind, parent = node.kind(), node.parent()
+    if kind == "function_definition":
+        return []
+    if kind in {"class_definition", "decorated_definition"}:
+        inner = node.field("body" if kind == "class_definition" else "definition")
+        return [] if inner is None else [inner]
+    children = named(node)
+    if kind == "case_clause":
+        return [child for child in children if child.kind() != "case_pattern"]
+    if kind == "except_clause":
+        return [child for child in children if child.kind() in {"as_pattern", "block"}]
+    if kind == "as_pattern" and parent is not None and parent.kind() == "except_clause":
+        return [child for child in children if child.kind() == "as_pattern_target"]
+    return children
+
+
+def declared(node: SgNode, found: list[str]) -> None:
+    kind = node.kind()
+    if kind in NON_BINDING:
+        return
+    name = node.field("name")
+    if kind in DOCUMENTED and name is not None:
+        found.append(name.text())
+    target = node.field(TARGET_FIELDS[kind]) if kind in TARGET_FIELDS else None
+    for child in visited(node):
+        if child == target:
+            bound(child, found)
+        else:
+            declared(child, found)
+
+
+def bound_names(root: SgNode) -> list[str]:
+    """The names a module binds at module and class level: functions, classes, and the
+    targets of assignment, for, with, walrus, type-alias, except and match-as; names a
+    function, lambda or comprehension binds, and imports, are not the module's."""
+    found: list[str] = []
+    declared(root, found)
+    return list(dict.fromkeys(found))

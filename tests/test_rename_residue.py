@@ -150,6 +150,13 @@ class RenameResidueTests(unittest.TestCase):
         assert not residue.contains(residue.words("oracles"), ("oracle",))
         assert not residue.contains(residue.words("pre_fix"), ("prefix",))
 
+    def test_digit_runs_are_words_of_their_own(self) -> None:
+        assert residue.words("SetTestHook2") == ("set", "test", "hook", "2")
+        renames = [residue.Rename("oracle/api.py", "verifier/api.py")]
+        files = {"verifier/api.py": b"oracle2_client = 1\n"}
+        (found,) = residue.residue_findings(renames, files)
+        assert "`oracle2_client`" in found.message
+
     def test_old_named_compound_file_cannot_hide_directory_retirement(self) -> None:
         renames = [residue.Rename("oracle/api.py", "verifier/oracle_api.py")]
         files = {"verifier/oracle_api.py": b""}

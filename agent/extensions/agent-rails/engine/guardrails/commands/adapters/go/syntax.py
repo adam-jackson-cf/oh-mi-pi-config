@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from guardrails.foundation import conventions
 from guardrails.foundation.source import go, tree
-from guardrails.foundation.source.go import STRING_KINDS, TEST_NAME
+from guardrails.foundation.source.go import TEST_NAME
 from guardrails.foundation.source.tree import named
 
 if TYPE_CHECKING:
@@ -18,12 +18,6 @@ def walk(node: SgNode) -> Iterator[SgNode]:
     yield node
     for item in named(node):
         yield from walk(item)
-
-
-def string_value(node: SgNode | None) -> str | None:
-    if node is None or node.kind() not in STRING_KINDS:
-        return None
-    return node.text()[1:-1]
 
 
 def test_functions(root: SgNode) -> list[SgNode]:

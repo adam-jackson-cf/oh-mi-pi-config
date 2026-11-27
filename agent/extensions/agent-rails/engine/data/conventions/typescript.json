@@ -66,6 +66,10 @@
       "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "support_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "beside_code": "https://jestjs.io/docs/configuration#testmatch-arraystring"
+    },
+    "comment_syntax": {
+      "//": "https://tc39.es/ecma262/#sec-comments",
+      "/*": "https://tc39.es/ecma262/#sec-comments"
     }
   },
   "convention_notes": [
@@ -132,5 +136,9 @@
     "fixtures_dir": "fixtures",
     "support_dir": "support",
     "beside_code": true
+  },
+  "comment_syntax": {
+    "line": ["//"],
+    "block": [["/*", "*/"]]
   }
 }

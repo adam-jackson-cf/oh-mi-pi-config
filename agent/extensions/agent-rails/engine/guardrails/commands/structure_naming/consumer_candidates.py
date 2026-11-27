@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming.scan_scope import is_vendored_path, runs
+from guardrails.commands.structure_naming.scan_scope import (
+    is_vendored_path,
+    proposed_source,
+)
 from guardrails.context.changes import (
     DiffError,
     changed_paths,
@@ -73,6 +76,7 @@ MARKERS = (
 )
 UI_APP_MARKERS = frozenset({"dash", "gradio", "rich_live", "streamlit", "textual_app"})
 MANIFESTS = frozenset({"pyproject.toml", "setup.cfg", "setup.py"})
+READS = frozenset({"python"})
 MAX_SOURCE_BYTES = 1_500_000
 STATE_LINES = 60
 STRING_KINDS = frozenset({"string", "concatenated_string"})
@@ -150,7 +154,7 @@ def string_literals(root: SgNode) -> list[str]:
         ):
             continue
         value = str(python.literal_value(node.text())).strip()
-        if runs(value) or DOTTED.match(value):
+        if proposed_source(value, READS) or DOTTED.match(value):
             found.append(value)
     return found
 
@@ -179,14 +183,16 @@ def readings(files: dict[str, str]) -> dict[str, Reading]:
     return {
         path: found
         for path, text in files.items()
-        if runs(path) and (found := reading(path, text)) is not None
+        if proposed_source(path, READS) and (found := reading(path, text)) is not None
     }
 
 
 class ImportIndex:
     def __init__(self, tree: dict[str, str], read: dict[str, Reading]) -> None:
         self.tree = tree
-        self.index = modules.PythonIndex(path for path in tree if runs(path))
+        self.index = modules.PythonIndex(
+            path for path in tree if proposed_source(path, READS)
+        )
         self.raw = {path: found.imports for path, found in read.items()}
         self.imported_by: dict[str, set[str]] = {}
         for path, found in self.raw.items():
@@ -312,7 +318,10 @@ def proposer_score(found: dict[str, Any]) -> float:
 
 
 def candidate_path(tree: dict[str, str], path: str) -> bool:
-    if not runs(path) or PurePosixPath(path).name == modules.package_marker():
+    if (
+        not proposed_source(path, READS)
+        or PurePosixPath(path).name == modules.package_marker()
+    ):
         return False
     if excluded(path, tree) or path.split("/")[0] in ROOT_NON_PACKAGE:
         return False
@@ -374,7 +383,7 @@ def wanted(path: str, kind: str, size: str) -> bool:
     name = PurePosixPath(path).name
     return (
         kind == "blob"
-        and (runs(path) or name in MANIFESTS)
+        and (proposed_source(path, READS) or name in MANIFESTS)
         and size.isdigit()
         and int(size) < MAX_SOURCE_BYTES
     )

@@ -8,8 +8,8 @@ import re
 from functools import cache
 from typing import Any
 
-from guardrails.checker.growth import name_words
 from guardrails.foundation import conventions
+from guardrails.foundation.source import names
 
 VOCABULARY = "test-hook-patterns.json"
 FRAGMENT = re.compile(r"%([a-z_]+)%")
@@ -52,8 +52,8 @@ def hook_phrases() -> frozenset[tuple[str, str]]:
 
 def hook_phrase(name: str) -> bool:
     """Whether a declared name ends with a test-hook phrase (resetForTests,
-    reset_for_testing, TEST_MODE), its words split by the one word splitter
-    growth.name_words. A name that only starts with one (test_only_findings) names
+    reset_for_testing, TEST_MODE), its words split by the one identifier tokeniser
+    names.words. A name that only starts with one (test_only_findings) names
     something about tests, not a hook for them."""
-    words = name_words(name)
+    words = names.words(name)
     return len(words) >= 2 and (words[-2], words[-1]) in hook_phrases()

@@ -102,6 +102,38 @@ def fixed_file(path: str) -> bool:
     }
 
 
+def comment_syntax(path: str) -> dict[str, Any]:
+    """How a file writes comments: its line markers, its block marker pairs, the quotes
+    of its string literals and, for shell, the characters a line marker must follow to
+    open a comment (word_delimiters). A language pack names one syntax for all its
+    files; the tooling pack names markers per file pattern, matched case-insensitively,
+    and a file several patterns match has all their markers. Markup has no strings."""
+    syntax: dict[str, Any] = for_path(path)["comment_syntax"]
+    if "files" not in syntax:
+        return syntax
+    name = PurePosixPath(path).name.lower()
+
+    def named(patterns: list[str]) -> bool:
+        return any(fnmatch.fnmatchcase(name, pattern.lower()) for pattern in patterns)
+
+    entries = [entry for entry in syntax["files"] if named(entry["patterns"])]
+    return {
+        "line": [marker for entry in entries for marker in entry.get("line", [])],
+        "block": [pair for entry in entries for pair in entry.get("block", [])],
+        "quotes": [] if named(syntax["markup"]) else syntax["quotes"],
+    }
+
+
+def parser_directive_file(path: str) -> bool:
+    """Whether a file's leading comment lines may be parser directives (a Dockerfile's
+    # syntax= and # escape=)."""
+    name = PurePosixPath(path).name.lower()
+    return any(
+        fnmatch.fnmatchcase(name, pattern.lower())
+        for pattern in load_pack("tooling")["comment_syntax"]["parser_directives"]
+    )
+
+
 def fixed_folder(path: str, name: str) -> bool:
     return any(
         name in pack["fixed_folders"] for pack in (for_path(path), load_pack("tooling"))

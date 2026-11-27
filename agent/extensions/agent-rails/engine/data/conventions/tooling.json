@@ -86,7 +86,7 @@
       "beside_code": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping"
     },
     "comment_syntax": {
-      "hash_comments": {
+      "files": {
         "Dockerfile": "https://docs.docker.com/reference/dockerfile/#format",
         "Dockerfile.*": "https://docs.docker.com/reference/dockerfile/#format",
         "Containerfile": "https://docs.docker.com/reference/dockerfile/#format",
@@ -99,7 +99,8 @@
       "parser_directives": {
         "Dockerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives",
         "Dockerfile.*": "https://docs.docker.com/reference/dockerfile/#parser-directives",
-        "Containerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives"
+        "Containerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives",
+        "*.dockerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives"
       }
     }
   },
@@ -207,16 +208,165 @@
     "beside_code": false
   },
   "comment_syntax": {
-    "hash_comments": [
+    "files": [
+      {
+        "patterns": [
+          "Dockerfile",
+          "Dockerfile.*",
+          "Containerfile",
+          "Makefile",
+          "GNUmakefile",
+          "makefile",
+          ".gitignore",
+          ".gitattributes",
+          "CMakeLists.txt",
+          "Rakefile",
+          "*.env",
+          "*.fish",
+          "*.yml",
+          "*.yaml",
+          "*.toml",
+          "*.conf",
+          "*.rb",
+          "*.pl",
+          "*.pm",
+          "*.r",
+          "*.ps1",
+          "*.dockerfile",
+          "*.mk",
+          "*.nix",
+          "*.jl",
+          "*.tcl",
+          "*.awk",
+          "*.tf",
+          "*.tfvars",
+          "*.hcl",
+          "*.graphql",
+          "*.gql",
+          "*.ex",
+          "*.exs",
+          "*.cmake",
+          "*.gemspec",
+          "*.rake"
+        ],
+        "line": ["#"]
+      },
+      {
+        "patterns": [
+          "*.jsonc",
+          "*.json5",
+          "*.c",
+          "*.h",
+          "*.cc",
+          "*.cpp",
+          "*.cxx",
+          "*.hpp",
+          "*.java",
+          "*.cs",
+          "*.rs",
+          "*.swift",
+          "*.kt",
+          "*.kts",
+          "*.scala",
+          "*.dart",
+          "*.php",
+          "*.scss",
+          "*.less",
+          "*.vue",
+          "*.svelte",
+          "*.proto",
+          "*.groovy",
+          "*.gradle",
+          "*.sol",
+          "*.m",
+          "*.mm",
+          "*.tf",
+          "*.tfvars",
+          "*.hcl",
+          "*.prisma"
+        ],
+        "line": ["//"],
+        "block": [["/*", "*/"]]
+      },
+      {
+        "patterns": ["*.css", "*.sql"],
+        "block": [["/*", "*/"]]
+      },
+      {
+        "patterns": [
+          "*.sql",
+          "*.lua",
+          "*.hs",
+          "*.elm",
+          "*.vhd",
+          "*.vhdl",
+          "*.ada"
+        ],
+        "line": ["--"]
+      },
+      {
+        "patterns": ["*.lua"],
+        "block": [["--[[", "]]"]]
+      },
+      {
+        "patterns": ["*.hs", "*.elm"],
+        "block": [["{-", "-}"]]
+      },
+      {
+        "patterns": ["*.tex", "*.erl", "*.hrl", "*.pro"],
+        "line": ["%"]
+      },
+      {
+        "patterns": [
+          "*.el",
+          "*.lisp",
+          "*.clj",
+          "*.cljs",
+          "*.edn",
+          "*.scm",
+          "*.rkt",
+          "*.asm"
+        ],
+        "line": [";"]
+      },
+      {
+        "patterns": ["*.ini", "*.cfg"],
+        "line": ["#", ";"]
+      },
+      {
+        "patterns": ["*.properties"],
+        "line": ["#", "!"]
+      },
+      {
+        "patterns": [
+          "*.html",
+          "*.htm",
+          "*.xml",
+          "*.svg",
+          "*.md",
+          "*.markdown",
+          "*.mdx",
+          "*.vue",
+          "*.svelte"
+        ],
+        "block": [["<!--", "-->"]]
+      }
+    ],
+    "quotes": ["\"", "'", "`"],
+    "markup": [
+      "*.html",
+      "*.htm",
+      "*.xml",
+      "*.svg",
+      "*.md",
+      "*.markdown",
+      "*.mdx"
+    ],
+    "parser_directives": [
       "Dockerfile",
       "Dockerfile.*",
       "Containerfile",
-      "Makefile",
-      "GNUmakefile",
-      "makefile",
-      ".gitignore",
-      ".gitattributes"
-    ],
-    "parser_directives": ["Dockerfile", "Dockerfile.*", "Containerfile"]
+      "*.dockerfile"
+    ]
   }
 }

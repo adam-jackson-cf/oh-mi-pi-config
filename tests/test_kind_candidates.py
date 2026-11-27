@@ -22,7 +22,7 @@ sys.path.insert(
 import pytest
 from test_agentrails_fixture import config, write_config
 
-from guardrails.commands.structure_naming import kind_candidates
+from guardrails.commands.structure_naming import kind_candidates, scan_scope
 from guardrails.context import changes
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -231,6 +231,19 @@ class KindCandidatesCommandTests(unittest.TestCase):
             self.repo, {}, ["--base", self.base, "--head", "missing"]
         )
         assert (finding.rule_id, finding.path) == ("STRUCT.kind-candidates", ".")
+
+
+@pytest.mark.fast
+class ProposedLanguageTests(unittest.TestCase):
+    def test_proposers_read_the_data_languages_and_refuse_ones_they_cannot(
+        self,
+    ) -> None:
+        assert scan_scope.proposed({"python", "go"}) == ("python",)
+        with pytest.raises(ValueError, match="python"):
+            scan_scope.proposed({"typescript"})
+        assert scan_scope.proposed_source("pkg/run.py", {"python"})
+        assert not scan_scope.proposed_source("pkg/run.pyi", {"python"})
+        assert not scan_scope.proposed_source("web/run.ts", {"python", "typescript"})
 
 
 if __name__ == "__main__":

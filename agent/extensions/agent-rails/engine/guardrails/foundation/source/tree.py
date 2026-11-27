@@ -39,6 +39,19 @@ class Definition:
     span: Span
 
 
+@dataclass(frozen=True)
+class Declaration:
+    """One name a file declares at its top level or in a top-level type's body: kind is
+    what declares it (function, method, class, type, type_alias, field, constant,
+    variable, namespace or package), owner the type a member belongs to, node the
+    declaring node."""
+
+    name: str
+    kind: str
+    node: SgNode
+    owner: str | None = None
+
+
 @cache
 def structure_languages() -> dict[str, Any]:
     data: dict[str, Any] = json.loads(
@@ -61,6 +74,11 @@ def languages() -> dict[str, tuple[str, ...]]:
         name: tuple(language_pack(name)["extensions"])
         for name in structure_languages()["languages"]
     }
+
+
+def proposed_languages() -> tuple[str, ...]:
+    """The languages the structure-naming candidate proposers propose for."""
+    return tuple(structure_languages()["proposers"]["languages"])
 
 
 def not_applicable(rule_id: str) -> dict[str, dict[str, str]]:
@@ -181,10 +199,6 @@ def of_kinds(root: SgNode, kinds: frozenset[str]) -> list[SgNode]:
     return root.find_all({"rule": {"any": [{"kind": kind} for kind in sorted(kinds)]}})
 
 
-def unique_texts(root: SgNode, kinds: frozenset[str]) -> list[str]:
-    return list(dict.fromkeys(node.text() for node in of_kinds(root, kinds)))
-
-
 class Offsets:
     def __init__(self, source: str) -> None:
         self.table = (
@@ -204,6 +218,15 @@ class Offsets:
 def spans(source: str, nodes: list[SgNode]) -> list[Span]:
     offsets = Offsets(source)
     return [offsets.span(node) for node in nodes]
+
+
+def comment_nodes(root: SgNode) -> list[SgNode]:
+    """The comment nodes of a tree: every grammar names them comment."""
+    return root.find_all(kind="comment")
+
+
+def comment_spans(root: SgNode, source: str) -> list[Span]:
+    return spans(source, comment_nodes(root))
 
 
 def definition(name: str, offsets: Offsets, first: SgNode, last: SgNode) -> Definition:

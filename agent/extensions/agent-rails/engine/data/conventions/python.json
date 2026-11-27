@@ -73,6 +73,9 @@
       "case_classes": "https://docs.python.org/3/library/unittest.html#unittest.IsolatedAsyncioTestCase",
       "class_prefix": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery",
       "function_prefix": "https://docs.pytest.org/en/stable/explanation/goodpractices.html#test-discovery"
+    },
+    "comment_syntax": {
+      "#": "https://docs.python.org/3/reference/lexical_analysis.html#comments"
     }
   },
   "convention_notes": [
@@ -129,5 +132,8 @@
     "support_dir": "support",
     "beside_code": true
   },
-  "test_support_files": ["conftest.py"]
+  "test_support_files": ["conftest.py"],
+  "comment_syntax": {
+    "line": ["#"]
+  }
 }
