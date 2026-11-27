@@ -109,8 +109,8 @@
       },
       "go": {
         "definitions": "top-level function and method declarations; comments removed",
-        "pair_score_cutoff": null,
-        "source": "not yet measured: the rule does not run for Go"
+        "pair_score_cutoff": 0.4,
+        "source": "measured: 247 labelled unit pairs from 5 repositories, leave-one-repository-out held-out precision 47/64 = 0.73, below the 0.75 floor and accepted by the owner (guardrail-rules.json evidence.go)"
       }
     },
     "STRUCT.prefix-folder": {
@@ -172,11 +172,10 @@
       "STRUCT.consumer-candidates",
       "STRUCT.name-pairs"
     ],
-    "languages": ["python"],
-    "reason": "The candidate proposers (kind-candidates, consumer-candidates, name-pairs) propose only for these languages: the judgments they feed (technical_kind_grouping, consumer_placement, same_thing) were measured on Python cases. Each proposer also reads TypeScript and Go (signals below), which only a measurement asks for, until labelled TypeScript and Go cases measure them.",
+    "languages": "Each proposer proposes only for the languages it is asked for (--languages). The rails ask for the languages its judgment question (kind-candidates: technical_kind_grouping, consumer-candidates: consumer_placement, name-pairs: same_thing) has settings for in thresholds.json decisions.<question>.languages, so a language without measured settings is never proposed for.",
     "source": "agent/extensions/agent-rails/judgments/structure-naming/thresholds.json",
     "signals": {
-      "about": "What each candidate proposer reads in each language, with its published source. A measurement asks a proposer for a language by an explicit languages argument (calibration scripts and tests); the subcommands and the rails propose only for proposers.languages.",
+      "about": "What each candidate proposer reads in each language, with its published source. A measurement asks a proposer for any language it reads (calibration scripts and tests); the rails ask only for the languages its question has settings for.",
       "STRUCT.kind-candidates": {
         "files": "a source file whose folder's last segment is a technical-kind word (any language), with at least one definition, except the file that stands for its folder",
         "python": {

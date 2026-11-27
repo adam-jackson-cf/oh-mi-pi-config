@@ -76,11 +76,6 @@ def languages() -> dict[str, tuple[str, ...]]:
     }
 
 
-def proposed_languages() -> tuple[str, ...]:
-    """The languages the structure-naming candidate proposers propose for."""
-    return tuple(structure_languages()["proposers"]["languages"])
-
-
 def not_applicable(rule_id: str) -> dict[str, dict[str, str]]:
     """The languages a structure rule does not apply to, each with its reason."""
     found: dict[str, dict[str, str]] = structure_languages()["not_applicable"].get(

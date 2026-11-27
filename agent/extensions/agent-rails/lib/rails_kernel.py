@@ -1791,6 +1791,13 @@ DECISION_KEYS = (
     "fallback",
     "round_up_floor",
 )
+# A per-language decision (thresholds.json decisions.<question>.languages) holds these under each
+# language, never once for all of them: the question version it asks there, its mode and cutoff.
+# A language it has no settings for does not run.
+LANGUAGE_KEYS = frozenset({"version_key", "mode", "shadow_exit", *DECISION_KEYS})
+LANGUAGE_NAME = re.compile(r"[a-z][a-z0-9]*")
+# The language of a decision that holds for every input, in the decision store.
+ANY_LANGUAGE = "any"
 # Each decision's place in the jev-actions vocabulary (skill://jev-actions/references/design-patterns.md),
 # so the decision store can compare judgments by kind.
 TAXONOMY_ENUMS: dict[str, tuple[str, ...]] = {
@@ -1825,7 +1832,11 @@ def _judgment_digest(value: object) -> str:
 
 @dataclass(frozen=True)
 class Judgment:
-    """One judgments/<name>/ folder, validated: questions, state shape, pinned model, decisions."""
+    """One judgments/<name>/ folder, validated: questions, state shape, pinned model, decisions.
+
+    A per-language decision holds its shared fields once and each language's settings under
+    languages.<language>; variants holds a question's own wording for a language
+    (questions.json variants.<question>.<language>)."""
 
     name: str
     questions: dict[str, Any]
@@ -1834,6 +1845,49 @@ class Judgment:
     version_key: str
     decisions: dict[str, Any]
     thresholds: dict[str, Any]
+    variants: dict[str, dict[str, Any]] = dataclasses.field(default_factory=dict)
+
+    def languages(self, ident: str) -> tuple[str, ...] | None:
+        """The languages a per-language decision runs for; None for one that holds for every input."""
+        found = self.decisions[ident].get("languages")
+        return None if found is None else tuple(sorted(found))
+
+    def decision(self, ident: str, language: str | None = None) -> dict[str, Any]:
+        """The decision in force for `ident` on an input in `language`: a per-language decision's
+        shared fields with that language's settings. A language without settings raises: the
+        question does not run there."""
+        decision: dict[str, Any] = self.decisions[ident]
+        found = decision.get("languages")
+        if found is None:
+            return decision
+        if language not in found:
+            raise RailsKernelError(
+                f"{self.name}: {ident} has no settings for {language!r}, so it does not run "
+                f"there; it runs for {', '.join(sorted(found))}"
+            )
+        shared = {key: value for key, value in decision.items() if key != "languages"}
+        merged: dict[str, Any] = shared | found[language]
+        return merged
+
+    def question(self, ident: str, language: str | None = None) -> dict[str, Any]:
+        """The question asked for `ident` on an input in `language`: its variant there, else the
+        question itself."""
+        found = self.variants.get(ident, {})
+        question: dict[str, Any] = (
+            found[language]
+            if language is not None and language in found
+            else self.questions[ident]
+        )
+        return question
+
+    def settings(self) -> list[tuple[str, str, dict[str, Any]]]:
+        """Every (question, language, decision in force): ANY_LANGUAGE for a decision that holds
+        for every input."""
+        return [
+            (ident, language, self.decision(ident, language))
+            for ident in self.decisions
+            for language in self.languages(ident) or (ANY_LANGUAGE,)
+        ]
 
 
 def _fraction(value: object) -> TypeGuard[int | float]:
@@ -1966,6 +2020,106 @@ def _check_mode(name: str, ident: str, kind: str, decision: dict[str, Any]) -> N
         )
 
 
+def _check_versioned(
+    name: str, ident: str, question: Any, decision: Any, basis: dict[str, Any]
+) -> None:
+    """A decision fits its question and was tuned on this exact question with the judgment's
+    `basis` (its state and model)."""
+    _check_decision(name, ident, question, decision)
+    if decision.get("version_key") != _judgment_digest({"question": question, **basis}):
+        raise RailsKernelError(
+            f"{name}: decision {ident} is stale; re-score and re-tune it"
+        )
+
+
+def _check_decisions(
+    name: str,
+    questions: dict[str, Any],
+    variants: Any,
+    decisions: dict[str, Any],
+    basis: dict[str, Any],
+) -> None:
+    """Every decision, each per-language one in each of its languages, fits the question asked
+    there and was tuned on it."""
+    for ident in questions:
+        if isinstance(decisions[ident], dict) and "languages" in decisions[ident]:
+            _check_languages(name, ident, decisions[ident])
+    _check_variants(name, questions, variants, decisions)
+    for ident, question in questions.items():
+        decision = decisions[ident]
+        if not isinstance(decision, dict) or "languages" not in decision:
+            _check_versioned(name, ident, question, decision, basis)
+            continue
+        shared = {key: value for key, value in decision.items() if key != "languages"}
+        for language, settings in decision["languages"].items():
+            _check_versioned(
+                name,
+                f"{ident} for {language}",
+                variants.get(ident, {}).get(language, question),
+                shared | settings,
+                basis,
+            )
+
+
+def _check_languages(name: str, ident: str, decision: dict[str, Any]) -> None:
+    """A per-language decision names at least one language, and holds each language's own
+    settings (LANGUAGE_KEYS) only under that language."""
+    languages = decision["languages"]
+    if (
+        not isinstance(languages, dict)
+        or not languages
+        or any(
+            not isinstance(language, str)
+            or not LANGUAGE_NAME.fullmatch(language)
+            or language == ANY_LANGUAGE
+            or not isinstance(settings, dict)
+            for language, settings in languages.items()
+        )
+    ):
+        raise RailsKernelError(
+            f"{name}: decision {ident} needs languages, an object of one settings object per "
+            "lower-case language name"
+        )
+    shared = sorted(LANGUAGE_KEYS & set(decision))
+    if shared:
+        raise RailsKernelError(
+            f"{name}: decision {ident} holds {', '.join(shared)} beside its languages; "
+            "each language holds its own"
+        )
+
+
+def _check_variants(
+    name: str,
+    questions: dict[str, Any],
+    variants: Any,
+    decisions: dict[str, Any],
+) -> None:
+    """A question's variant is a question of the same type for a language its per-language
+    decision has settings for."""
+    if not isinstance(variants, dict):
+        raise RailsKernelError(f"{name}: variants must be an object")
+    for ident, found in variants.items():
+        decision = decisions.get(ident)
+        languages = decision.get("languages") if isinstance(decision, dict) else None
+        if ident not in questions or not isinstance(found, dict) or not found:
+            raise RailsKernelError(
+                f"{name}: variants.{ident} must name a question and hold its variants"
+            )
+        for language, question in found.items():
+            if not isinstance(languages, dict) or language not in languages:
+                raise RailsKernelError(
+                    f"{name}: variants.{ident}.{language} has no settings in decision "
+                    f"{ident}'s languages, so it is never asked"
+                )
+            if not isinstance(question, dict) or question.get("type") != questions[
+                ident
+            ].get("type"):
+                raise RailsKernelError(
+                    f"{name}: variants.{ident}.{language} must be a question of the same "
+                    "type as the question it varies"
+                )
+
+
 def load_judgment(name: str) -> Judgment:
     """judgments/<name>/ with its thresholds; stale version keys raise (re-score, then re-tune)."""
     if not isinstance(name, str) or not JUDGMENT_NAME.fullmatch(name):
@@ -1975,6 +2129,7 @@ def load_judgment(name: str) -> Judgment:
         document = json.loads((directory / "questions.json").read_text())
         thresholds = json.loads((directory / "thresholds.json").read_text())
         questions, state = document["questions"], document["state"]
+        variants = document.get("variants", {})
         model, decisions = thresholds["model"], thresholds["decisions"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise RailsKernelError(f"cannot read judgment {name}: {exc}") from exc
@@ -2002,6 +2157,7 @@ def load_judgment(name: str) -> Judgment:
         "questions": questions,
         "state": state,
         "model": model,
+        **({"variants": variants} if variants else {}),
     }):
         raise RailsKernelError(
             f"{name}: thresholds are stale for the current questions or model; re-score the cases and re-tune"
@@ -2010,37 +2166,37 @@ def load_judgment(name: str) -> Judgment:
         raise RailsKernelError(
             f"{name}: thresholds must hold one decision per question"
         )
-    for ident, question in questions.items():
-        decision = decisions[ident]
-        _check_decision(name, ident, question, decision)
-        expected = _judgment_digest({
-            "question": question,
-            "state": state,
-            "model": model,
-        })
-        if decision.get("version_key") != expected:
-            raise RailsKernelError(
-                f"{name}: decision {ident} is stale; re-score and re-tune it"
-            )
+    _check_decisions(
+        name, questions, variants, decisions, {"state": state, "model": model}
+    )
     judgment = Judgment(
-        name, questions, state, model, thresholds["version_key"], decisions, thresholds
+        name,
+        questions,
+        state,
+        model,
+        thresholds["version_key"],
+        decisions,
+        thresholds,
+        variants,
     )
     _register_questions(judgment)
     return judgment
 
 
 def _question_rows(judgment: Judgment) -> list[dict[str, Any]]:
-    """One decision store questions row per question: taxonomy, mode and the decision in force."""
+    """One decision store questions row per question and language: taxonomy, mode and the
+    decision in force."""
     loaded = datetime.now(UTC).isoformat(timespec="seconds")
     shared = judgment.thresholds.get("minimums")
     rows = []
-    for ident, decision in judgment.decisions.items():
+    for ident, language, decision in judgment.settings():
         minimums = decision.get("minimums", shared)
         override = decision.get("override", judgment.thresholds.get("override"))
         rows.append({
             "judgment": judgment.name,
             "question": ident,
             "question_version": decision["version_key"],
+            "language": language,
             **{field: decision[field] for field in TAXONOMY_FIELDS},
             "overlays": json.dumps(decision["overlays"]),
             "decision": json.dumps(
@@ -2073,8 +2229,9 @@ def _register_questions(judgment: Judgment) -> None:
 def effective_judgment(
     judgment: Judgment, config: Mapping[str, Any] | None
 ) -> Judgment:
-    """`judgment` as the repo config runs it: each question at the lower of its global mode and
-    the config's `judgments["<judgment>/<question>"]` override (off < shadow < enforced).
+    """`judgment` as the repo config runs it: each question (each of its languages, for a
+    per-language decision) at the lower of its global mode and the config's
+    `judgments["<judgment>/<question>"]` override (off < shadow < enforced).
 
     An off question leaves both questions and decisions, so it is never asked and writes no
     decisions row. None (no config applies) returns the judgment unchanged. The questions table
@@ -2086,23 +2243,16 @@ def effective_judgment(
     decisions: dict[str, Any] = {}
     for ident, decision in judgment.decisions.items():
         setting = overrides.get(f"{judgment.name}/{ident}")
-        mode = (
-            decision["mode"]
+        wanted = (
+            None
             if setting is None
             else setting["mode"]
             if setting["enabled"]
             else "off"
         )
-        if MODE_RANK[mode] > MODE_RANK[decision["mode"]]:
-            # The config validator refuses this; a config that reached here was not validated.
-            raise RailsKernelError(
-                f"{judgment.name}/{ident}: the repo config sets {mode} above the global "
-                f"{decision['mode']} mode; only measurement promotes a question"
-            )
-        if mode != "off":
-            decisions[ident] = (
-                decision if mode == decision["mode"] else {**decision, "mode": mode}
-            )
+        found = _effective_decision(f"{judgment.name}/{ident}", decision, wanted)
+        if found is not None:
+            decisions[ident] = found
     return dataclasses.replace(
         judgment,
         questions={
@@ -2112,6 +2262,45 @@ def effective_judgment(
         },
         decisions=decisions,
     )
+
+
+def _capped(settings: dict[str, Any], wanted: str | None) -> dict[str, Any]:
+    """`settings` at the lower of its own mode and the config's `wanted` one."""
+    mode = settings["mode"]
+    if wanted is None or MODE_RANK[wanted] >= MODE_RANK[mode]:
+        return settings
+    return {**settings, "mode": wanted}
+
+
+def _effective_decision(
+    key: str, decision: dict[str, Any], wanted: str | None
+) -> dict[str, Any] | None:
+    """One decision as the repo config runs it: None when the config turns it off, else each
+    language (or the decision itself) at the lower of its global mode and the config's."""
+    if wanted == "off":
+        return None
+    languages = decision.get("languages")
+    modes = (
+        [decision["mode"]]
+        if languages is None
+        else [settings["mode"] for settings in languages.values()]
+    )
+    highest = max(modes, key=MODE_RANK.__getitem__)
+    if wanted is not None and MODE_RANK[wanted] > MODE_RANK[highest]:
+        # The config validator refuses this; a config that reached here was not validated.
+        raise RailsKernelError(
+            f"{key}: the repo config sets {wanted} above the global {highest} mode; "
+            "only measurement promotes a question"
+        )
+    if languages is None:
+        return _capped(decision, wanted)
+    return {
+        **decision,
+        "languages": {
+            language: _capped(settings, wanted)
+            for language, settings in languages.items()
+        },
+    }
 
 
 def outcome(decision: dict[str, Any], probability: float) -> str:
@@ -2209,11 +2398,16 @@ class JudgmentCall:
         return cls(judgment, state, context, store.new_id(), store.now())
 
     def row(
-        self, ident: str, answer: Any, failure: tuple[str, str] | None
+        self,
+        ident: str,
+        answer: Any,
+        failure: tuple[str, str] | None,
+        language: str | None = None,
     ) -> dict[str, Any]:
-        """The decisions row for one asked question: its answer, or (status, error) when it has none."""
+        """The decisions row for one asked question: its answer, or (status, error) when it has
+        none. A per-language decision needs the input's `language`."""
         store = _store()
-        decision = self.judgment.decisions[ident]
+        decision = self.judgment.decision(ident, language)
         row: dict[str, Any] = {
             "id": store.new_id(),
             "call_id": self.call_id,
@@ -2224,6 +2418,9 @@ class JudgmentCall:
             "mode": decision["mode"],
             "model": self.judgment.model,
             "question_version": decision["version_key"],
+            "language": ANY_LANGUAGE
+            if self.judgment.languages(ident) is None
+            else language,
             "judgment_version": self.judgment.version_key,
             "machine": store.machine_name(),
             "state_sha256": _judgment_digest(self.state),
@@ -2252,13 +2449,20 @@ class JudgmentCall:
         return row
 
     def log(
-        self, rows: list[dict[str, Any]], idents: list[str], response: object
+        self,
+        rows: list[dict[str, Any]],
+        idents: list[str],
+        response: object,
+        language: str | None = None,
     ) -> None:
-        """Write the rows, with the exact state, questions and response as the call's payload."""
+        """Write the rows, with the exact state, questions (as asked in `language`) and response
+        as the call's payload."""
         store = _store()
         payload = {
             "state": self.state,
-            "questions": {ident: self.judgment.questions[ident] for ident in idents},
+            "questions": {
+                ident: self.judgment.question(ident, language) for ident in idents
+            },
             "response": response,
         }
         try:
@@ -2990,11 +3194,22 @@ def _structure_judgment() -> Judgment:
             "structure questions must be exactly these, consumer_placement a choice "
             "and the rest bool: " + ", ".join(sorted(STRUCTURE_QUESTIONS))
         )
+    unsplit = sorted(
+        ident for ident in judgment.questions if judgment.languages(ident) is None
+    )
+    if unsplit:
+        raise RailsKernelError(
+            "structure questions run per source language, so each decision needs languages "
+            f"settings: {', '.join(unsplit)}"
+        )
     return judgment
 
 
-def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
-    """JSON a harness proposer subcommand prints; the config's exceptions drop proposals."""
+def _proposals(
+    repo: Path, subcommand: str, parent: str, head: str, languages: Collection[str]
+) -> Any:
+    """JSON a harness proposer subcommand prints for `languages`; the config's exceptions drop
+    proposals."""
     ok, output = run_check(
         [
             sys.executable,
@@ -3010,6 +3225,8 @@ def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
             parent,
             "--head",
             head,
+            "--languages",
+            ",".join(languages),
         ],
         repo,
         timeout=HARNESS_CHECK_TIMEOUT,
@@ -3020,48 +3237,65 @@ def _proposals(repo: Path, subcommand: str, parent: str, head: str) -> Any:
     return json.loads(output)
 
 
-def _name_pairs(repo: Path, parent: str, head: str) -> list[dict[str, Any]]:
-    """Code-proposed name pairs for the same_thing question."""
-    pairs = _proposals(repo, "name-pairs", parent, head).get("pairs")
+def _name_pairs(
+    repo: Path, parent: str, head: str, languages: Collection[str]
+) -> list[dict[str, Any]]:
+    """Code-proposed name pairs in `languages` for the same_thing question."""
+    pairs = _proposals(repo, "name-pairs", parent, head, languages).get("pairs")
     if not isinstance(pairs, list) or any(
         not isinstance(pair, dict)
         or not isinstance(pair.get("id"), str)
+        or pair.get("language") not in languages
         or not _fraction(pair.get("proposer_score"))
         or set(pair.get("state") or {}) != {"first", "second"}
         for pair in pairs
     ):
         raise RailsKernelError(
-            "name-pairs must emit {pairs: [{id, proposer_score, state}]}"
+            "name-pairs must emit {pairs: [{id, language, proposer_score, state}]} "
+            f"in the languages asked for ({', '.join(languages)})"
         )
     return pairs
 
 
-def _consumer_candidates(repo: Path, parent: str, head: str) -> list[dict[str, Any]]:
-    """Code-proposed consumer files for the consumer_placement question."""
-    found = _proposals(repo, "consumer-candidates", parent, head).get("candidates")
+def _consumer_candidates(
+    repo: Path, parent: str, head: str, languages: Collection[str]
+) -> list[dict[str, Any]]:
+    """Code-proposed consumer files in `languages` for the consumer_placement question."""
+    found = _proposals(repo, "consumer-candidates", parent, head, languages).get(
+        "candidates"
+    )
     if not isinstance(found, list) or any(
         not isinstance(item, dict)
         or not isinstance(item.get("path"), str)
+        or item.get("language") not in languages
         or set(item.get("state") or {}) != {"file", "package"}
         for item in found
     ):
         raise RailsKernelError(
-            "consumer-candidates must emit {candidates: [{path, state}]}"
+            "consumer-candidates must emit {candidates: [{path, language, state}]} "
+            f"in the languages asked for ({', '.join(languages)})"
         )
     return found
 
 
-def _kind_candidates(repo: Path, parent: str, head: str) -> list[dict[str, Any]]:
-    """Code-proposed files in technical-kind folders for the technical_kind_grouping question."""
-    found = _proposals(repo, "kind-candidates", parent, head).get("candidates")
+def _kind_candidates(
+    repo: Path, parent: str, head: str, languages: Collection[str]
+) -> list[dict[str, Any]]:
+    """Code-proposed files in technical-kind folders, in `languages`, for the
+    technical_kind_grouping question."""
+    found = _proposals(repo, "kind-candidates", parent, head, languages).get(
+        "candidates"
+    )
     if not isinstance(found, list) or any(
         not isinstance(item, dict)
         or not isinstance(item.get("path"), str)
+        or item.get("language") not in languages
         or set(item.get("state") or {}) != {"file", "folder", "importers"}
         for item in found
     ):
         raise RailsKernelError(
-            "kind-candidates must emit {candidates: [{path, state}]}"
+            "kind-candidates must emit {candidates: [{path, language, state}]} "
+            f"in the languages asked for ({', '.join(languages)})"
         )
     return found
 
@@ -3172,12 +3406,21 @@ async def structure_review(
         require_judge_model(judgment)
         review = StructureReview(judgment, result, _github_repo(repo))
         # A question the repo config turns off runs neither its proposer nor the judge.
+        # Each proposer proposes only for the languages its question has settings for.
         if review.asks(KIND_QUESTION):
-            await review.judge_kind_files(_kind_candidates(repo, parent, head))
+            await review.judge_kind_files(
+                _kind_candidates(repo, parent, head, review.languages(KIND_QUESTION))
+            )
         if review.asks(PAIR_QUESTION):
-            await review.judge_pairs(_name_pairs(repo, parent, head))
+            await review.judge_pairs(
+                _name_pairs(repo, parent, head, review.languages(PAIR_QUESTION))
+            )
         if review.asks(CONSUMER_QUESTION):
-            await review.judge_consumers(_consumer_candidates(repo, parent, head))
+            await review.judge_consumers(
+                _consumer_candidates(
+                    repo, parent, head, review.languages(CONSUMER_QUESTION)
+                )
+            )
     except INFRASTRUCTURE_ERRORS as exc:
         result["errors"].append(f"infrastructure: {exc}")
     except Exception as exc:
@@ -3206,6 +3449,16 @@ def _structure_status(result: dict[str, Any]) -> str:
     return "incomplete" if result["errors"] else "pass"
 
 
+def _by_language(
+    proposals: list[dict[str, Any]],
+) -> list[tuple[str, list[dict[str, Any]]]]:
+    """Proposals grouped by the language their proposer gave each, in language order."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for proposal in proposals:
+        grouped.setdefault(proposal["language"], []).append(proposal)
+    return sorted(grouped.items())
+
+
 class StructureReview:
     """Judge code-proposed files and pairs through the eval kernel; record scores and findings."""
 
@@ -3219,6 +3472,10 @@ class StructureReview:
         """Whether the effective judgment asks `ident`: a question the repo config turns off is
         never asked and logs nothing."""
         return ident in self.judgment.decisions
+
+    def languages(self, ident: str) -> tuple[str, ...]:
+        """The languages `ident` has settings for: its proposer proposes for these only."""
+        return self.judgment.languages(ident) or ()
 
     async def ask(
         self,
@@ -3257,11 +3514,11 @@ class StructureReview:
     ) -> None:
         """Combine one proposal's answers (mean, times the proposer's score when it has one),
         log its decisions row and record its outcome and any finding."""
-        kind, item_id = proposal["kind"], proposal["id"]
+        kind, item_id, language = proposal["kind"], proposal["id"], proposal["language"]
         call = JudgmentCall.start(
             self.judgment, proposal["state"], self.proposal_context(kind, item_id)
         )
-        decision = self.judgment.decisions[ident]
+        decision = self.judgment.decision(ident, language)
         numbers = [
             value
             for value in values
@@ -3274,17 +3531,17 @@ class StructureReview:
                 f"{ident} was not answered in every order",
             )
             self.result["errors"].append(f"{item_id}: judgment: {error}")
-            row = call.row(ident, None, ("error", error))
+            row = call.row(ident, None, ("error", error), language)
         else:
             mean = sum(numbers) / len(numbers)
             score = round(mean if proposer is None else proposer * mean, 6)
-            row = call.row(ident, score, None)
+            row = call.row(ident, score, None, language)
             row |= {"probability": mean, "combined_score": score}
             if proposer is not None:
                 row["proposer_score"] = proposer
             verdict = outcome(decision, score)
         try:
-            call.log([row], [ident], {"answers": values})
+            call.log([row], [ident], {"answers": values}, language)
         except RailsKernelError as exc:
             self.result["errors"].append(f"{item_id}: {exc}")
         if verdict is not None:
@@ -3293,9 +3550,10 @@ class StructureReview:
     def record_proposal(
         self, ident: str, proposal: dict[str, Any], row: dict[str, Any], verdict: str
     ) -> None:
-        decision = self.judgment.decisions[ident]
+        decision = self.judgment.decision(ident, proposal["language"])
         item_id, score = proposal["id"], row["combined_score"]
         self.result[proposal["record"]][item_id] = {
+            "language": proposal["language"],
             "digest": _judgment_digest(proposal["state"]),
             "probability": row["probability"],
             "score": score,
@@ -3315,68 +3573,88 @@ class StructureReview:
             self.result["findings"].append({
                 "item": item_id,
                 "question": ident,
+                "language": proposal["language"],
                 "mode": decision["mode"],
                 "score": score,
                 "threshold": decision.get("threshold", decision.get("yes_at_least")),
             })
 
     async def judge_kind_files(self, candidates: list[dict[str, Any]]) -> None:
-        """Each kind-folder file asks the technical_kind_grouping question once."""
+        """Each kind-folder file asks the technical_kind_grouping question once, as worded for
+        its language."""
         if not candidates or not self.asks(KIND_QUESTION):
             return
-        asked = self.judgment.decisions[KIND_QUESTION].get("asked_as", KIND_QUESTION)
-        found = await self.ask(
-            {item["path"]: item["state"] for item in candidates},
-            {asked: self.questions[KIND_QUESTION]},
-            "Structure/naming kind-folder files",
-            lambda answers: _probability(answers, asked, "bool"),
-        )
-        for item in candidates:
-            self.decide_proposal(
-                KIND_QUESTION,
-                {
-                    "kind": "file",
-                    "id": item["path"],
-                    "state": item["state"],
-                    "record": "kind_files",
-                },
-                [found.get(item["path"])],
+        for language, group in _by_language(candidates):
+            asked = self.judgment.decision(KIND_QUESTION, language).get(
+                "asked_as", KIND_QUESTION
             )
+
+            def read(answers: object, asked: str = asked) -> float:
+                found: float = _probability(answers, asked, "bool")
+                return found
+
+            found = await self.ask(
+                {item["path"]: item["state"] for item in group},
+                {asked: self.judgment.question(KIND_QUESTION, language)},
+                "Structure/naming kind-folder files",
+                read,
+            )
+            for item in group:
+                self.decide_proposal(
+                    KIND_QUESTION,
+                    {
+                        "kind": "file",
+                        "id": item["path"],
+                        "language": language,
+                        "state": item["state"],
+                        "record": "kind_files",
+                    },
+                    [found.get(item["path"])],
+                )
 
     async def judge_pairs(self, pairs: list[dict[str, Any]]) -> None:
         """Each name pair asks same_thing in both orders; score = proposer_score * mean P(true)."""
         if not pairs or not self.asks(PAIR_QUESTION):
             return
-        states: dict[str, dict[str, Any]] = {}
-        for pair in pairs:
-            first, second = pair["state"]["first"], pair["state"]["second"]
-            states[pair["id"] + "##ab"] = {"first": first, "second": second}
-            states[pair["id"] + "##ba"] = {"first": second, "second": first}
-        found = await self.ask(
-            states,
-            {PAIR_QUESTION: self.questions[PAIR_QUESTION]},
-            "Structure/naming name pairs",
-            lambda answers: _probability(answers, PAIR_QUESTION, "bool"),
-        )
-        for pair in pairs:
-            self.decide_proposal(
-                PAIR_QUESTION,
-                {
-                    "kind": "pair",
-                    "id": pair["id"],
-                    "state": pair["state"],
-                    "record": "pairs",
-                },
-                [found.get(pair["id"] + suffix) for suffix in ("##ab", "##ba")],
-                pair["proposer_score"],
+        for language, group in _by_language(pairs):
+            states: dict[str, dict[str, Any]] = {}
+            for pair in group:
+                first, second = pair["state"]["first"], pair["state"]["second"]
+                states[pair["id"] + "##ab"] = {"first": first, "second": second}
+                states[pair["id"] + "##ba"] = {"first": second, "second": first}
+            found = await self.ask(
+                states,
+                {PAIR_QUESTION: self.judgment.question(PAIR_QUESTION, language)},
+                "Structure/naming name pairs",
+                lambda answers: _probability(answers, PAIR_QUESTION, "bool"),
             )
+            for pair in group:
+                self.decide_proposal(
+                    PAIR_QUESTION,
+                    {
+                        "kind": "pair",
+                        "id": pair["id"],
+                        "language": language,
+                        "state": pair["state"],
+                        "record": "pairs",
+                    },
+                    [found.get(pair["id"] + suffix) for suffix in ("##ab", "##ba")],
+                    pair["proposer_score"],
+                )
 
     async def judge_consumers(self, candidates: list[dict[str, Any]]) -> None:
         """Each candidate in both option orders; score = mean P(option)."""
         if not candidates or not self.asks(CONSUMER_QUESTION):
             return
-        decision = self.judgment.decisions[CONSUMER_QUESTION]
-        question = self.questions[CONSUMER_QUESTION]
+        for language, group in _by_language(candidates):
+            await self.judge_consumer_group(language, group)
+
+    async def judge_consumer_group(
+        self, language: str, candidates: list[dict[str, Any]]
+    ) -> None:
+        """One language's candidates, asked the consumer question as worded for it."""
+        decision = self.judgment.decision(CONSUMER_QUESTION, language)
+        question = self.judgment.question(CONSUMER_QUESTION, language)
         asked = decision.get("asked_as", CONSUMER_QUESTION)
         criteria = question["criteria"]
 
@@ -3403,6 +3681,7 @@ class StructureReview:
                 {
                     "kind": "file",
                     "id": item["path"],
+                    "language": language,
                     "state": item["state"],
                     "record": "consumers",
                 },

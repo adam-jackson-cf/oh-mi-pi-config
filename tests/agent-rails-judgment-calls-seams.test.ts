@@ -28,9 +28,9 @@ function store(rows: Row[]): string {
 	const path = join(mkdtempSync(join(tmpdir(), "judgment-calls-")), "agent-rails.db");
 	withStore(db => {
 		const insert = db.query(`INSERT INTO decisions (id, call_id, ts, source, judgment, question, mode, status, error, outcome, probability,
-			choice_probabilities, model, question_version, judgment_version, trigger, machine, state_sha256)
+			choice_probabilities, model, question_version, language, judgment_version, trigger, machine, state_sha256)
 			VALUES ($id, $call, $ts, 'jev', $judgment, $question, $mode, $status, $error, $outcome, $probability,
-			$choice, 'typesafe/jev-1.14.0', $question_version, $version, 'manual', 'test-host', $state)`);
+			$choice, 'typesafe/jev-1.14.0', $question_version, 'any', $version, 'manual', 'test-host', $state)`);
 		rows.forEach((row, index) => insert.run({ ...columns(row, index), question_version: digest("e") }));
 	}, path);
 	return path;
@@ -81,7 +81,7 @@ test("a store at another schema version is refused, never read or upgraded", () 
 	for (const version of [1, 99]) {
 		const path = store([{ call: callId("1"), question: "reached" }]);
 		withStore(db => db.exec(`PRAGMA user_version = ${version}`), path);
-		assert.throws(() => openStore(path), new RegExp(`schema version ${version}; this harness reads version 2 only`));
+		assert.throws(() => openStore(path), new RegExp(`schema version ${version}; this harness reads version 3 only`));
 		assert.throws(() => readJudgmentCalls(path), new RegExp(`schema version ${version}`));
 	}
 });

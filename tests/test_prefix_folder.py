@@ -185,7 +185,7 @@ class PrefixFolderScoreTests(unittest.TestCase):
         rule = next(
             item for item in catalogue_rules() if item["id"] == prefix_folder.RULE
         )
-        assert rule["contract"]["evidence"]["accepted_on"] == "2026-11-23"
+        assert rule["contract"]["evidence"]["python"]["accepted_on"] == "2026-11-23"
         assert remediations()[prefix_folder.RULE].render().startswith("root cause: ")
 
 

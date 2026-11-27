@@ -202,20 +202,26 @@ class KindCandidatesCommandTests(unittest.TestCase):
                 self.base,
                 "--head",
                 self.head,
+                "--languages",
+                "python",
             ],
             check=False,
             timeout=60,
         )
         assert result.returncode == 0, result.stdout + result.stderr
         found: list[dict[str, Any]] = json.loads(result.stdout)["candidates"]
-        assert [item["path"] for item in found] == ["app/models/invoice.py"]
+        assert [(item["path"], item["language"]) for item in found] == [
+            ("app/models/invoice.py", "python")
+        ]
 
     def test_the_run_prints_candidates_from_the_head_tree(self) -> None:
         printed = io.StringIO()
         with redirect_stdout(printed):
             assert (
                 kind_candidates.run(
-                    self.repo, {}, ["--base", self.base, "--head", self.head]
+                    self.repo,
+                    {},
+                    ["--base", self.base, "--head", self.head, "--languages", "python"],
                 )
                 == []
             )
@@ -234,25 +240,28 @@ class KindCandidatesCommandTests(unittest.TestCase):
         failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
         with patch.object(changes, "run_bytes", return_value=failed):
             (finding,) = kind_candidates.run(
-                self.repo, {}, ["--base", self.base, "--head", self.head]
+                self.repo,
+                {},
+                ["--base", self.base, "--head", self.head, "--languages", "python"],
             )
         assert finding.message == "bad object"
 
     def test_unreadable_commits_are_a_finding(self) -> None:
         (finding,) = kind_candidates.run(
-            self.repo, {}, ["--base", self.base, "--head", "missing"]
+            self.repo,
+            {},
+            ["--base", self.base, "--head", "missing", "--languages", "python"],
         )
         assert (finding.rule_id, finding.path) == ("STRUCT.kind-candidates", ".")
 
 
 @pytest.mark.fast
 class ProposedLanguageTests(unittest.TestCase):
-    def test_proposers_read_the_data_languages_and_refuse_ones_they_cannot(
-        self,
-    ) -> None:
-        assert scan_scope.proposed({"python", "go"}) == ("python",)
-        with pytest.raises(ValueError, match="python"):
-            scan_scope.proposed({"typescript"})
+    def test_proposers_read_the_languages_they_are_asked_for(self) -> None:
+        assert scan_scope.language_list("python,go") == ("python", "go")
+        assert scan_scope.language_list("") == ()
+        with pytest.raises(ValueError, match="cannot read rust"):
+            scan_scope.checked(scan_scope.language_list("go,rust"), {"python", "go"})
         assert scan_scope.runs("pkg/run.py", {"python"})
         assert not scan_scope.runs("pkg/run.pyi", {"python"})
         assert not scan_scope.runs("web/run.ts", {"python"})

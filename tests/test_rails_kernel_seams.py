@@ -1868,18 +1868,24 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         self.kinds: list[dict[str, Any]] = [
             {
                 "path": "src/models/order.py",
+                "language": "python",
                 "state": {"file": {}, "folder": "src/models", "importers": []},
             }
         ]
         self.pairs: list[dict[str, Any]] = [
             {
                 "id": PAIR_ID,
+                "language": "python",
                 "proposer_score": 0.5,
                 "state": {"first": {"name": "x"}, "second": {"name": "y"}},
             }
         ]
         self.consumers: list[dict[str, Any]] = [
-            {"path": "src/orders/dash.py", "state": {"file": {}, "package": {}}}
+            {
+                "path": "src/orders/dash.py",
+                "language": "python",
+                "state": {"file": {}, "package": {}},
+            }
         ]
 
     async def review(
@@ -1973,15 +1979,18 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
                 for row in store.execute("SELECT * FROM decisions ORDER BY rowid")
             ]
 
+    def python(self, ident: str) -> dict[str, Any]:
+        """The Python settings of a structure question, which the Python proposals use."""
+        settings: dict[str, Any] = self.judgment.decisions[ident]["languages"]["python"]
+        return settings
+
     def shadow(self, *idents: str) -> None:
         for ident in idents:
-            self.judgment.decisions[ident].update(
-                mode="shadow", shadow_exit={"labelled_flags": 10}
-            )
+            self.python(ident).update(mode="shadow", shadow_exit={"labelled_flags": 10})
 
     def enforce(self, ident: str) -> None:
-        self.judgment.decisions[ident]["mode"] = "enforced"
-        self.judgment.decisions[ident].pop("shadow_exit", None)
+        self.python(ident)["mode"] = "enforced"
+        self.python(ident).pop("shadow_exit", None)
 
     async def test_every_enforced_finding_blocks_and_never_changes_prove_signal(
         self,
@@ -2090,7 +2099,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
     async def test_an_escalated_band_decision_leaves_the_review_incomplete(
         self,
     ) -> None:
-        decision = self.judgment.decisions[rails_kernel.KIND_QUESTION]
+        decision = self.python(rails_kernel.KIND_QUESTION)
         del decision["threshold"]
         decision.update(no_at_most=0.3, yes_at_least=0.9, fallback="backup")
         self.pairs, self.consumers = [], []
@@ -2121,6 +2130,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         assert {
             "item": PAIR_ID,
             "question": rails_kernel.PAIR_QUESTION,
+            "language": "python",
             "mode": "enforced",
             "score": 0.051143,
             "threshold": 0.051143,
@@ -2163,17 +2173,24 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(
             rails_kernel, "run_check", return_value=(True, json.dumps({"pairs": []}))
         ) as run:
-            assert rails_kernel._name_pairs(self.repo, self.parent, self.head) == []
+            assert (
+                rails_kernel._name_pairs(
+                    self.repo, self.parent, self.head, ("python", "typescript")
+                )
+                == []
+            )
         argv = run.call_args.args[0]
         assert argv[:3] == [sys.executable, "-I", "-c"]
         assert "name-pairs" in argv
-        assert argv[-6:] == [
+        assert argv[-8:] == [
             "--repo",
             str(self.repo),
             "--base",
             self.parent,
             "--head",
             self.head,
+            "--languages",
+            "python,typescript",
         ]
         assert run.call_args.kwargs["stdout_only"]
 
@@ -2186,9 +2203,11 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         git(self.repo, "commit", "-qm", "add order model")
         head = git(self.repo, "rev-parse", "HEAD")
 
-        found = rails_kernel._kind_candidates(self.repo, self.parent, head)
+        found = rails_kernel._kind_candidates(self.repo, self.parent, head, ("python",))
 
-        assert [item["path"] for item in found] == ["src/models/order.py"]
+        assert [(item["path"], item["language"]) for item in found] == [
+            ("src/models/order.py", "python")
+        ]
         assert found[0]["state"]["folder"] == "src/models"
 
     def test_comment_updates_existing_marker_instead_of_posting_again(

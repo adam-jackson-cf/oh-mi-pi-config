@@ -25,7 +25,7 @@ from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.foundation.source import modules, python, tree
-from guardrails.foundation.source.tree import SourceError
+from guardrails.foundation.source.tree import SourceError, language_of
 
 if TYPE_CHECKING:
     from guardrails.foundation.source.tree import SgNode
@@ -377,12 +377,14 @@ def consumer_candidates(
     config: dict[str, Any],
     languages: Collection[str],
 ) -> list[dict[str, Any]]:
-    """The changed unused programs of the languages asked for: the subcommand asks for
-    proposers.languages, a measurement for any language this proposer reads."""
+    """The changed unused programs of the languages asked for, each with its language: the
+    kernel asks for the languages its question has settings for, a measurement for any
+    language this proposer reads."""
     asked = scan_scope.checked(languages, READS)
     return [
         {
             "path": path,
+            "language": language_of(path),
             "proposer_score": facts["proposer_score"],
             "run_markers": facts["run_markers"],
             "state": consumer_state(tree, path, facts),
@@ -398,12 +400,13 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     )
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
+    parser.add_argument("--languages", required=True, type=scan_scope.language_list)
     args = parser.parse_args(argv)
     excluded_paths = as_list(
         checker_settings(config, "check").get("exclude")
     ) + as_list(checker_settings(config, "python").get("excluded_paths"))
     try:
-        languages = scan_scope.proposed(READS)
+        languages = scan_scope.checked(args.languages, READS)
         tree = head_tree(repo, args.head, excluded_paths, languages)
         found = consumer_candidates(
             tree, changed_paths(repo, args.base, args.head, "AMR"), config, languages

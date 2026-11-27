@@ -16,7 +16,7 @@ from guardrails.commands.structure_naming.name_pair.propose import (
 from guardrails.commands.structure_naming.scan_scope import (
     checked,
     is_vendored_path,
-    proposed,
+    language_list,
 )
 from guardrails.context.changes import (
     DiffError,
@@ -206,6 +206,19 @@ def pair_id(pair: dict[str, Any]) -> str:
     )
 
 
+def pair_language(pair: dict[str, Any]) -> str | None:
+    """The language both names of a pair are written in: the proposer pairs names of one
+    language only."""
+    return next(
+        (
+            language_of(name["path"])
+            for name in (pair["a"], pair["b"])
+            if name.get("path")
+        ),
+        None,
+    )
+
+
 def exempt(pair: dict[str, Any], config: dict[str, Any]) -> bool:
     paths = {name.get("path") for name in (pair["a"], pair["b"])} - {None}
     probes = [Finding(EXCEPTION_RULE, str(path), "", "") for path in sorted(paths)]
@@ -249,8 +262,9 @@ def name_pair_candidates(
     config: dict[str, Any],
     languages: Collection[str],
 ) -> list[dict[str, Any]]:
-    """The changed same-thing name pairs of the languages asked for: the subcommand asks
-    for proposers.languages, a measurement for any language this proposer reads."""
+    """The changed same-thing name pairs of the languages asked for, each with its language
+    (both names share it): the kernel asks for the languages its question has settings for,
+    a measurement for any language this proposer reads."""
     sources = Sources(tree, lambda path: is_test_source(path, config))
     index = NameIndex(tree, sources.is_test, checked(languages, READS))
     found = []
@@ -260,6 +274,7 @@ def name_pair_candidates(
             continue
         found.append({
             "id": pair_id(pair),
+            "language": pair_language(pair),
             "proposer_score": pair["proposer_score"],
             "features": pair["features"],
             "state": pair_state(sources, pair),
@@ -271,6 +286,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=SUBCOMMANDS["name-pairs"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
+    parser.add_argument("--languages", required=True, type=language_list)
     args = parser.parse_args(argv)
     excluded = as_list(checker_settings(config, "check").get("exclude")) + as_list(
         checker_settings(config, "python").get("excluded_paths")
@@ -281,7 +297,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
             tree,
             changed_paths(repo, args.base, args.head, "AMR"),
             config,
-            proposed(READS),
+            args.languages,
         )
     except (DiffError, ValueError) as error:
         return [

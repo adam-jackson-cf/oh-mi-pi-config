@@ -1350,8 +1350,10 @@ class ShippedJudgmentTests(unittest.TestCase):
                 for row in csv.DictReader(io.StringIO(scores.decode())):
                     ident = row["question_id"]
                     assert row["model"] == judgment.model
+                    # A per-language decision's scores name the language they measured.
+                    decision = judgment.decision(ident, row.get("language"))
                     assert row["question_version"] == (
-                        f"{ident}@{judgment.decisions[ident]['version_key']}"
+                        f"{ident}@{decision['version_key']}"
                     )
                     assert row["label"] in ("0", "1")
                     assert 0 <= float(row["score"]) <= 1
@@ -1445,6 +1447,7 @@ class StructureProposalTests(unittest.TestCase):
         pairs = [
             {
                 "id": "a.py::x<>b.py::y",
+                "language": "python",
                 "proposer_score": 0.2,
                 "state": {"first": {"name": "x"}, "second": {"name": "y"}},
             }
@@ -1461,7 +1464,11 @@ class StructureProposalTests(unittest.TestCase):
         assert not review.asks(rails_kernel.CONSUMER_QUESTION)
         assert review.asks(rails_kernel.PAIR_QUESTION)
         candidates = [
-            {"path": "src/orders/dash.py", "state": {"file": {}, "package": {}}}
+            {
+                "path": "src/orders/dash.py",
+                "language": "python",
+                "state": {"file": {}, "package": {}},
+            }
         ]
         with self.batches(lambda key, questions: None):
             asyncio.run(review.judge_consumers(candidates))
@@ -1483,6 +1490,7 @@ class StructureProposalTests(unittest.TestCase):
             {
                 "item": "a.py::x<>b.py::y",
                 "question": rails_kernel.PAIR_QUESTION,
+                "language": "python",
                 "mode": "enforced",
                 "score": 0.06,
                 "threshold": 0.051143,
@@ -1526,7 +1534,13 @@ class StructureProposalTests(unittest.TestCase):
                 }
             }
 
-        candidates = [{"path": "pkg/dash.py", "state": {"file": {}, "package": {}}}]
+        candidates = [
+            {
+                "path": "pkg/dash.py",
+                "language": "python",
+                "state": {"file": {}, "package": {}},
+            }
+        ]
         with self.batches(answer):
             asyncio.run(self.review().judge_consumers(candidates))
 
@@ -1557,6 +1571,7 @@ class StructureProposalTests(unittest.TestCase):
         candidates = [
             {
                 "path": "app/models/invoice.py",
+                "language": "python",
                 "state": {"file": {}, "folder": "app/models", "importers": []},
             }
         ]
@@ -1585,13 +1600,18 @@ class StructureProposalTests(unittest.TestCase):
     def test_a_proposer_passes_the_repo_only_and_returns_its_json(self) -> None:
         found = {
             "pairs": [
-                {"id": "p", "proposer_score": 0.5, "state": {"first": {}, "second": {}}}
+                {
+                    "id": "p",
+                    "language": "python",
+                    "proposer_score": 0.5,
+                    "state": {"first": {}, "second": {}},
+                }
             ]
         }
         patched, commands = self.proposals(json.dumps(found))
         with patched:
             assert (
-                rails_kernel._name_pairs(Path("."), "b" * 40, "h" * 40)
+                rails_kernel._name_pairs(Path("."), "b" * 40, "h" * 40, ("python",))
                 == found["pairs"]
             )
         (command,) = commands
@@ -1599,6 +1619,13 @@ class StructureProposalTests(unittest.TestCase):
             "--repo",
             ".",
         ]
+        assert command[-2:] == ["--languages", "python"]
+        patched, _ = self.proposals(json.dumps(found))
+        with (
+            patched,
+            pytest.raises(rails_kernel.RailsKernelError, match="languages asked for"),
+        ):
+            rails_kernel._name_pairs(Path("."), "b" * 40, "h" * 40, ("go",))
 
     def test_a_failed_proposer_is_a_kernel_error(self) -> None:
         patched, _ = self.proposals("boom", ok=False)
@@ -1608,7 +1635,7 @@ class StructureProposalTests(unittest.TestCase):
                 rails_kernel.RailsKernelError, match="kind-candidates failed: boom"
             ),
         ):
-            rails_kernel._kind_candidates(Path("."), "b" * 40, "h" * 40)
+            rails_kernel._kind_candidates(Path("."), "b" * 40, "h" * 40, ("python",))
 
     def test_a_proposal_of_the_wrong_shape_is_a_kernel_error(self) -> None:
         readers = {
@@ -1632,11 +1659,53 @@ class StructureProposalTests(unittest.TestCase):
                             match=f"{subcommand} must emit",
                         ),
                     ):
-                        reader(Path("."), "b" * 40, "h" * 40)
+                        reader(Path("."), "b" * 40, "h" * 40, ("python",))
+
+    def test_each_language_runs_at_its_own_mode_cutoff_and_wording(self) -> None:
+        def answer(key: str, questions: Any) -> Any:
+            ident = next(iter(questions))
+            return {ident: {"bool": 0.45}}
+
+        pairs = [
+            {
+                "id": f"a.{suffix}::x<>b.{suffix}::y",
+                "language": language,
+                "proposer_score": 0.2,
+                "state": {"first": {"name": "x"}, "second": {"name": "y"}},
+            }
+            for language, suffix in (("python", "py"), ("typescript", "ts"))
+        ]
+        kinds = [
+            {
+                "path": "internal/models/invoice.go",
+                "language": "go",
+                "state": {"file": {}, "folder": "internal/models", "importers": []},
+            }
+        ]
+        with self.batches(answer):
+            asyncio.run(self.review().judge_pairs(pairs))
+            asyncio.run(self.review().judge_kind_files(kinds))
+        findings = {
+            (item["language"], item["question"]): (item["mode"], item["threshold"])
+            for item in self.result["findings"]
+        }
+        assert findings == {
+            ("python", rails_kernel.PAIR_QUESTION): ("enforced", 0.051143),
+            ("typescript", rails_kernel.PAIR_QUESTION): ("shadow", 0.0732),
+            ("go", rails_kernel.KIND_QUESTION): ("shadow", 0.4),
+        }
+        go_question = self.asked[-2][1]["own_capability"]
+        assert go_question == self.judgment.question(rails_kernel.KIND_QUESTION, "go")
+        assert "In Go a folder is one package" in go_question["instructions"]
+        assert {(row["language"], row["mode"]) for row in self.rows()} == {
+            ("python", "enforced"),
+            ("typescript", "shadow"),
+            ("go", "shadow"),
+        }
 
     def test_a_choice_decision_names_one_of_its_options(self) -> None:
         question = self.judgment.questions[rails_kernel.CONSUMER_QUESTION]
-        decision = self.judgment.decisions[rails_kernel.CONSUMER_QUESTION]
+        decision = self.judgment.decision(rails_kernel.CONSUMER_QUESTION, "python")
         rails_kernel._check_decision("j", "q", question, decision)
         with pytest.raises(
             rails_kernel.RailsKernelError, match="option of the question"
@@ -1644,6 +1713,194 @@ class StructureProposalTests(unittest.TestCase):
             rails_kernel._check_decision(
                 "j", "q", question, {**decision, "option": "dashboard"}
             )
+
+
+def write_language_judgment(root: Path, model: str = "typesafe/jev-1.14.0") -> Path:
+    """A per-language judgments/demo/ folder: Python enforced at 0.7, Go in shadow at 0.4 with
+    its own wording, and no TypeScript settings."""
+    directory: Path = root / rails_kernel.JUDGMENTS / "demo"
+    directory.mkdir(parents=True)
+    state = {"text": "the text judged"}
+    questions = {"flag": {"type": "bool", "instructions": "Does `text` hold a secret?"}}
+    variants = {
+        "flag": {
+            "go": {"type": "bool", "instructions": "Does the Go `text` hold a secret?"}
+        }
+    }
+    (directory / "questions.json").write_text(
+        json.dumps({"state": state, "questions": questions, "variants": variants})
+    )
+
+    def key(question: dict[str, Any]) -> str:
+        found: str = rails_kernel._judgment_digest({
+            "question": question,
+            "state": state,
+            "model": model,
+        })
+        return found
+
+    shared = {k: v for k, v in TAXONOMY.items() if k != "mode"}
+    thresholds = {
+        "model": model,
+        "score_space": "raw",
+        "version_key": rails_kernel._judgment_digest({
+            "questions": questions,
+            "state": state,
+            "model": model,
+            "variants": variants,
+        }),
+        "decisions": {
+            "flag": {
+                **shared,
+                "languages": {
+                    "python": {
+                        "version_key": key(questions["flag"]),
+                        "mode": "enforced",
+                        "threshold": 0.7,
+                    },
+                    "go": {
+                        "version_key": key(variants["flag"]["go"]),
+                        "mode": "shadow",
+                        "shadow_exit": {"labelled_flags": 10},
+                        "threshold": 0.4,
+                    },
+                },
+            }
+        },
+    }
+    (directory / "thresholds.json").write_text(json.dumps(thresholds))
+    return directory
+
+
+class PerLanguageJudgmentTests(unittest.TestCase):
+    """A decision with languages: each language's own question version, mode and cutoff."""
+
+    def setUp(self) -> None:
+        rails_kernel._store()
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.root = Path(scratch.name) / "harness"
+        self.agent = Path(scratch.name) / "agent"
+        for patcher in (
+            patch.object(rails_kernel, "_harness_root", return_value=self.root),
+            patch.dict(os.environ, {"PI_CODING_AGENT_DIR": str(self.agent)}),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.directory = write_language_judgment(self.root)
+
+    def test_each_language_has_its_own_settings_and_wording(self) -> None:
+        judgment = rails_kernel.load_judgment("demo")
+        assert judgment.languages("flag") == ("go", "python")
+        python, go = (
+            judgment.decision("flag", "python"),
+            judgment.decision("flag", "go"),
+        )
+        assert (python["mode"], python["threshold"]) == ("enforced", 0.7)
+        assert (go["mode"], go["threshold"], go["approach"]) == ("shadow", 0.4, "Gate")
+        assert "languages" not in go
+        assert judgment.question("flag", "go")["instructions"].startswith("Does the Go")
+        assert judgment.question("flag", "python") == judgment.questions["flag"]
+        with pytest.raises(rails_kernel.RailsKernelError, match="does not run there"):
+            judgment.decision("flag", "typescript")
+        rows = stored(
+            self.agent,
+            "SELECT question, language, mode, question_version FROM questions",
+        )
+        assert sorted((row["language"], row["mode"]) for row in rows) == [
+            ("go", "shadow"),
+            ("python", "enforced"),
+        ]
+        assert len({row["question_version"] for row in rows}) == 2
+
+    def test_a_call_logs_the_language_it_was_decided_under(self) -> None:
+        judgment = rails_kernel.load_judgment("demo")
+        context = rails_kernel._store().DecisionContext("manual", item="x.go")
+        call = rails_kernel.JudgmentCall.start(judgment, {"text": "t"}, context)
+        row = call.row("flag", 0.5, None, "go")
+        assert (row["language"], row["mode"], row["outcome"]) == (
+            "go",
+            "shadow",
+            "flag",
+        )
+        assert call.row("flag", 0.5, None, "python")["outcome"] == "pass"
+        with pytest.raises(rails_kernel.RailsKernelError, match="does not run there"):
+            call.row("flag", 0.5, None)
+
+    def test_the_repo_config_caps_each_language_at_its_own_mode(self) -> None:
+        judgment = rails_kernel.load_judgment("demo")
+        key = "demo/flag"
+        shadowed = rails_kernel.effective_judgment(
+            judgment, {"judgments": {key: {"enabled": True, "mode": "shadow"}}}
+        )
+        assert {
+            language: shadowed.decision("flag", language)["mode"]
+            for language in ("python", "go")
+        } == {"python": "shadow", "go": "shadow"}
+        enforced = rails_kernel.effective_judgment(
+            judgment, {"judgments": {key: {"enabled": True, "mode": "enforced"}}}
+        )
+        assert enforced.decision("flag", "go")["mode"] == "shadow"
+        off = rails_kernel.effective_judgment(
+            judgment, {"judgments": {key: {"enabled": False}}}
+        )
+        assert off.decisions == {}
+
+    def test_misplaced_settings_and_unasked_variants_are_refused(self) -> None:
+        thresholds = json.loads((self.directory / "thresholds.json").read_text())
+        questions = json.loads((self.directory / "questions.json").read_text())
+
+        def changed(document: dict[str, Any], change: Any) -> dict[str, Any]:
+            copied: dict[str, Any] = copy.deepcopy(document)
+            change(copied)
+            return copied
+
+        def flag(document: dict[str, Any]) -> dict[str, Any]:
+            found: dict[str, Any] = document["decisions"]["flag"]
+            return found
+
+        cases = {
+            "holds mode beside its languages": changed(
+                thresholds, lambda t: flag(t).update(mode="enforced")
+            ),
+            "needs languages": changed(
+                thresholds, lambda t: flag(t).update(languages={})
+            ),
+            "decision flag for go is stale": changed(
+                thresholds,
+                lambda t: flag(t)["languages"]["go"].update(version_key="0" * 64),
+            ),
+            "runs in shadow mode and needs shadow_exit": changed(
+                thresholds, lambda t: flag(t)["languages"]["go"].pop("shadow_exit")
+            ),
+            "never asked": changed(
+                thresholds, lambda t: flag(t)["languages"].pop("go")
+            ),
+        }
+        for message, document in cases.items():
+            with self.subTest(message=message):
+                (self.directory / "thresholds.json").write_text(json.dumps(document))
+                with pytest.raises(rails_kernel.RailsKernelError, match=message):
+                    rails_kernel.load_judgment("demo")
+        (self.directory / "thresholds.json").write_text(json.dumps(thresholds))
+        retyped = changed(
+            questions, lambda q: q["variants"]["flag"]["go"].update(type="choice")
+        )
+        (self.directory / "questions.json").write_text(json.dumps(retyped))
+        rekeyed = changed(
+            thresholds,
+            lambda t: t.update(
+                version_key=rails_kernel._judgment_digest({
+                    "questions": retyped["questions"],
+                    "state": retyped["state"],
+                    "model": t["model"],
+                    "variants": retyped["variants"],
+                })
+            ),
+        )
+        (self.directory / "thresholds.json").write_text(json.dumps(rekeyed))
+        with pytest.raises(rails_kernel.RailsKernelError, match="same type"):
+            rails_kernel.load_judgment("demo")
 
 
 MALICIOUS = (

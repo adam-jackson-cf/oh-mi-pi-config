@@ -185,6 +185,8 @@ class ConsumerCandidatesCommandTests(unittest.TestCase):
                 self.base,
                 "--head",
                 self.head,
+                "--languages",
+                "python",
             ],
             check=False,
             timeout=60,
@@ -198,7 +200,9 @@ class ConsumerCandidatesCommandTests(unittest.TestCase):
         with redirect_stdout(printed):
             assert (
                 consumer_candidates.run(
-                    self.repo, {}, ["--base", self.base, "--head", self.head]
+                    self.repo,
+                    {},
+                    ["--base", self.base, "--head", self.head, "--languages", "python"],
                 )
                 == []
             )
@@ -218,13 +222,17 @@ class ConsumerCandidatesCommandTests(unittest.TestCase):
         failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
         with patch.object(changes, "run_bytes", return_value=failed):
             (finding,) = consumer_candidates.run(
-                self.repo, {}, ["--base", self.base, "--head", self.head]
+                self.repo,
+                {},
+                ["--base", self.base, "--head", self.head, "--languages", "python"],
             )
         assert finding.message == "bad object"
 
     def test_unreadable_commits_are_a_finding(self) -> None:
         (finding,) = consumer_candidates.run(
-            self.repo, {}, ["--base", self.base, "--head", "missing"]
+            self.repo,
+            {},
+            ["--base", self.base, "--head", "missing", "--languages", "python"],
         )
         assert (finding.rule_id, finding.path) == ("STRUCT.consumer-candidates", ".")
 

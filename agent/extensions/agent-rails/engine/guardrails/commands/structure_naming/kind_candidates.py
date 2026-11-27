@@ -11,7 +11,7 @@ from guardrails.commands.structure_naming import importers, outline
 from guardrails.commands.structure_naming.scan_scope import (
     checked,
     is_vendored_path,
-    proposed,
+    language_list,
     runs,
 )
 from guardrails.context.changes import (
@@ -25,7 +25,7 @@ from guardrails.context.config.reader import checker_settings
 from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
-from guardrails.foundation.source.tree import SourceError, parse
+from guardrails.foundation.source.tree import SourceError, language_of, parse
 
 if TYPE_CHECKING:
     from guardrails.foundation.source.tree import SgNode
@@ -207,11 +207,12 @@ def kind_candidates(
     config: dict[str, Any],
     languages: Collection[str],
 ) -> list[dict[str, Any]]:
-    """The changed kind-folder files of the languages asked for: the subcommand asks for
-    proposers.languages, a measurement for any language this proposer reads."""
+    """The changed kind-folder files of the languages asked for, each with its language: the
+    kernel asks for the languages its question has settings for, a measurement for any
+    language this proposer reads."""
     model = model_of(tree, config, checked(languages, READS))
     return [
-        {"path": path, "state": model.state(path)}
+        {"path": path, "language": language_of(path), "state": model.state(path)}
         for path in model.eligible()
         if path in changed and not exempt(path, config)
     ]
@@ -221,12 +222,13 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=SUBCOMMANDS["kind-candidates"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
+    parser.add_argument("--languages", required=True, type=language_list)
     args = parser.parse_args(argv)
     excluded_paths = as_list(
         checker_settings(config, "check").get("exclude")
     ) + as_list(checker_settings(config, "python").get("excluded_paths"))
     try:
-        languages = proposed(READS)
+        languages = checked(args.languages, READS)
         tree = head_tree(repo, args.head, excluded_paths, languages)
         found = kind_candidates(
             tree, changed_paths(repo, args.base, args.head, "AMR"), config, languages

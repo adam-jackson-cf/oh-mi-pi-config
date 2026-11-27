@@ -1,6 +1,6 @@
 """Which repository paths the structure-naming scans read: not vendored ones, and for the
-candidate proposers only source that runs in a language they are asked for. Test source is
-suite_files.is_test_source's to say."""
+candidate proposers only source that runs in a language they are asked for (--languages). Test
+source is suite_files.is_test_source's to say."""
 
 from __future__ import annotations
 
@@ -28,17 +28,11 @@ def checked(languages: Collection[str], reads: Collection[str]) -> tuple[str, ..
     return tuple(languages)
 
 
-def proposed(reads: Collection[str]) -> tuple[str, ...]:
-    """The languages the candidate proposers propose for (structure-languages.json
-    proposers); ValueError when it names one a proposer that reads only `reads` cannot."""
-    languages = tree.proposed_languages()
-    unread = sorted(set(languages) - set(reads))
-    if unread:
-        raise ValueError(
-            f"structure-languages.json proposers names {', '.join(unread)}, which "
-            "this proposer cannot read"
-        )
-    return languages
+def language_list(value: str) -> tuple[str, ...]:
+    """A proposer's --languages argument: comma-separated language names. The kernel passes
+    the languages its judgment question has settings for (thresholds.json decisions.<question>
+    .languages); a measurement passes any language the proposer reads."""
+    return tuple(name for name in value.split(",") if name)
 
 
 def runs(path: str, languages: Collection[str]) -> bool:

@@ -205,6 +205,8 @@ class NamePairsCommandTests(unittest.TestCase):
                 self.base,
                 "--head",
                 self.head,
+                "--languages",
+                "python",
             ],
             check=False,
             timeout=60,
@@ -232,7 +234,9 @@ class NamePairsCommandTests(unittest.TestCase):
         with redirect_stdout(printed):
             assert (
                 candidates.run(
-                    self.repo, {}, ["--base", self.base, "--head", self.head]
+                    self.repo,
+                    {},
+                    ["--base", self.base, "--head", self.head, "--languages", "python"],
                 )
                 == []
             )
@@ -253,13 +257,17 @@ class NamePairsCommandTests(unittest.TestCase):
         failed = SimpleNamespace(returncode=1, stdout=b"", stderr=b"bad object")
         with patch.object(changes, "run_bytes", return_value=failed):
             (finding,) = candidates.run(
-                self.repo, {}, ["--base", self.base, "--head", self.head]
+                self.repo,
+                {},
+                ["--base", self.base, "--head", self.head, "--languages", "python"],
             )
         assert finding.message == "bad object"
 
     def test_unreadable_commits_are_a_finding(self) -> None:
         (finding,) = candidates.run(
-            self.repo, {}, ["--base", self.base, "--head", "missing"]
+            self.repo,
+            {},
+            ["--base", self.base, "--head", "missing", "--languages", "python"],
         )
         assert (finding.rule_id, finding.path) == ("STRUCT.name-pairs", ".")
 

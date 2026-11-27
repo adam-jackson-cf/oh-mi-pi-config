@@ -63,10 +63,12 @@ write, including agent edits. Exceptions and approvals come only from `$approve`
 lines the owner types in the main session.
 
 **14. Judgment effective modes.** The global mode, cutoff and measured basis of each question live
-in `judgments/<judgment>/thresholds.json`. A repository may switch a question off or move it from
-enforced to shadow, and the effective mode is the softer of the two. A repository never enforces a
-question that is shadow globally: only measurement promotes it. Decision rows record the effective
-mode. Code checks are on or off only; shadow does not apply to deterministic rules.
+in `judgments/<judgment>/thresholds.json`, per source language where the question judges code in
+several languages; a language without measured settings does not run. A repository may switch a
+question off or move it from enforced to shadow, and the effective mode is the softer of the two. A
+repository never enforces a question that is shadow globally: only measurement promotes it. Decision
+rows record the effective mode. Code checks are on or off only; shadow does not apply to
+deterministic rules.
 
 ## Repository boundary
 

@@ -236,8 +236,10 @@ obligations name it.
 global mode in `judgments/<judgment>/thresholds.json`.
 
 - The effective mode is the lower of the global mode and the override, with
-  off < shadow < enforced. An off question makes no judge call and writes no row.
-- `enforced` is refused when the global mode is `shadow`: only measurement promotes.
+  off < shadow < enforced. An off question makes no judge call and writes no row. A per-language
+  question applies the override to each language's own mode.
+- `enforced` is refused when the global mode is `shadow` (in every language): only measurement
+  promotes.
 - `shadow` is refused for a question that cannot run in shadow.
 - `in-scope/ask_first` and `dependency-severity/impact` cannot be configured.
 

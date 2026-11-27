@@ -148,6 +148,7 @@ class Seed:
             "threshold": 0.7,
             "model": "typesafe/jev-1.14.0",
             "question_version": "v1",
+            "language": "any",
             "judgment_version": "j1",
             "repo": "owner/repo",
             "commit_sha": "c" * 40,
@@ -178,6 +179,7 @@ class Seed:
                     "judgment": "demo",
                     "question": "secret",
                     "question_version": "v1",
+                    "language": "any",
                     "approach": "Eval judge",
                     "overlays": "[]",
                     "primitive": "noul",
@@ -236,9 +238,9 @@ class DecisionStoreTests(StoreCase):
             assert (
                 connection.execute("PRAGMA user_version").fetchone()[0]
                 == decision_store.schema_version()
-                == 2
+                == 3
             )
-        for version in (1, 3):
+        for version in (2, 4):
             with closing(
                 sqlite3.connect(self.store, isolation_level=None)
             ) as connection:
@@ -248,7 +250,7 @@ class DecisionStoreTests(StoreCase):
                     self.subTest(opener=opener.__name__, version=version),
                     pytest.raises(
                         decision_store.StoreError,
-                        match=f"schema version {version}; this harness reads version 2 only",
+                        match=f"schema version {version}; this harness reads version 3 only",
                     ),
                 ):
                     opener(self.store)
@@ -592,6 +594,7 @@ class ExportImportTests(StoreCase):
                 "judgment": "demo",
                 "question": "secret",
                 "question_version": "v1",
+                "language": "any",
                 "shadow_exit": {"labelled_flags": 2},
                 "decisions": 4,
                 "flags": 3,

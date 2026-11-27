@@ -259,16 +259,32 @@
         "definition_similarity": "Jaccard similarity of the two 3-gram sets",
         "pair_score": "the highest definition similarity between two units, over candidates sharing a 3-gram held by at most 40 definitions in the head tree",
         "scope": "units holding a source file added, modified or renamed in base..head, compared with every other unit at head",
-        "pair_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.336 and TypeScript 0.476 (measured); a language with no measured cutoff does not run",
+        "pair_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.336, TypeScript 0.476 and Go 0.4 (each language's evidence below; Go's is owner-accepted below the 0.75 floor); a language with no cutoff does not run",
         "evidence": {
-          "language": "python",
-          "accepted_by": "owner",
-          "accepted_on": "2026-11-23",
-          "held_out_precision": 0.74,
-          "held_out_flags": "80/108",
-          "held_out_recall": 0.81,
-          "labelled_pairs": "235 council-labelled unit pairs from the owner's projects, leave-one-repository-out cutoff",
-          "note": "the owner accepted 0.74 held-out precision as a pass"
+          "python": {
+            "accepted_by": "owner",
+            "accepted_on": "2026-11-23",
+            "held_out_precision": 0.74,
+            "held_out_flags": "80/108",
+            "held_out_recall": 0.81,
+            "labelled_pairs": "235 council-labelled unit pairs from the owner's projects, leave-one-repository-out cutoff",
+            "note": "the owner accepted 0.74 held-out precision as a pass"
+          },
+          "typescript": {
+            "measured_on": "2026-11-27",
+            "held_out_precision": 0.86,
+            "held_out_flags": "6/7",
+            "held_out_recall": "6/13",
+            "labelled_pairs": "64 council-labelled unit pairs from 4 of the owner's TypeScript repositories (overlap label guide v9 for TypeScript, splits arbitrated by Claude), leave-one-repository-out cutoff"
+          },
+          "go": {
+            "accepted_by": "owner",
+            "accepted_on": "2026-11-27",
+            "held_out_precision": 0.73,
+            "held_out_flags": "47/64",
+            "labelled_pairs": "247 council-labelled unit pairs from 5 Go repositories (overlap label guide v9 for Go, splits arbitrated by Claude), leave-one-repository-out cutoff",
+            "note": "the owner accepted 0.73 held-out precision at cutoff 0.4, below the 0.75 floor, so the rule runs for Go"
+          }
         },
         "exceptions": "a config exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
         "diagnostic_names_both_units_and_closest_definition_pair": true
@@ -304,14 +320,21 @@
         "cluster_score": "the highest pair score among the cluster's members",
         "cluster_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.15 and TypeScript 0.25 (measured); not applicable to Go, where a folder is a package",
         "evidence": {
-          "language": "python",
-          "accepted_by": "owner",
-          "accepted_on": "2026-11-23",
-          "replaces": "the structure-naming/prefix_should_be_folder Jev question; a judgment code can meet is deterministic only",
-          "labelled_clusters": "63 clusters (135 member pairs) from every snapshot of 8 of the owner's repositories, council labels with 26 splits arbitrated; 47 clusters hold a violation",
-          "held_out": "leave-one-repository-out precision 44/55 = 0.80, recall 44/47, bootstrap 95% 0.69-0.89",
-          "baselines": "flag every cluster 47/63 = 0.75; the Jev question alone 46/60 = 0.77, so Jev added nothing",
-          "synthetic": "council agreed with the intended label on 39/40 synthetic clusters"
+          "python": {
+            "accepted_by": "owner",
+            "accepted_on": "2026-11-23",
+            "replaces": "the structure-naming/prefix_should_be_folder Jev question; a judgment code can meet is deterministic only",
+            "labelled_clusters": "63 clusters (135 member pairs) from every snapshot of 8 of the owner's repositories, council labels with 26 splits arbitrated; 47 clusters hold a violation",
+            "held_out": "leave-one-repository-out precision 44/55 = 0.80, recall 44/47, bootstrap 95% 0.69-0.89",
+            "baselines": "flag every cluster 47/63 = 0.75; the Jev question alone 46/60 = 0.77, so Jev added nothing",
+            "synthetic": "council agreed with the intended label on 39/40 synthetic clusters"
+          },
+          "typescript": {
+            "measured_on": "2026-11-27",
+            "labelled_clusters": "28 clusters (43 member pairs) from 5 of the owner's TypeScript repositories, council labels (structure label guide v11 for TypeScript, splits arbitrated by Claude); 19 clusters hold a violation",
+            "weights": "the Python weights",
+            "held_out": "leave-one-repository-out precision 18/23 = 0.78, recall 18/19"
+          }
         },
         "exceptions": "a config exceptions entry {rule, path, reason} on the folder or any member suppresses the cluster",
         "diagnostic_names_prefix_members_and_closest_pair": true

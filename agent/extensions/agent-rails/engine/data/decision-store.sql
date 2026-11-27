@@ -6,11 +6,14 @@
 -- opens are safe under the immediate transaction.
 BEGIN IMMEDIATE;
 
--- One row per question version a judgment registry load saw: the taxonomy and decision in force.
+-- One row per question version and language a judgment registry load saw: the taxonomy and
+-- decision in force. language is 'any' for a decision that holds for every input, else the
+-- source language its per-language settings (thresholds.json decisions.<question>.languages) cover.
 CREATE TABLE IF NOT EXISTS questions (
   judgment TEXT NOT NULL,
   question TEXT NOT NULL,
   question_version TEXT NOT NULL,
+  language TEXT NOT NULL,
   approach TEXT NOT NULL CHECK (approach IN ('Gate', 'Route', 'Rerank', 'Select', 'Grade', 'Verify', 'Eval judge')),
   overlays TEXT NOT NULL CHECK (json_valid(overlays) AND json_type(overlays) = 'array'),
   primitive TEXT NOT NULL CHECK (primitive IN ('noul', 'choice', 'score')),
@@ -25,11 +28,12 @@ CREATE TABLE IF NOT EXISTS questions (
   shadow_exit TEXT CHECK (shadow_exit IS NULL OR json_valid(shadow_exit)),
   model TEXT NOT NULL,
   loaded_at TEXT NOT NULL,
-  PRIMARY KEY (judgment, question, question_version)
+  PRIMARY KEY (judgment, question, question_version, language)
 );
 
 -- One row per question answered (source jev) or per rule result (source check). A check row's
--- judgment is its rule ID and its question the checker that ran it.
+-- judgment is its rule ID and its question the checker that ran it, and it has no language; a jev
+-- row's language is the questions row's it was decided under.
 CREATE TABLE IF NOT EXISTS decisions (
   id TEXT PRIMARY KEY,
   call_id TEXT NOT NULL,
@@ -48,6 +52,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   combined_score REAL,
   model TEXT,
   question_version TEXT,
+  language TEXT CHECK (source = 'check' OR language IS NOT NULL),
   judgment_version TEXT,
   repo TEXT,
   commit_sha TEXT,
@@ -118,12 +123,13 @@ CREATE TABLE IF NOT EXISTS rail_events (
 CREATE INDEX IF NOT EXISTS rail_events_code ON rail_events (code, ts);
 CREATE INDEX IF NOT EXISTS rail_events_repo ON rail_events (repo);
 
--- Shadow questions' review progress: labelled flags, precision and whether shadow_exit is met.
+-- Shadow questions' review progress per language: labelled flags, precision and whether shadow_exit is met.
 CREATE VIEW IF NOT EXISTS shadow_progress AS
 SELECT
   q.judgment,
   q.question,
   q.question_version,
+  q.language,
   q.shadow_exit,
   COUNT(d.id) AS decisions,
   COALESCE(SUM(d.outcome = 'flag'), 0) AS flags,
@@ -140,8 +146,9 @@ LEFT JOIN decisions AS d
   AND d.judgment = q.judgment
   AND d.question = q.question
   AND d.question_version = q.question_version
+  AND d.language = q.language
 WHERE q.mode = 'shadow'
-GROUP BY q.judgment, q.question, q.question_version;
+GROUP BY q.judgment, q.question, q.question_version, q.language;
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 3;
 COMMIT;

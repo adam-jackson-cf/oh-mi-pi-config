@@ -14,7 +14,7 @@ The import rules are `dependency-direction`, `tier-readership`, `sibling-isolati
 | Import rules | Dotted modules | Files, `tsconfig` paths | Module packages |
 | Runtime data | Code folders | Exempts imported JSON | Exempts embeds, `testdata/` |
 | Entry points | `__main__.py`, `cli.py` | `bin`, `main` | `package main` in root or `cmd/` |
-| Duplicate code | Cutoff 0.336, measured | Cutoff 0.476, measured | Runs once measured |
+| Duplicate code | Cutoff 0.336, measured | Cutoff 0.476, measured | Cutoff 0.4, owner-accepted |
 | Prefix folder | Cutoff 0.15, measured | Cutoff 0.25, measured | Does not apply |
 | Rename residue | Bound names | Declared names | Declared names |
 
@@ -32,12 +32,17 @@ runs, so `oracle2_client` still holds `oracle`.
 
 Duplicate code is `STRUCT.overlapping-responsibilities`; prefix folder is `STRUCT.prefix-folder`,
 which does not apply to Go because a Go folder is a package. A scored rule runs for a language only
-with a measured cutoff. Shell has no packages, imports or definitions, so no structure rule reads
-it. The candidate proposers behind the structure-naming judgments propose only for
-`proposers.languages` in structure-languages.json (Python): those judgments were measured on Python
-cases. `proposers.signals` defines each proposer's TypeScript and Go reading with its source, and
-only a measurement asks for those languages, through the proposer's explicit `languages` argument.
-They and every other structure scan leave test source out: a pack's test runner patterns
+with a measured cutoff, and each language's evidence sits in the rule's catalogue entry. Go's
+duplicate-code cutoff holds 0.73 held-out precision, below the 0.75 floor; the owner accepted it.
+Shell has no packages, imports or definitions, so no structure rule reads it.
+
+The candidate proposers behind the structure-naming judgments propose only for the languages their
+question has settings for in [thresholds.json](../judgments/structure-naming/thresholds.json)
+(`decisions.<question>.languages`); the rails pass them as `--languages`. Each language holds its
+own question version, mode and cutoff, so a TypeScript or Go question runs in shadow while Python's
+is enforced, and Go asks the kind question in its own wording (questions.json `variants`).
+`proposers.signals` defines each proposer's reading per language with its source. The proposers
+and every other structure scan leave test source out: a pack's test runner patterns
 (`test_*.py`, `*_test.go`, `*.test.ts`), `conftest.py`, the configured test file patterns, the
 `tests/`, `fixtures/` and `support/` folders, and the data (not source) under a tier location. A
 name that only starts like a test (`testimonials/`, `testing.go`, `fixture_loader.py`) is product
