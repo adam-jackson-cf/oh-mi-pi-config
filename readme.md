@@ -9,11 +9,10 @@ installation guide or an exhaustive reference.
 
 The [agent-rails design directive](agent/extensions/agent-rails/docs/design-directive.md) holds the
 design principles; `agent/AGENTS.md` holds the response rules and `agent/RULES.md` the session
-rules. The agent-rails package owns its judged rules (`agent/extensions/agent-rails/rules/`), three
-references its refusals cite
-([structure and naming](agent/extensions/agent-rails/references/structure-and-naming.md),
-[proofs and merge](agent/extensions/agent-rails/references/proofs-and-merge.md) and
-[judgments](agent/extensions/agent-rails/references/judgments.md)), and bundles the skills it
+rules. The agent-rails package owns its judged rules (`agent/extensions/agent-rails/rules/`), two
+references
+([structure and naming](agent/extensions/agent-rails/references/structure-and-naming.md) and
+[proofs](agent/extensions/agent-rails/references/proofs.md)), and bundles the skills it
 calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and `jev-actions`. `git-tool` owns Git,
 PR, CI and merge authority, with its merge, CI and recovery runbook.
 
@@ -111,8 +110,6 @@ enforced judgment acts from the moment it ships; a judge failure refuses, except
 through. A shadow judgment is asked and logged but never acts. Every answer, deterministic check
 result and rail refusal lands in one SQLite decision store, `~/.omp/agent/agent-rails/agent-rails.db`;
 `guardrails shadow-review` labels and measures what it holds.
-[Rail judgments](agent/extensions/agent-rails/references/judgments.md#rail-judgments)
-lists each rail, its outcomes and the owner's `$approve` line.
 
 Repository checks follow the test tiers. The repo config declares
 `commands.commit` (static checks, all T1 tests and T2 seams only for affected code) and

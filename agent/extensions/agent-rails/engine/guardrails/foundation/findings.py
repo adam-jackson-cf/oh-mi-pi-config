@@ -10,6 +10,8 @@ DATA_FOLDER = Path(__file__).resolve().parents[2] / "data"
 RULE_CATALOGUE = "guardrail-rules.json"
 # Findings about the repo's settings name the config file and the section at fault.
 CONFIG_LABEL = ".agentrails/config.json"
+STRUCTURE_GUIDANCE = DATA_FOLDER.parents[1] / "references" / "structure-and-naming.md"
+STRUCTURE_RULES = ("STRUCT.", "NAME.", "RENAME.")
 
 
 def config_label(section: str) -> str:
@@ -63,6 +65,8 @@ def format_findings(findings: list[Finding]) -> str:
         f"remediation {rule_id}: {known[rule_id].render()}"
         for rule_id in sorted({item.rule_id for item in unique})
     ]
+    if any(item.rule_id.startswith(STRUCTURE_RULES) for item in unique):
+        guidance.append(f"structure and naming guidance: {STRUCTURE_GUIDANCE}")
     return "\n".join([*(item.render() for item in unique), *guidance])
 
 

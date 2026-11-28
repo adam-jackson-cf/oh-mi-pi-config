@@ -217,16 +217,15 @@ const defaultConfigCheckCommand = ["uv", "run", "--project", guardrailsProject, 
 const defaultDecideCommand = ["uv", "run", "--project", guardrailsProject, "python", join(import.meta.dir, "lib", "decide.py")];
 // The harness checks run only after commands.commit passed, so a harness-only finding can mean a repo
 // checker already enforces that step and the config has not given the step to it.
-// The plain docs refusals cite by path.
-const proofsReference = join(import.meta.dir, "references", "proofs-and-merge.md");
-const judgmentsReference = join(import.meta.dir, "references", "judgments.md");
+// The plain doc the merge refusals cite by path.
+const proofsReference = join(import.meta.dir, "references", "proofs.md");
 // A commit whose checks print SECURITY.dependency-audit lines is triaged, never suppressed.
 const dependencyAuditNote =
 	"SECURITY.dependency-audit: triage every advisory with dependency_audit_findings(repo), then " +
 	"triage_advisories(found, evidence) in an eval cell. evidence maps each advisory key to exactly advisory_text, " +
 	"advisory_source, scope (runtime or dev), scope_source, code_search {queries, hits: [{location, line}]}, fix_options " +
 	"and blocked_fix (null or {blocked_by, constraint, constraint_source}). On halt give the owner the report; " +
-	`otherwise upgrade each fix entry and commit again. Never add or edit audit exceptions. See ${judgmentsReference}#dependency-advisories.`;
+	"otherwise upgrade each fix entry and commit again. Never add or edit audit exceptions.";
 const harnessOnlyNote =
 	"commands.commit passed. Checks come from .agentrails/config.json commands; the owner changes them through the " +
 	"setup-repo-proofs writer. If a repo checker already enforces a failing step's rules, do not reshape repo code to " +

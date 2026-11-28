@@ -50,7 +50,7 @@ PROOF_FIELDS = frozenset({
 FEATURE_MAP_SETUP = (
     "the repo config declares no tests.verification_surface.feature_map_path; proofs must be "
     "outcome tests linked from the feature map, so record the map in the config's tests "
-    "section first (oh-mi-pi-config agent/extensions/agent-rails/references/proofs-and-merge.md). "
+    "section first (oh-mi-pi-config agent/extensions/agent-rails/references/proofs.md). "
     "A PR with no behaviour change freezes no proofs"
 )
 
@@ -971,7 +971,8 @@ def freeze(
     """Freeze working-tree proofs after showing each one fails at its baseline (red at base).
 
     Keyword arguments: base=None, setup=None, previous=None, revise=None,
-    max_checks=MAX_PROOFS.
+    max_checks=MAX_PROOFS. Each draft proof is {id, criterion, cmd, files, parent?, journey?};
+    freeze writes its sha256.
 
     Policy comes from the clone's .agentrails/config.json (read_config), never from the repo
     tree. A clone that is not onboarded refuses; onboarding merges are owner merges. `proofs`

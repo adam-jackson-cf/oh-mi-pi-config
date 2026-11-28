@@ -89,11 +89,11 @@
       ".git": "https://git-scm.com/docs/gitrepository-layout"
     },
     "placement": {
-      "root": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
+      "root": "oh-mi-pi-config commit 58ee04d, agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "test_data_dirs": "https://jestjs.io/docs/snapshot-testing",
-      "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
-      "support_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
-      "beside_code": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping"
+      "fixtures_dir": "oh-mi-pi-config commit 58ee04d, agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
+      "support_dir": "oh-mi-pi-config commit 58ee04d, agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
+      "beside_code": "oh-mi-pi-config commit 58ee04d, agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping"
     },
     "comment_syntax": {
       "files": {

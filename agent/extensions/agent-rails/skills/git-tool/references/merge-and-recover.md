@@ -21,7 +21,7 @@ Authority and approval boundaries remain in [authority-and-safety](authority-and
 1. Main re-reads the repo's config; a missing or invalid config fails closed.
 2. Confirm the actual PR target, the current exact head and, with `ci.enabled`, required CI green on it under the
    table below. When the merge policy's `proof` is true, run `prove()` and `structure_review()` on that head as
-   the [proofs and merge](../../../references/proofs-and-merge.md) reference and `gates` require.
+   the [proofs](../../../references/proofs.md) reference and `gates` require.
 3. Inspect `mergeStateStatus` and protection's up-to-date requirement. Rebase only for conflicts (`DIRTY`),
    or `BEHIND` when protection requires up-to-date. The assigned writer fetches the target, rebases,
    then pushes self-created `agent/*` history with `git push --force-with-lease`.

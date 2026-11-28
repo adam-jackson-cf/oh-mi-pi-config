@@ -24,7 +24,7 @@ from test_structure import FIXTURES
 
 from guardrails.commands import cli
 from guardrails.commands.structure_naming import layout, naming, path_check
-from guardrails.foundation.findings import Finding, remediations
+from guardrails.foundation.findings import STRUCTURE_GUIDANCE, Finding, remediations
 
 pytestmark = pytest.mark.seam
 
@@ -420,10 +420,11 @@ class CheckerCliTests(CheckerCase):
         assert self.run_cli("path-check", "src/orders/engine/runner.py")[0] == 0
         code, out = self.run_cli("path-check", "src/orders/engine/misc.py")
         assert code == 1
-        *lines, guidance = out.splitlines()
+        *lines, guidance, link = out.splitlines()
         assert lines
         assert all(line.startswith("src/orders/engine/misc.py: ") for line in lines)
         assert guidance.startswith("remediation NAME.conventions: root cause: ")
+        assert link == f"structure and naming guidance: {STRUCTURE_GUIDANCE}"
 
     def test_native_import_direction_checks_non_python_sources(self) -> None:
         source = "src/orders/engine/runner.ts"
@@ -491,6 +492,7 @@ class CheckerCliTests(CheckerCase):
                     f"run {sys.executable} -c raise SystemExit(1) and remove forbidden edges",
                     "remediation STRUCT.dependency-direction: "
                     + remediations()["STRUCT.dependency-direction"].render(),
+                    f"structure and naming guidance: {STRUCTURE_GUIDANCE}",
                 ]
 
     def test_check_rejects_automatic_whole_repo_naming_and_structure(self) -> None:

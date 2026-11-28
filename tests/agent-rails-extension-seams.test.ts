@@ -226,9 +226,6 @@ describe("agent-rails extension", () => {
 				"scope_source", "code_search", "fix_options", "blocked_fix", "constraint_source"]) {
 				assert.ok(reason.includes(field), `${field}: ${reason}`);
 			}
-			const reference = reason.match(/See (\S+)#dependency-advisories\./)?.[1];
-			assert.ok(reference && existsSync(reference), reason);
-			assert.ok(readFileSync(reference, "utf8").includes("## Dependency advisories"));
 		} finally { h.cleanup(); }
 	});
 
@@ -525,8 +522,8 @@ test("agent-rails merge requires prove()'s result file to say pass for the exact
 		assert.ok((await h.call("bash", { command: "gh pr merge 3" }))?.reason?.includes("--match-head-commit"));
 		const missing = await h.call("bash", { command });
 		assert.ok(reasonOf(missing).includes(`no prove() pass for ${head}`), String(missing?.reason));
-		const proofsReference = reasonOf(missing).match(/then merge \((\S+proofs-and-merge\.md)\)/)?.[1];
-		assert.ok(proofsReference && existsSync(proofsReference), "the refusal cites the proofs and merge reference by path");
+		const proofsReference = reasonOf(missing).match(/then merge \((\S+proofs\.md)\)/)?.[1];
+		assert.ok(proofsReference && existsSync(proofsReference), "the refusal cites the proofs reference by path");
 		assert.ok(reasonOf(missing).includes(join(".git", "omp-prove", `${head}.result.json`)), String(missing?.reason));
 		const result = join(h.root, ".git/omp-prove", `${head}.result.json`);
 		mkdirSync(dirname(result), { recursive: true });
