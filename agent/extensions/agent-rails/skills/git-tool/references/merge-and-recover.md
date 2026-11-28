@@ -21,7 +21,7 @@ Authority and approval boundaries remain in [authority-and-safety](authority-and
 1. Main re-reads the repo's config; a missing or invalid config fails closed.
 2. Confirm the actual PR target, the current exact head and, with `ci.enabled`, required CI green on it under the
    table below. When the merge policy's `proof` is true, run `prove()` and `structure_review()` on that head as
-   the [proofs and merge](../../../references/proofs-and-merge.md) reference and `gates` require.
+   the [proofs](../../../references/proofs.md) reference and `gates` require.
 3. Inspect `mergeStateStatus` and protection's up-to-date requirement. Rebase only for conflicts (`DIRTY`),
    or `BEHIND` when protection requires up-to-date. The assigned writer fetches the target, rebases,
    then pushes self-created `agent/*` history with `git push --force-with-lease`.
@@ -59,7 +59,7 @@ Infrastructure failures are not failed CI assertion evidence. Never waive a requ
 
 ### Declared CI contract
 
-The config's [`ci` policy](../../../docs/config.md#ci) declares
+The config's `ci` policy declares
 `requiredContext` (the commit-status context or check-run name that must be `success`
 on the exact head, whoever posts it) and `runner` (a role name). The machine config `ci-runners.json` in the omp base
 directory maps each role to its submit, wait, status and logs commands; `scripts/device_rollout.py` writes it per device.
@@ -86,7 +86,7 @@ workflow) never blocks.
 
 A repository-specific documented fallback is autonomous merge authority only if its exact `run.headSha` is validated
 and it publishes every required status. Otherwise stop/escalate the incident for owner decision; generic Actions success
-alone is insufficient. Repository-specific fallbacks live in the [config contract](../../../docs/config.md#oh-mi-pi-config-example).
+alone is insufficient. A repository documents its own fallback.
 
 A repository whose config enables `ci` has no no-CI exception: a missing required context is resolved or escalated,
 never replaced by a local run.

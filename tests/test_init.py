@@ -219,10 +219,10 @@ class DraftSectionTests(InitCase):
             }
         ]
         assert drafted["tests"]["tiers"]["t1"] == {
-            "command": "<command that runs every framework in the tier>"
+            "command": "<test-guidance tier map: command that runs every framework in the tier>"
         }
         assert drafted["tests"]["adapters"][0]["tiers"]["t1"]["selector"] == (
-            "<native selector>"
+            "<test-guidance tier map: native selector>"
         )
         assert "fill: tests.tiers.t1.command: is missing" in output
         assert "init: drafting from the section template (config outside)" in output

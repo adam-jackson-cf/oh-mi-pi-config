@@ -32,7 +32,7 @@ MANIFEST_FIX = (
 )
 CONFIG_FIX = (
     "map each owned package to a list of '<module>:<symbol>' entries in "
-    "tests.public_entry_points (docs/config.md)"
+    "tests.public_entry_points"
 )
 READ_ERRORS: tuple[type[Exception], ...] = (OSError, UnicodeError, tree.SourceError)
 EntryPoints = tuple[EntryPoint, ...]

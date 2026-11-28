@@ -1,5 +1,5 @@
 {
-  "about": "Per-language definitions for the structure rules; each language reads its extensions from the convention pack its source names. Each value names its published source; a rule a language cannot use is listed under not_applicable with its reason. A language with no measured cutoff for a scored rule does not run that rule until one is measured (docs/structure-languages.md).",
+  "about": "Per-language definitions for the structure rules; each language reads its extensions from the convention pack its source names. Each value names its published source; a rule a language cannot use is listed under not_applicable with its reason. A language with no measured cutoff for a scored rule does not run that rule until one is measured.",
   "languages": {
     "python": {
       "source": "engine/data/conventions/python.json"
@@ -308,6 +308,7 @@
           ],
           "own_imports": "imports that resolve to a file inside the package folder",
           "declared_commands": "package.json bin: a path or a map of command names to paths, relative to the package folder",
+          "limits": "a bin path maps to TypeScript source only for the same stem (bin/x.js to bin/x.ts), not across a build's output folder (dist/ to src/)",
           "command_manifests": ["package.json"],
           "launched_by_path": "a package.json scripts command, or a <script src> of a tracked HTML file, naming the file by its path from the manifest's or page's folder (a leading / is the page's folder); and a string literal in non-test source naming the file by its path or (inside its package) its file name",
           "package_run_module": null,

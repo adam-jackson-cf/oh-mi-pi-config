@@ -195,8 +195,7 @@ class SkillReferenceTests(unittest.TestCase):
 
     def test_package_reference_links_resolve_locally(self) -> None:
         assert {path.name for path in PACKAGE_REFERENCES} == {
-            "judgments.md",
-            "proofs-and-merge.md",
+            "proofs.md",
             "structure-and-naming.md",
             "README.md",
         }

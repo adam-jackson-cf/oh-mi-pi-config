@@ -28,13 +28,13 @@
   "tests": {
     "tiers": {
       "t1": {
-        "command": "<command that runs every framework in the tier>"
+        "command": "<test-guidance tier map: command that runs every framework in the tier>"
       },
       "t2": {
-        "command": "<command that runs every framework in the tier>"
+        "command": "<test-guidance tier map: command that runs every framework in the tier>"
       },
       "t3": {
-        "command": "<command that runs every framework in the tier>"
+        "command": "<test-guidance tier map: command that runs every framework in the tier>"
       }
     },
     "adapters": [
@@ -42,76 +42,76 @@
         "name": "<test-framework adapter, e.g. pytest>",
         "tiers": {
           "t1": {
-            "selector": "<native selector>",
-            "location": "<location>"
+            "selector": "<test-guidance tier map: native selector>",
+            "location": "<test-guidance tier map: location>"
           },
           "t2": {
-            "selector": "<native selector>",
-            "location": "<location>"
+            "selector": "<test-guidance tier map: native selector>",
+            "location": "<test-guidance tier map: location>"
           },
           "t3": {
-            "selector": "<native selector>",
-            "location": "<location>"
+            "selector": "<test-guidance tier map: native selector>",
+            "location": "<test-guidance tier map: location>"
           }
         }
       }
     ],
     "public_entry_points": {
-      "<package>": ["<module>:<symbol>"]
+      "<package>": ["<test-guidance public entry points: module>:<symbol>"]
     },
     "run_events": {
-      "commit": "<command>",
-      "ci": "<command>",
-      "nightly_scheduler": "<scheduler, or {none: true} with an owner exemption approval>",
-      "nightly_branches": "<branches or branch selection rule>"
+      "commit": "<test-guidance commands and checks: command>",
+      "ci": "<test-guidance commands and checks: command>",
+      "nightly_scheduler": "<test-guidance commands and checks: scheduler, or {none: true} with an owner exemption approval>",
+      "nightly_branches": "<test-guidance commands and checks: branches or branch selection rule>"
     },
     "fast_tier_budget": {
-      "duration_report_command": "<command>",
+      "duration_report_command": "<test-guidance tier budgets: command>",
       "machines": [
         {
-          "id": "<machine id from the budget checker's probe>",
-          "platform": "<platform>",
-          "runtime": "<runtime>",
-          "wall_limit_s": "<wall limit in seconds>",
-          "per_test_limit_s": "<per-test limit in seconds>"
+          "id": "<test-guidance tier budgets: machine id from the budget checker's probe; the owner approves its budget>",
+          "platform": "<test-guidance tier budgets: platform>",
+          "runtime": "<test-guidance tier budgets: runtime>",
+          "wall_limit_s": "<test-guidance tier budgets: wall limit in seconds>",
+          "per_test_limit_s": "<test-guidance tier budgets: per-test limit in seconds>"
         }
       ]
     },
     "coverage": {
-      "scope": "<owned files and tiers>",
-      "line_floor": "<line floor percent>",
-      "branch_floor": "<branch floor percent>",
-      "where": "<configuration or policy location>"
+      "scope": "<test-guidance coverage floors: owned files and tiers>",
+      "line_floor": "<test-guidance coverage floors: line floor percent>",
+      "branch_floor": "<test-guidance coverage floors: branch floor percent>",
+      "where": "<test-guidance coverage floors: configuration or policy location>"
     },
     "guards": {
-      "process": "<fast-tier process guard location>",
-      "network": "<fast-tier network guard location>",
-      "user_data": "<user-data guard and location>"
+      "process": "<test-guidance isolation: fast-tier process guard location>",
+      "network": "<test-guidance isolation: fast-tier network guard location>",
+      "user_data": "<test-guidance isolation: user-data guard and location>"
     },
     "environments": {
-      "required": "<environments>",
-      "require_flag": "<flag>",
-      "readiness_probe": "<command or probe>"
+      "required": "<test-guidance boundary launch: environments>",
+      "require_flag": "<test-guidance boundary launch: flag>",
+      "readiness_probe": "<test-guidance boundary launch: command or probe>"
     },
     "verification_surface": {
-      "lever_command": "<command>",
-      "doctor_marker": "<doctor failure marker>",
-      "feature_map_path": "<path>",
-      "journey_file_pattern": "<pattern>",
-      "data_dir_arg": "<argument>",
-      "evidence_dir_arg": "<argument>"
+      "lever_command": "<no test-guidance output: the repository's command, or the whole section {none: true} with an owner exemption approval>",
+      "doctor_marker": "<the repository's doctor failure marker>",
+      "feature_map_path": "<the repository's path>",
+      "journey_file_pattern": "<the repository's pattern>",
+      "data_dir_arg": "<the repository's argument>",
+      "evidence_dir_arg": "<the repository's argument>"
     },
     "identity_artefacts": {
-      "<path>": "<preservation rule>"
+      "<path>": "<no test-guidance output: the repository's preservation rule, or the whole section {none: true} with an owner exemption approval>"
     },
     "layout": {
-      "support_dir": "<directory>",
-      "fixtures_dir": "<directory>",
-      "test_file_patterns": ["<pattern>"]
+      "support_dir": "<test-guidance layout: directory>",
+      "fixtures_dir": "<test-guidance layout: directory>",
+      "test_file_patterns": ["<test-guidance layout: pattern>"]
     },
     "command_notes": {
-      "working_directory": "<directory and prerequisites>",
-      "interpretation": "<flags, exit codes, and interpretation>"
+      "working_directory": "<test-guidance commands and checks: directory and prerequisites>",
+      "interpretation": "<test-guidance commands and checks: flags, exit codes, and interpretation>"
     }
   }
 }

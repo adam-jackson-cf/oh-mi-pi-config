@@ -7,13 +7,12 @@ installation guide or an exhaustive reference.
 
 ## Design
 
-The [agent-rails design directive](agent/extensions/agent-rails/docs/design-directive.md) holds the
-design principles; `agent/AGENTS.md` holds the response rules and `agent/RULES.md` the session
-rules. The agent-rails package owns its judged rules (`agent/extensions/agent-rails/rules/`), three
-references its refusals cite
-([structure and naming](agent/extensions/agent-rails/references/structure-and-naming.md),
-[proofs and merge](agent/extensions/agent-rails/references/proofs-and-merge.md) and
-[judgments](agent/extensions/agent-rails/references/judgments.md)), and bundles the skills it
+[`agent/extensions/agent-rails/AGENTS.md`](agent/extensions/agent-rails/AGENTS.md) holds the
+agent-rails design rules; `agent/AGENTS.md` holds the response rules and `agent/RULES.md` the session
+rules. The agent-rails package owns its judged rules (`agent/extensions/agent-rails/rules/`), two
+references
+([structure and naming](agent/extensions/agent-rails/references/structure-and-naming.md) and
+[proofs](agent/extensions/agent-rails/references/proofs.md)), and bundles the skills it
 calls: `test-guidance`, `setup-repo-proofs`, `git-tool` and `jev-actions`. `git-tool` owns Git,
 PR, CI and merge authority, with its merge, CI and recovery runbook.
 
@@ -52,7 +51,7 @@ The boundaries are intentional:
   `extension-health.ts` reports registration health, not runtime correctness.
 
 The always-loaded agent-rails extension has one governed state. Its
-[rails scope](agent/extensions/agent-rails/docs/config.md#rails-scope) comes from the repository's config:
+rails scope comes from the repository's config:
 a repository with no GitHub origin gets the fixed guards only, and one with a missing or invalid
 config refuses edits, commits, pushes, PRs, merges and `askFirst` commands until the owner runs
 `/agentrails onboard`. The fixed guards
@@ -70,7 +69,7 @@ repository). Shell `-c`, `eval` and existing shell scripts are inspected recursi
 bounds; `cd` and `pushd` select the destination repository's policy, and pipeline segments keep
 their own cwd. Unresolved directories fail closed for publishing. Quoted `echo` and search
 arguments do not trigger the check.
-The repo config's [`autonomy`](agent/extensions/agent-rails/docs/config.md#autonomy) sets `git push`,
+The repo config's `autonomy` sets `git push`,
 `gh pr create` and `gh pr merge` to `allowed` or `ask`; `ask` waits for the owner's
 `$approve autonomy:<action>:<subject>` line. A `git push` to the remote's default branch is always
 refused. While a repository onboards, `gh pr merge` is refused: the owner merges the bootstrap PR.
@@ -111,8 +110,6 @@ enforced judgment acts from the moment it ships; a judge failure refuses, except
 through. A shadow judgment is asked and logged but never acts. Every answer, deterministic check
 result and rail refusal lands in one SQLite decision store, `~/.omp/agent/agent-rails/agent-rails.db`;
 `guardrails shadow-review` labels and measures what it holds.
-[Rail judgments](agent/extensions/agent-rails/references/judgments.md#rail-judgments)
-lists each rail, its outcomes and the owner's `$approve` line.
 
 Repository checks follow the test tiers. The repo config declares
 `commands.commit` (static checks, all T1 tests and T2 seams only for affected code) and
@@ -167,8 +164,7 @@ source.
 A repo never depends on or mentions omp or agent-rails in tracked files. Its rails settings live
 in `.agentrails/config.json` in its main checkout, kept out of git through
 `<git-common-dir>/info/exclude`; linked worktrees read the main checkout's file.
-[The config contract](agent/extensions/agent-rails/docs/config.md) defines its sections, their writers,
-strict validation and export and import. Agent tools never write it. A repository whose config
+`guardrails config-check` validates it strictly. Agent tools never write it. A repository whose config
 is missing or invalid is refused with the onboarding text, naming the slug and the engine's
 problems; `rails_kernel.py` refuses with the same route to `/agentrails onboard`. Rails and
 `rails_kernel.py` strip the harness's `AGENT` variable from every repo command they run.
@@ -233,9 +229,8 @@ Local rows use the registry's `local` mapping for the lowercase short hostname
 The NUC OMP runtime is managed only by `~/Projects/tools/omp-nuc-config` on
 `nuc-config` and `omp-config-pull.service`; this command never runs Git in its
 `~/.omp`. The only file it writes there is the untracked `ci-runners.json`. If `nuc-config`
-lacks `main`, sync it (see the
-[config contract](agent/extensions/agent-rails/docs/config.md#oh-mi-pi-config-example)),
-then rerun the command.
+lacks `main`, sync it with a PR from `agent/nuc-sync-<date>`, merged with `--merge` and no proof
+(this repository's `mergePolicies`), then rerun the command.
 The script never merges or pushes. Oh-mi-pi-config is not deployed to mac-cf2;
 only its `~/.agents` checkout is a rollout target, so judge-key provisioning and
 the find canary run only on devices that run omp.
@@ -260,9 +255,8 @@ role's `timeout` from the tracked role config; `--timeout` overrides it. A role
 without configured `wait`/`status` commands uses a built-in GitHub poller and
 needs `--context` set to the gate's `ci.requiredContext`; its timeout exits 124.
 The `github-actions` role starts on push, so `submit` only reports that. A
-missing role exits 2 and names the device_rollout.py command to run. This
-repository's runner facts live in the
-[config contract](agent/extensions/agent-rails/docs/config.md#oh-mi-pi-config-example).
+missing role exits 2 and names the device_rollout.py command to run. A repository
+missing from `scripts/ci-gate-repos.json` needs a setup PR, never a CI waiver.
 
 ### ci-gate service
 
@@ -271,8 +265,7 @@ exact-SHA gates in rootless Podman with gVisor. Only repositories in
 `scripts/ci-gate-repos.json` can run, and any of them may declare runner
 `ci-gate`. The NUC reads its own copy of each repository's config, which
 `ci_gate.py config-import <file>` validates and installs under
-`${XDG_DATA_HOME:-~/.local/share}/ci-gate/configs/<owner>/<name>/config.json`
-([export and import](agent/extensions/agent-rails/docs/config.md#export-and-import)).
+`${XDG_DATA_HOME:-~/.local/share}/ci-gate/configs/<owner>/<name>/config.json`.
 It posts the GitHub commit status context named by the config's `ci.requiredContext`,
 recorded in the job's `job.json`. A missing or invalid config, or one that does not route
 CI to `ci-gate`, gets an `error` result with a `publicationError` and no status, so rails
@@ -395,8 +388,8 @@ CI-tier container installs uv by hash and syncs the locked environment in its `p
 - `agent/extensions/agent-rails/engine/` — harness-side checkers and the rule catalogue
   (`data/guardrail-rules.json`), run outside inspected repositories.
   Its own tests prove every rule it implements.
-- `agent/extensions/agent-rails/docs/` — the per-repo config contract, the engine, design
-  directive, known limits and external dependencies; the extension's `README.md` is the entry point.
+- `agent/extensions/agent-rails/README.md` and `AGENTS.md` — the extension's install and use, and
+  the rules for changing it.
 - `agent/extensions/agent-rails/lib/` — the guards, rails runtime, Git paths, the repo
   config resolver and the eval-kernel API for proofs and judgments (`rails_kernel.py`).
 - `agent/extensions/agent-rails/rails.yml` — the tool and command mappings the rails read: edit tools,

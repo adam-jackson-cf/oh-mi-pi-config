@@ -82,7 +82,7 @@ tracked() {
   git ls-files -z -- "$@" >"$out"
 }
 
-# Imported upstream skills are third-party content copied verbatim (agent/extensions/agent-rails/docs/config.md);
+# Imported upstream skills are third-party content copied verbatim (IMPORTED_SKILLS in tests/test_skill_references.py);
 # their own repository lints them, so no gate here formats or lints them.
 imported_skills=(
   ':(exclude,glob)agent/extensions/agent-rails/skills/setup-repo-proofs/**'

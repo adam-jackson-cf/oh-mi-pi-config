@@ -13,6 +13,7 @@ sys.path.insert(
 import pytest
 
 from guardrails.commands.structure_naming import rename_residue as residue
+from guardrails.foundation.findings import STRUCTURE_GUIDANCE, format_findings
 
 pytestmark = pytest.mark.fast
 
@@ -46,7 +47,9 @@ class RenameResidueTests(unittest.TestCase):
             (item.path, item.message.split("`")[1]) for item in findings
         } == expected
         assert all(item.rule_id == "RENAME.residue" for item in findings)
-        assert all("structure-and-naming.md" in item.message for item in findings)
+        link = f"structure and naming guidance: {STRUCTURE_GUIDANCE}"
+        assert format_findings(findings).splitlines()[-1] == link
+        assert STRUCTURE_GUIDANCE.is_file()
 
     def test_gate_effort_retires_the_compound_not_gate(self) -> None:
         renames = [

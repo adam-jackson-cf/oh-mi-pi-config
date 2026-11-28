@@ -5,8 +5,9 @@ editTools: [write, edit, ast_edit]
 # cherry-pick, revert, am, pull, update-ref, clean, restore, filter-branch, replace, tag creation,
 # branch delete/force/move/copy, stash drop/clear/pop, fetch into a local ref, worktree add/remove,
 # branch creation, gh pr writes, gh release/repo/workflow/issue/run/label/secret/variable/ruleset/
-# gist/cache writes and gh api writes. git config hook-path and alias writes are refused outright
-# (guards.ts configWriteReason).
+# gist/cache writes and gh api writes. git config alias writes are refused; core.hooksPath may be
+# set only to a directory inside the repository (for example .githooks), and any other value is
+# refused (guards.ts configWriteReason).
 gitCommand: '^(git (commit|push|merge|rebase|reset|cherry-pick|revert|am|pull|update-ref|clean|restore|filter-branch|filter-repo|replace)(?![-\w])|git tag (?!(?:-l|--list|-n\d*|--contains|--no-contains|--points-at|--merged|--no-merged|--sort\S*|--format\S*|-v|--verify)(?:[ =]|$))\S|git branch (?:.* )?(?:-d|-D|--delete|-f|--force|-m|-M|--move|-c|-C|--copy)(?: |$)|git stash (drop|clear|pop)\b|git fetch (?:.* )?\+?[\w.-][\w./-]*:(?!/)[\w./-]+(?: |$)|git worktree (add|remove)\b|git switch (?:.* )?(?:-c|-C|--create)(?:[ =]|$)|git checkout (?:.* )?(?:-b|-B)(?: |$)|gh pr (create|merge|edit|close|reopen|ready|review|comment|lock|unlock)\b|gh (release|repo|workflow|issue|run|label|secret|variable|ruleset|gist|cache) (create|edit|delete|close|reopen|comment|run|enable|disable|cancel|rerun|rename|archive|unarchive|fork|sync|transfer|lock|unlock|upload|set|remove|pin|unpin|develop)\b|gh api\b(?=.* (?:(?:-X ?|--method[ =])(?!(?:GET|HEAD|get|head)\b)\S|(?:-f|-F|--field|--raw-field|--input)(?:[ =]|$))))'
 # In every Git repository: a parsed command position (basename of the command word, then its words, wrappers
 # included) matching this asks in-scope before it runs (refused while the repository is not onboarded): privileges, credentials, installs, other

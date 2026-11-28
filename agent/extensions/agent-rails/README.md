@@ -1,78 +1,40 @@
 # Agent rails
 
-**An omp extension that gates what agents may edit, run, commit, push and merge in each
-repository. Deterministic checks decide first, and calibrated judgments decide the rest.**
+An omp extension that gates what agents may edit, run, commit, push and merge in each repository.
 
-## Quick Install
+## Install
 
-Prerequisites:
-
-- omp, loading this repository from `~/.omp` (`agent/config.yml` lists the extension directory)
-- Bun and uv
-
-From the oh-mi-pi-config checkout, install the locked dependencies and the commit hook:
+Work from the oh-mi-pi-config checkout omp loads at `~/.omp`. Install uv, Go 1.26.10 and the Bun
+version `package.json` pins in `packageManager`, then run:
 
 ```bash
 bash scripts/install-quality-gates.sh
 ```
 
-This also syncs the engine's environment (`agent/extensions/agent-rails/engine`). Restart omp
-sessions after the extension changes: running sessions keep the old rails.
+Restart omp sessions after the extension changes: running sessions keep the old rails.
 
-## Quick Start
+## Use
 
-In an omp session inside a repository with a GitHub origin, check the repository's state, then
-onboard it:
+In an omp session inside a repository with a GitHub origin, run `/agentrails onboard`: the agent
+runs the setup skills and records each section. Run `/agentrails onboard` again to answer a short
+Q&A that writes `.agentrails/config.json`; until then the rails refuse ordinary work there.
+
+The owner types these lines in the main session to write exceptions and approvals:
 
 ```text
-/agentrails status
-/agentrails onboard
+$approve exception <RULE> <path-glob> [check=<check>] -- <reason>
+$revoke exception <RULE> <path-glob> [check=<check>]
+$approve approval <budget|ratchet|skip|exemption> <target> -- <reason>
+$revoke approval <kind> <target>
 ```
 
-The first `onboard` has the agent run `skill://setup-repo-proofs` and `skill://test-guidance`
-and record each setup section in a draft. The second `onboard` runs a fixed Q&A and writes
-`.agentrails/config.json` in the main checkout, kept out of Git. Until then the rails refuse
-ordinary work in that repository.
+After changing the config of a repository whose CI runner is `ci-gate`, run
+`/agentrails export <file>`, then `ci_gate.py config-import <file>` on the NUC.
 
-## What Agent Rails Does
+Run the engine with `uv run --project engine guardrails --help`; each subcommand has its own
+`--help`.
 
-The rails watch the agent's edits, shell commands and replies. They refuse actions the repository's
-config does not allow, ask the owner where the config says `ask`, and prove a PR before merge.
+## Limits
 
-- `index.ts` and `lib/`: the extension entry, guards, rails runtime, onboarding, config writer
-  and the eval-kernel API for proofs and judgments (`lib/rails_kernel.py`)
-- `rails.yml`: the edit tools, path fields and Git-write and ask-first command patterns
-- `engine/`: the `guardrails` Python checkers and rule catalogue, run outside the repository
-- `judgments/`: calibrated Jev judgments behind `decide()`
-- `rules/`: judged reply rules that load in every session
-- `references/`: the plain references refusal texts cite
-- `skills/`: the bundled skills `git-tool`, `setup-repo-proofs`, `test-guidance` and
-  `jev-actions`
-- `inspector.env`: the opt-in Jev Inspector route for one session
-
-## Core Concepts
-
-- Rail: a check the extension runs on an agent action, which allows, refuses or asks.
-- Repo config: `.agentrails/config.json`, one file per repository, never committed.
-- Onboarding: `/agentrails onboard`, which builds the repo config from the setup skills and Q&A.
-- Judgment: a calibrated model decision, enforced or in shadow mode, where shadow only logs.
-- Autonomy: the config's `allowed` or `ask` setting for branch, PR and merge.
-- Owner approval: a `$approve` or `$revoke` line the owner types in the main session.
-- Proof: an outcome test red at the base and green at the head, checked by `prove()` at the PR.
-
-## Go Deeper
-
-- [docs/config.md](docs/config.md): the repo config's sections, writers, validation, export and
-  import
-- [docs/design-directive.md](docs/design-directive.md): the principles every change to the rails
-  follows
-- [docs/known-limits.md](docs/known-limits.md): what the rails do not catch or measure today
-- [docs/external-dependencies.md](docs/external-dependencies.md): what the extension relies on
-  outside its folder
-- [docs/engine.md](docs/engine.md): the `guardrails` engine: how to run it, its layers,
-  adapters, configuration and language coverage
-- [docs/structure-languages.md](docs/structure-languages.md): what each structure rule checks in
-  Python, TypeScript and Go
-- [references/judgments.md](references/judgments.md),
-  [references/proofs-and-merge.md](references/proofs-and-merge.md) and
-  [references/structure-and-naming.md](references/structure-and-naming.md): the rules refusals cite
+The rails scan shell text, so obfuscated commands can evade them. Keep server-side protection: a
+default-branch ruleset and a required gate status only the gate identity can post.

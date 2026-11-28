@@ -12,7 +12,7 @@ Authority and safety belong to [authority-and-safety](authority-and-safety.md).
 3. Resolve the default once with `gh repo view --json defaultBranchRef -q .defaultBranchRef.name`,
    or the primary remote's symbolic HEAD (for origin, `git symbolic-ref refs/remotes/origin/HEAD`).
    Record `<remote>` and `<default>`; never assume `main`. Use this resolution for comparisons, PR targets and recovery.
-4. Read the repo's config ([config contract](../../../docs/config.md)). A missing or invalid config fails closed:
+4. Read the repo's config. A missing or invalid config fails closed:
    the rails refuse commits until the owner runs `/agentrails onboard`.
 5. Fetch the primary remote before creating the dedicated worktree/branch from `<remote>/<default>` (not stale local default).
    Create it at `<worktree.base>/<repo>/<slug>` (`~/worktrees/<repo>/<slug>`), where `<repo>` is the

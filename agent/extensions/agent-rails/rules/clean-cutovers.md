@@ -29,3 +29,4 @@ same change.
 - A behaviour-preserving refactor keeps the repository's existing tests and CI as its proof. A
   part of the change that adds behaviour is a feature and needs its own tests.
 - If the old path cannot be removed in this change, stop and ask the owner; never ship both.
+- For a move or rename, also follow [structure and naming](../references/structure-and-naming.md).
