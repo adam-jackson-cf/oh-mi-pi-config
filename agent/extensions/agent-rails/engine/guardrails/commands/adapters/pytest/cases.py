@@ -1,17 +1,52 @@
 from __future__ import annotations
 
-import ast
-import copy
 import itertools
+import json
+from collections import Counter, deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import TypeAlias
+from typing import TYPE_CHECKING
+
+from guardrails.commands.adapters.pytest.parametrize import (
+    Dimension,
+    Scope,
+    Static,
+    dimensions,
+)
+from guardrails.commands.adapters.pytest.syntax import (
+    IMPORT_KINDS,
+    Form,
+    Forms,
+    Role,
+    import_aliases,
+    walk,
+)
+from guardrails.foundation.source.python import defined, text_literal
+from guardrails.foundation.source.tree import named, parse
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 
 SUFFIXES = (".py",)
-TestFunction: TypeAlias = ast.FunctionDef | ast.AsyncFunctionDef
-Bindings: TypeAlias = dict[str, ast.expr]
-ParameterRow: TypeAlias = tuple[str, Bindings]
-Dimension: TypeAlias = list[ParameterRow]
+UNITTEST_BASES = frozenset({"unittest.TestCase", "unittest.IsolatedAsyncioTestCase"})
+OPAQUE_KINDS = frozenset({
+    "function_definition",
+    "class_definition",
+    "decorated_definition",
+    "expression_statement",
+})
+FLAT_KINDS = frozenset({
+    "argument_list",
+    "block",
+    "parenthesized_expression",
+    "else_clause",
+    "finally_clause",
+    "with_clause",
+    "as_pattern",
+    "as_pattern_target",
+    "pair",
+})
+ASSIGNMENT_KINDS = frozenset({"assignment", "augmented_assignment"})
 
 
 class CollectionError(ValueError):
@@ -30,435 +65,277 @@ class Collected:
     behaviours: Mapping[str, str | None]
 
 
-def _expression(node: ast.AST) -> str:
-    return ast.dump(node, include_attributes=False)
-
-
-def _qualified(node: ast.AST) -> str:
-    if isinstance(node, ast.Name):
-        return node.id
-    if isinstance(node, ast.Attribute):
-        return f"{_qualified(node.value)}.{node.attr}"
-    return ""
-
-
-def _imports(tree: ast.AST) -> dict[str, str]:
+def scope_aliases(start: SgNode) -> dict[str, str]:
     names: dict[str, str] = {}
-    pending = list(ast.iter_child_nodes(tree))
+    pending = deque(named(start))
     while pending:
-        node = pending.pop(0)
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            pending.extend(ast.iter_child_nodes(node))
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                names[alias.asname or alias.name.split(".")[0]] = (
-                    alias.name if alias.asname else alias.name.split(".")[0]
-                )
-        elif isinstance(node, ast.ImportFrom):
-            for alias in node.names:
-                module = f"{'.' * node.level}{node.module or ''}"
-                names[alias.asname or alias.name] = (
-                    f"{module}{'.' if node.module else ''}{alias.name}"
-                )
+        node = pending.popleft()
+        if node.kind() in IMPORT_KINDS:
+            names.update((local, target) for local, target, _ in import_aliases(node))
+        elif node.kind() not in OPAQUE_KINDS:
+            pending.extend(named(node))
     return names
 
 
-def _literal_id(node: ast.expr, name: str, index: int) -> str:
-    try:
-        value = ast.literal_eval(node)
-    except (ValueError, TypeError):
-        return f"{name}{index}"
-    if value is None or isinstance(value, (str, int, float, bool, complex)):
-        return str(value).encode("unicode_escape").decode("ascii")
-    return f"{name}{index}"
-
-
-def _parameter_names(node: ast.expr) -> list[str]:
-    raw_names = ast.literal_eval(node)
-    if isinstance(raw_names, str):
-        return [part.strip() for part in raw_names.split(",")]
-    if isinstance(raw_names, (tuple, list)) and all(
-        isinstance(name, str) for name in raw_names
-    ):
-        return list(raw_names)
-    raise ValueError("parametrize names must be static strings")
-
-
-def _row_values(row: ast.expr, width: int) -> tuple[list[ast.expr], ast.expr | None]:
-    explicit = None
-    if isinstance(row, ast.Call) and _qualified(row.func).endswith(".param"):
-        values = row.args
-        explicit = next(
-            (keyword.value for keyword in row.keywords if keyword.arg == "id"), None
-        )
-    else:
-        values = (
-            row.elts if width > 1 and isinstance(row, (ast.Tuple, ast.List)) else [row]
-        )
-    if len(values) != width:
-        raise ValueError("parametrize row width does not match names")
-    return values, explicit
-
-
-def _unique_ids(rows: Dimension) -> Dimension:
-    counts: dict[str, int] = {}
-    for label, _ in rows:
-        counts[label] = counts.get(label, 0) + 1
-    offsets: dict[str, int] = {}
-    unique = []
-    occupied = set(counts)
-    for label, bindings in rows:
-        if counts[label] == 1:
-            unique.append((label, bindings))
-            continue
-        offset = offsets.get(label, 0)
-        separator = "_" if label[-1:].isdigit() else ""
-        candidate = f"{label}{separator}{offset}"
-        while candidate in occupied:
-            offset += 1
-            candidate = f"{label}{separator}{offset}"
-        offsets[label] = offset + 1
-        occupied.add(candidate)
-        unique.append((candidate, bindings))
-    return unique
-
-
-def _row_id(
-    names: Sequence[str],
-    values: Sequence[ast.expr],
-    index: int,
-    explicit: ast.expr | None,
-) -> str:
-    label = ast.literal_eval(explicit) if explicit is not None else None
-    if label is not None:
-        return str(label).encode("unicode_escape").decode("ascii")
-    return "-".join(
-        _literal_id(value, name, index)
-        for name, value in zip(names, values, strict=True)
-    )
-
-
-def _parameter_rows(decorator: ast.Call) -> Dimension:
-    if len(decorator.args) < 2:
-        raise ValueError("parametrize requires static names and rows")
-    names = _parameter_names(decorator.args[0])
-    rows = decorator.args[1]
-    if not isinstance(rows, (ast.List, ast.Tuple)):
-        raise ValueError("parametrize rows must be a static list or tuple")
-    ids = next(
-        (keyword.value for keyword in decorator.keywords if keyword.arg == "ids"), None
-    )
-    if ids is not None and not isinstance(ids, (ast.List, ast.Tuple)):
-        raise ValueError("parametrize ids must be a static list or tuple")
-    if isinstance(ids, (ast.List, ast.Tuple)) and len(ids.elts) != len(rows.elts):
-        raise ValueError("parametrize ids must match the number of rows")
-    result: Dimension = []
-    for index, row in enumerate(rows.elts):
-        values, explicit = _row_values(row, len(names))
-        if explicit is None and isinstance(ids, (ast.List, ast.Tuple)):
-            explicit = ids.elts[index]
-        result.append((
-            _row_id(names, values, index, explicit),
-            dict(zip(names, values, strict=True)),
-        ))
-    return _unique_ids(result)
-
-
-class Normalizer(ast.NodeTransformer):
-    def __init__(
-        self, aliases: Mapping[str, str], bindings: Mapping[str, ast.expr]
-    ) -> None:
-        self.aliases = aliases
-        self.bindings = dict(bindings)
-        self.locals: dict[str, str] = {}
-
-    def visit_Name(self, node: ast.Name) -> ast.AST:
-        if isinstance(node.ctx, ast.Load) and node.id in self.bindings:
-            return self.bindings[node.id]
-        if node.id in self.locals:
-            return ast.Name(id=self.locals[node.id], ctx=node.ctx)
-        if node.id in self.aliases:
-            return ast.Name(id=self.aliases[node.id], ctx=node.ctx)
-        return node
-
-    def visit_arg(self, node: ast.arg) -> ast.AST:
-        return ast.arg(arg=self.locals.get(node.arg, node.arg))
-
-    def visit_FunctionDef(self, node: ast.FunctionDef) -> ast.AST:
-        node.name = self.locals.get(node.name, node.name)
-        return self.generic_visit(node)
-
-    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> ast.AST:
-        node.name = self.locals.get(node.name, node.name)
-        return self.generic_visit(node)
-
-
-def _local_names(
-    function: TestFunction, bindings: Mapping[str, ast.expr]
-) -> dict[str, str]:
-    names: dict[str, str] = {}
-    arguments = [
-        *function.args.posonlyargs,
-        *function.args.args,
-        *function.args.kwonlyargs,
-    ]
-    arguments.extend(
-        argument
-        for argument in (function.args.vararg, function.args.kwarg)
-        if argument is not None
-    )
-    for argument in arguments:
-        if argument.arg not in bindings:
-            names[argument.arg] = f"argument{len(names)}"
-    for node in ast.walk(function):
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            names.setdefault(node.id, f"local{len(names)}")
-        elif (
-            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node is not function
-        ):
-            names.setdefault(node.name, f"function{len(names)}")
-    return names
-
-
-def _name_count(
-    function: TestFunction, target: str, context: type[ast.expr_context]
-) -> int:
-    return sum(
-        isinstance(node, ast.Name)
-        and isinstance(node.ctx, context)
-        and node.id == target
-        for node in ast.walk(function)
-    )
-
-
-def _inline_temporary(
-    function: TestFunction, statement: ast.stmt, normalizer: Normalizer
-) -> bool:
+def assigned(statement: SgNode) -> tuple[str, SgNode] | None:
+    inner = named(statement) if statement.kind() == "expression_statement" else []
+    assignment = inner[0] if len(inner) == 1 else None
+    if assignment is None or assignment.kind() != "assignment":
+        return None
+    target, value = assignment.field("left"), assignment.field("right")
     if (
-        not isinstance(statement, ast.Assign)
-        or len(statement.targets) != 1
-        or not isinstance(statement.targets[0], ast.Name)
+        target is None
+        or value is None
+        or target.kind() != "identifier"
+        or value.kind() == "assignment"
+        or assignment.field("type") is not None
     ):
-        return False
-    target = statement.targets[0].id
-    if (
-        _name_count(function, target, ast.Load) != 1
-        or _name_count(function, target, ast.Store) != 1
-    ):
-        return False
-    normalized = normalizer.visit(copy.deepcopy(statement.value))
-    if not isinstance(normalized, ast.expr):
-        return False
-    normalizer.bindings[target] = normalized
-    return True
+        return None
+    return target.text(), value
 
 
-def _ignored_statement(statement: ast.stmt) -> bool:
-    return isinstance(statement, (ast.Import, ast.ImportFrom)) or (
-        isinstance(statement, ast.Expr)
-        and isinstance(statement.value, ast.Constant)
-        and isinstance(statement.value.value, str)
-    )
+def module_constants(root: SgNode) -> dict[str, Static]:
+    constants: dict[str, Static] = {}
+    for statement in named(root):
+        found = assigned(statement)
+        if found is not None:
+            constants[found[0]] = Static(found[1], Scope({}, dict(constants)))
+    return constants
 
 
-def _fingerprint(
-    function: TestFunction, aliases: Mapping[str, str], bindings: Mapping[str, ast.expr]
-) -> str:
-    normalizer = Normalizer({**aliases, **_imports(function)}, bindings)
-    normalizer.locals = _local_names(function, bindings)
-    body: list[str] = []
-    calls: list[str] = []
-    for statement in function.body:
-        if _ignored_statement(statement):
-            continue
-        calls.extend(
-            _expression(normalizer.visit(copy.deepcopy(node)))
-            for node in ast.walk(statement)
-            if isinstance(node, ast.Call)
-        )
-        if not _inline_temporary(function, statement, normalizer):
-            body.append(_expression(normalizer.visit(copy.deepcopy(statement))))
-    return "|".join(calls) + "::" + "|".join(body)
+def dotted_name(node: SgNode | None) -> str:
+    if node is None:
+        return ""
+    if node.kind() == "identifier":
+        return node.text()
+    attribute = node.field("attribute")
+    if node.kind() != "attribute" or attribute is None:
+        return ""
+    return f"{dotted_name(node.field('object'))}.{attribute.text()}"
 
 
-class Constants(ast.NodeTransformer):
-    def __init__(self) -> None:
-        self.values: dict[str, ast.expr] = {}
-
-    def visit_Name(self, node: ast.Name) -> ast.AST:
-        return self.values.get(node.id, node)
-
-    def visit_JoinedStr(self, node: ast.JoinedStr) -> ast.AST:
-        parts: list[str] = []
-        for value in node.values:
-            if isinstance(value, ast.Constant) and isinstance(value.value, str):
-                parts.append(value.value)
-            elif isinstance(value, ast.FormattedValue):
-                resolved = self.visit(value.value)
-                if not isinstance(resolved, ast.Constant):
-                    return node
-                parts.append(str(resolved.value))
-            else:
-                return node
-        return ast.Constant(value="".join(parts))
-
-    def visit_Call(self, node: ast.Call) -> ast.AST:
-        self.generic_visit(node)
-        if isinstance(node.func, ast.Name) and not node.keywords:
-            if node.func.id == "len" and len(node.args) == 1:
-                argument = node.args[0]
-                if isinstance(argument, ast.Constant) and isinstance(
-                    argument.value, (str, bytes)
-                ):
-                    return ast.Constant(value=len(argument.value))
-                if isinstance(argument, (ast.List, ast.Tuple)):
-                    return ast.Constant(value=len(argument.elts))
-            if (
-                node.func.id == "range"
-                and 1 <= len(node.args) <= 3
-                and all(
-                    isinstance(argument, ast.Constant) and type(argument.value) is int
-                    for argument in node.args
-                )
-            ):
-                values = [
-                    argument.value
-                    for argument in node.args
-                    if isinstance(argument, ast.Constant)
-                    and isinstance(argument.value, int)
-                ]
-                try:
-                    resolved = range(*values)
-                except ValueError:
-                    return node
-                return ast.List(
-                    elts=[ast.Constant(value=value) for value in resolved],
-                    ctx=ast.Load(),
-                )
-        if (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "replace"
-            and isinstance(node.func.value, ast.Constant)
-            and isinstance(node.func.value.value, str)
-            and len(node.args) == 2
-            and not node.keywords
-        ):
-            old, new = node.args
-            if (
-                isinstance(old, ast.Constant)
-                and isinstance(old.value, str)
-                and isinstance(new, ast.Constant)
-                and isinstance(new.value, str)
-            ):
-                return ast.Constant(
-                    value=node.func.value.value.replace(old.value, new.value)
-                )
-        return node
-
-
-def _dimensions(
-    decorators: Sequence[ast.expr], constants: Constants, aliases: Mapping[str, str]
-) -> list[Dimension]:
-    dimensions = []
-    for decorator in reversed(decorators):
-        resolved = Normalizer(aliases, {}).visit(copy.deepcopy(decorator))
-        resolved = constants.visit(resolved)
-        if (
-            isinstance(resolved, ast.Call)
-            and _qualified(resolved.func) == "pytest.mark.parametrize"
-        ):
-            dimensions.append(_parameter_rows(resolved))
-    return dimensions
-
-
-def _expanded_cases(
-    selector: str,
-    function: TestFunction,
-    aliases: Mapping[str, str],
-    dimensions: Sequence[Dimension],
-) -> list[Case]:
-    if not dimensions:
-        return [Case(selector, _fingerprint(function, aliases, {}))]
-    cases = []
-    for combination in itertools.product(*dimensions):
-        labels = [label for label, _ in combination]
-        bindings: Bindings = {}
-        for _, row in combination:
-            bindings.update(row)
-        cases.append(
-            Case(
-                f"{selector}[{'-'.join(labels)}]",
-                _fingerprint(function, aliases, bindings),
-            )
-        )
-    return cases
-
-
-UNITTEST_BASES = frozenset({"unittest.TestCase", "unittest.IsolatedAsyncioTestCase"})
-
-
-def _is_test_class(
-    node: ast.ClassDef, aliases: Mapping[str, str], test_classes: set[str]
+def is_test_class(
+    node: SgNode, aliases: Mapping[str, str], test_classes: set[str]
 ) -> bool:
-    if node.name.startswith("Test"):
+    name = node.field("name")
+    if name is not None and name.text().startswith("Test"):
         return True
-    for base in node.bases:
-        name = _qualified(base)
-        head, dot, rest = name.partition(".")
-        resolved = f"{aliases.get(head, head)}{dot}{rest}"
-        if resolved in UNITTEST_BASES or name in test_classes:
+    superclasses = node.field("superclasses")
+    for base in named(superclasses) if superclasses is not None else []:
+        if base.kind() in {"keyword_argument", "dictionary_splat"}:
+            continue
+        written = dotted_name(base)
+        head, dot, rest = written.partition(".")
+        if f"{aliases.get(head, head)}{dot}{rest}" in UNITTEST_BASES:
+            return True
+        if written in test_classes:
             return True
     return False
 
 
-def _cases(path: str, text: str) -> tuple[list[Case], dict[str, str | None]]:
-    tree = ast.parse(text, filename=path)
-    aliases = _imports(tree)
-    constants = Constants()
-    for statement in tree.body:
-        if (
-            isinstance(statement, ast.Assign)
-            and len(statement.targets) == 1
-            and isinstance(statement.targets[0], ast.Name)
-        ):
-            value = constants.visit(statement.value)
-            if isinstance(value, ast.expr):
-                constants.values[statement.targets[0].id] = value
-    cases: list[Case] = []
-    functions: dict[str, str | None] = {}
-    test_classes: set[str] = set()
+def ignored(statement: SgNode) -> bool:
+    if statement.kind() in IMPORT_KINDS:
+        return True
+    inner = named(statement)
+    return (
+        statement.kind() == "expression_statement"
+        and len(inner) == 1
+        and text_literal(inner[0])
+    )
 
-    def collect(
-        nodes: Sequence[ast.stmt], prefix: str, inherited: list[Dimension]
+
+def spliced(parent: SgNode, child: SgNode) -> bool:
+    if child.kind() in FLAT_KINDS:
+        return True
+    if child.kind() == "expression_statement":
+        inner = named(child)
+        return len(inner) == 1 and inner[0].kind() in ASSIGNMENT_KINDS
+    if child.kind() == "string":
+        return parent.kind() == "concatenated_string"
+    if child.kind() != "boolean_operator" or parent.kind() != "boolean_operator":
+        return False
+    operators = [node.field("operator") for node in (parent, child)]
+    texts = {operator.text() for operator in operators if operator is not None}
+    return len(texts) == 1
+
+
+def evaluation_order(node: SgNode) -> list[SgNode]:
+    children = named(node)
+    if node.kind() == "conditional_expression" and len(children) == 3:
+        children = [children[1], children[0], children[2]]
+    ordered = []
+    for item in children:
+        if spliced(node, item):
+            ordered.extend(evaluation_order(item))
+        else:
+            ordered.append(item)
+    return ordered
+
+
+def calls_in(statement: SgNode) -> list[SgNode]:
+    found = []
+    pending = deque([statement])
+    while pending:
+        node = pending.popleft()
+        if node.kind() == "call":
+            found.append(node)
+        pending.extend(evaluation_order(node))
+    return found
+
+
+class Normalizer(Forms):
+    def __init__(
+        self,
+        aliases: Mapping[str, str],
+        bindings: dict[str, Form],
+        local: Mapping[str, str],
     ) -> None:
-        for node in nodes:
-            if isinstance(node, ast.ClassDef) and _is_test_class(
-                node, aliases, test_classes
-            ):
-                test_classes.add(node.name)
-                collect(
-                    node.body,
-                    f"{prefix}{node.name}::",
-                    _dimensions(node.decorator_list, constants, aliases) + inherited,
-                )
-            elif isinstance(
-                node, (ast.FunctionDef, ast.AsyncFunctionDef)
-            ) and node.name.startswith("test"):
-                selector = f"{path}::{prefix}{node.name}"
-                functions[selector] = node.name.removeprefix("test_").replace("_", " ")
-                dimensions = (
-                    _dimensions(node.decorator_list, constants, aliases) + inherited
-                )
-                cases.extend(_expanded_cases(selector, node, aliases, dimensions))
+        self.aliases = aliases
+        self.bindings = bindings
+        self.local = local
 
-    collect(tree.body, "", [])
-    return cases, functions
+    def variable(self, text: str, role: Role) -> Form:
+        if role is Role.LOAD and text in self.bindings:
+            return self.bindings[text]
+        return ("name", self.local.get(text) or self.aliases.get(text, text))
+
+    def renamed(self, text: str) -> str:
+        return self.local.get(text, text)
+
+
+class TestBody:
+    def __init__(
+        self, function: SgNode, outer: SgNode, aliases: Mapping[str, str]
+    ) -> None:
+        self.function = function
+        self.aliases = {**aliases, **scope_aliases(function)}
+        own = function.field("name")
+        parameters = function.field("parameters")
+        self.arguments = [
+            node.text()
+            for node, role in (walk(parameters) if parameters is not None else [])
+            if node.kind() == "identifier" and role is Role.ARGUMENT
+        ]
+        identifiers = [
+            (node, role) for node, role in walk(outer) if node.kind() == "identifier"
+        ]
+        self.counts = Counter((node.text(), role) for node, role in identifiers)
+        self.order = [
+            (node.text(), "local" if role is Role.STORE else "function")
+            for node, role in identifiers
+            if role is Role.STORE or (role is Role.FUNCTION and node != own)
+        ]
+
+    def local_names(self, bindings: Mapping[str, Form]) -> dict[str, str]:
+        names: dict[str, str] = {}
+        for argument in self.arguments:
+            if argument not in bindings:
+                names[argument] = f"argument{len(names)}"
+        for text, label in self.order:
+            names.setdefault(text, f"{label}{len(names)}")
+        return names
+
+    def temporary(self, statement: SgNode) -> tuple[str, SgNode] | None:
+        found = assigned(statement)
+        if found is None:
+            return None
+        name = found[0]
+        once = self.counts[name, Role.LOAD] == 1 and self.counts[name, Role.STORE] == 1
+        return found if once else None
+
+    def fingerprint(self, bindings: Mapping[str, Form]) -> str:
+        normalizer = Normalizer(
+            self.aliases, dict(bindings), self.local_names(bindings)
+        )
+        calls: list[Form] = []
+        body: list[Form] = []
+        block = self.function.field("body")
+        for statement in named(block) if block is not None else []:
+            if ignored(statement):
+                continue
+            calls.extend(normalizer.form(call) for call in calls_in(statement))
+            temporary = self.temporary(statement)
+            if temporary is None:
+                body.append(normalizer.form(statement))
+            else:
+                normalizer.bindings[temporary[0]] = normalizer.form(temporary[1])
+        return json.dumps([calls, body], separators=(",", ":"), ensure_ascii=False)
+
+
+def expanded_cases(
+    selector: str, body: TestBody, dimensions: Sequence[Dimension]
+) -> list[Case]:
+    if not dimensions:
+        return [Case(selector, body.fingerprint({}))]
+    cases = []
+    for combination in itertools.product(*dimensions):
+        labels = [label for label, _ in combination]
+        bindings: dict[str, Form] = {}
+        for _, row in combination:
+            bindings.update(row)
+        cases.append(
+            Case(f"{selector}[{'-'.join(labels)}]", body.fingerprint(bindings))
+        )
+    return cases
+
+
+def decorators(statement: SgNode) -> list[SgNode]:
+    if statement.kind() != "decorated_definition":
+        return []
+    return [
+        named(item)[0]
+        for item in named(statement)
+        if item.kind() == "decorator" and named(item)
+    ]
+
+
+class Collector:
+    def __init__(self, path: str, root: SgNode) -> None:
+        self.path = path
+        self.aliases = scope_aliases(root)
+        self.scope = Scope(self.aliases, module_constants(root))
+        self.cases: list[Case] = []
+        self.behaviours: dict[str, str | None] = {}
+        self.test_classes: set[str] = set()
+
+    def visit(
+        self, statements: Sequence[SgNode], prefix: str, inherited: list[Dimension]
+    ) -> None:
+        for statement in statements:
+            node = defined(statement)
+            name = node.field("name")
+            body = node.field("body")
+            if name is None or body is None:
+                continue
+            if node.kind() == "class_definition" and is_test_class(
+                node, self.aliases, self.test_classes
+            ):
+                self.test_classes.add(name.text())
+                self.visit(
+                    named(body),
+                    f"{prefix}{name.text()}::",
+                    dimensions(decorators(statement), self.scope) + inherited,
+                )
+            elif node.kind() == "function_definition" and name.text().startswith(
+                "test"
+            ):
+                selector = f"{self.path}::{prefix}{name.text()}"
+                self.behaviours[selector] = (
+                    name.text().removeprefix("test_").replace("_", " ")
+                )
+                found = dimensions(decorators(statement), self.scope) + inherited
+                self.cases.extend(
+                    expanded_cases(
+                        selector, TestBody(node, statement, self.aliases), found
+                    )
+                )
 
 
 def collect(path: str, text: str) -> Collected:
     try:
-        cases, behaviours = _cases(path, text)
+        root = parse(path, text)
+        collector = Collector(path, root)
+        collector.visit(named(root), "", [])
     except (SyntaxError, ValueError, TypeError) as error:
         raise CollectionError(" ".join(str(error).split())) from error
-    return Collected(tuple(cases), behaviours)
+    return Collected(tuple(collector.cases), collector.behaviours)

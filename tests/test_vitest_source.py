@@ -18,6 +18,7 @@ from guardrails.checker.growth import Snapshot, duplicate_findings, growth_findi
 from guardrails.commands.adapters.javascript import cases, lint
 from guardrails.commands.adapters.vitest.lint import VITEST
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.source.modules import ScriptResolver
 
 pytestmark = pytest.mark.fast
 
@@ -34,6 +35,19 @@ REPO_CONFIG: dict[str, Any] = {
 ROOTS = ("shop",)
 
 
+def ownership(
+    sources: dict[str, str] | None = None, roots: tuple[str, ...] = ROOTS
+) -> lint.Owned:
+    files = sources or {}
+    return lint.Owned(roots, ScriptResolver(set(files), files.__getitem__))
+
+
+def hooks(sources: dict[str, str]) -> list[Finding]:
+    return lint.hook_findings(
+        sources, REPO_CONFIG, {"shop/core.ts"}, ownership(sources), "vitest"
+    )
+
+
 def findings(
     source: str,
     path: str = "tests/case.test.ts",
@@ -45,7 +59,7 @@ def findings(
         if rule.scope
         == ("tests" if lint.is_test(path, repo_config, "vitest") else "production")
     ]
-    return lint.file_findings(path, source, rules, ROOTS, VITEST)
+    return lint.file_findings(path, source, rules, ownership(), VITEST)
 
 
 class StaticCases(unittest.TestCase):
@@ -342,26 +356,57 @@ class SourceLint(unittest.TestCase):
             "shop/core.ts": "export function checkout() {} export function inspect() {}",
             "tests/case.test.ts": "import { inspect as view } from '../shop/core'; test('x', () => { view(); });",
         }
-        found = lint.hook_findings(
-            sources, REPO_CONFIG, {"shop/core.ts"}, ROOTS, "vitest"
-        )
+        found = hooks(sources)
         assert len(found) == 1
         assert "inspect" in found[0].message
         sources["shop/consumer.ts"] = "import { inspect } from './core'; inspect();"
-        assert (
-            lint.hook_findings(sources, REPO_CONFIG, {"shop/core.ts"}, ROOTS, "vitest")
-            == []
+        assert hooks(sources) == []
+
+    def test_symbols_imported_by_js_specifiers_and_tsconfig_paths_resolve(
+        self,
+    ) -> None:
+        production = {
+            "shop/core.ts": "export function checkout() {} export function inspect() {}",
+            "tests/case.test.ts": "import { inspect } from '../shop/core.js'; inspect();",
+        }
+        found = hooks(production)
+        assert [item.message.split(": ", 1)[1] for item in found] == [
+            "production symbol 'inspect' is used only by tests"
+        ]
+        production["shop/consumer.ts"] = (
+            "import { inspect } from './core.js'; inspect();"
         )
+        assert hooks(production) == []
+        aliased = {
+            "tsconfig.json": '{"compilerOptions": {"paths": {"@/*": ["shop/*"]}}}',
+            "shop/core.ts": "export function checkout() {} export function inspect() {}",
+            "tests/case.test.ts": "import { inspect } from '@/core'; inspect();",
+        }
+        assert len(hooks(aliased)) == 1
+        aliased["shop/consumer.ts"] = "import { inspect } from '@/core'; inspect();"
+        assert hooks(aliased) == []
+
+    def test_tsconfig_paths_mocks_are_owned(self) -> None:
+        rules = [rule for rule in lint.load_patterns() if rule.scope == "tests"]
+        files = {
+            "tsconfig.json": '{"compilerOptions": {"paths": {"@/*": ["shop/*"]}}}',
+            "shop/core.ts": "export function checkout() {}",
+        }
+        found = lint.file_findings(
+            "tests/case.test.ts",
+            "import { vi } from 'vitest'; vi.mock('@/core');",
+            rules,
+            ownership(files),
+            VITEST,
+        )
+        assert [item.rule_id for item in found] == ["TEST.no-self-mocking"]
 
     def test_public_entry_symbol_and_unused_import_are_not_hooks(self) -> None:
         sources = {
             "shop/core.ts": "export function checkout() {} export function unused() {}",
             "tests/case.test.ts": "import {checkout, unused} from '../shop/core'; checkout();",
         }
-        assert (
-            lint.hook_findings(sources, REPO_CONFIG, {"shop/core.ts"}, ROOTS, "vitest")
-            == []
-        )
+        assert hooks(sources) == []
 
     def test_root_package_ownership_does_not_turn_locals_or_external_modules_into_owned_imports(
         self,
@@ -371,14 +416,18 @@ class SourceLint(unittest.TestCase):
         let local = 0; local = 1; const state = {value: 0}; state.value = 1;
         vi.mock('third-party'); vi.spyOn(external, 'run'); vi.spyOn(process, 'exit');"""
         found = lint.file_findings(
-            "tests/case.test.ts", source, rules, (".", "owned-app"), VITEST
+            "tests/case.test.ts",
+            source,
+            rules,
+            ownership(roots=(".", "owned-app")),
+            VITEST,
         )
         assert found == []
         owned = lint.file_findings(
             "tests/case.test.ts",
             "import * as core from '../src/core'; core.run = replacement;",
             rules,
-            (".", "owned-app"),
+            ownership(roots=(".", "owned-app")),
             VITEST,
         )
         assert [item.rule_id for item in owned] == ["TEST.no-self-mocking"]

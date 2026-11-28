@@ -4,13 +4,9 @@ import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from guardrails.commands.adapters.go.syntax import (
-    TEST_NAME,
-    has_errors,
-    parse,
-    test_functions,
-    words,
-)
+from guardrails.commands.adapters.go.syntax import test_functions, words
+from guardrails.foundation.source.go import TEST_NAME
+from guardrails.foundation.source.tree import SourceError, parse
 
 SUFFIXES = (".go",)
 
@@ -42,9 +38,10 @@ def fingerprint(body: str) -> str:
 
 
 def collect(path: str, text: str) -> Collected:
-    root = parse(text)
-    if has_errors(root):
-        raise CollectionError(f"{path} does not parse as Go")
+    try:
+        root = parse(path, text)
+    except SourceError as error:
+        raise CollectionError(f"{path} does not parse as Go") from error
     cases = []
     behaviours: dict[str, str | None] = {}
     for function in test_functions(root):

@@ -109,6 +109,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
             found.extend(native_findings(root, selected.paths, config))
             found.extend(
                 layout.package_placement_findings(
+                    root,
                     owned_paths(root, selected.paths, config),
                     selected.inventory,
                     config,

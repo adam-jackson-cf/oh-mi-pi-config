@@ -7,14 +7,15 @@ from collections.abc import Iterator
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
+from guardrails.foundation.source import tree
+from guardrails.foundation.source.go import STRING_KINDS, TEST_NAME
+from guardrails.foundation.source.tree import named
+
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
 SOURCE_SUFFIX = ".go"
-TEST_SUFFIX = "_test.go"
 SKIPPED_PARTS = frozenset({".git", "vendor", "testdata", "node_modules"})
-TEST_NAME = re.compile(r"^(Test|Fuzz|Example)(?![a-z])\w*$")
-TEST_DEFINITION = re.compile(r"^func\s+((?:Test|Fuzz|Example)(?![a-z])\w*)\s*\(", re.M)
 VERSION_ELEMENT = re.compile(r"^v\d+$")
 WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
 
@@ -25,28 +26,16 @@ def parse(text: str) -> SgNode:
     return SgRoot(text, "go").root()
 
 
-def has_errors(root: SgNode) -> bool:
-    return root.find(kind="ERROR") is not None
-
-
-def children(node: SgNode) -> list[SgNode]:
-    return [
-        item for item in node.children() if item.is_named() and item.kind() != "comment"
-    ]
-
-
 def walk(node: SgNode) -> Iterator[SgNode]:
     yield node
-    for item in children(node):
+    for item in named(node):
         yield from walk(item)
 
 
 def string_value(node: SgNode | None) -> str | None:
-    if node is None:
+    if node is None or node.kind() not in STRING_KINDS:
         return None
-    if node.kind() in {"interpreted_string_literal", "raw_string_literal"}:
-        return node.text()[1:-1]
-    return None
+    return node.text()[1:-1]
 
 
 def default_alias(path: str) -> str:
@@ -60,9 +49,7 @@ def default_alias(path: str) -> str:
 
 def imports(root: SgNode) -> dict[str, str]:
     found: dict[str, str] = {}
-    for node in walk(root):
-        if node.kind() != "import_spec":
-            continue
+    for node in root.find_all(kind="import_spec"):
         path = string_value(node.field("path"))
         if path is None:
             continue
@@ -80,7 +67,7 @@ def words(name: str) -> list[str]:
 def test_functions(root: SgNode) -> list[SgNode]:
     return [
         node
-        for node in children(root)
+        for node in named(root)
         if node.kind() == "function_declaration"
         and (name := node.field("name")) is not None
         and TEST_NAME.match(name.text())
@@ -89,7 +76,7 @@ def test_functions(root: SgNode) -> list[SgNode]:
 
 def first_parameter(function: SgNode) -> str | None:
     parameters = function.field("parameters")
-    for declaration in children(parameters) if parameters is not None else []:
+    for declaration in named(parameters) if parameters is not None else []:
         name = declaration.field("name")
         if name is not None:
             return name.text()
@@ -113,11 +100,7 @@ def call_name(call: SgNode) -> tuple[str | None, str | None]:
 
 def arguments(call: SgNode) -> list[SgNode]:
     node = call.field("arguments")
-    return children(node) if node is not None else []
-
-
-def is_test_path(path: str) -> bool:
-    return path.endswith(TEST_SUFFIX)
+    return named(node) if node is not None else []
 
 
 def go_files(paths: list[str]) -> list[str]:
@@ -129,5 +112,9 @@ def go_files(paths: list[str]) -> list[str]:
     })
 
 
-def defined_tests(text: str) -> list[str]:
-    return TEST_DEFINITION.findall(text)
+def defined_tests(path: str, text: str) -> list[str]:
+    return [
+        name.text()
+        for function in test_functions(tree.parse(path, text))
+        if (name := function.field("name")) is not None
+    ]

@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import posixpath
-import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.commands.adapters.go.syntax import SOURCE_SUFFIX
 from guardrails.commands.adapters.go.toolchain import ToolchainError
 from guardrails.context.config.reader import tests_settings
-
-MODULE_LINE = re.compile(r"^module\s+(\S+)", re.M)
+from guardrails.foundation.source.modules import go_module_path
+from guardrails.foundation.source.tree import SourceError
 
 
 def module_of(repo: Path, path: str) -> tuple[str, str] | None:
@@ -19,10 +18,11 @@ def module_of(repo: Path, path: str) -> tuple[str, str] | None:
     while True:
         manifest = repo / folder / "go.mod"
         if manifest.is_file():
-            match = MODULE_LINE.search(manifest.read_text(encoding="utf-8"))
-            if match is None:
-                raise ToolchainError(f"{manifest} names no module")
-            return folder.as_posix(), match.group(1)
+            try:
+                name = go_module_path(manifest.read_text(encoding="utf-8"))
+            except SourceError as error:
+                raise ToolchainError(f"{manifest} names no module") from error
+            return folder.as_posix(), name
         if folder == PurePosixPath("."):
             return None
         folder = folder.parent

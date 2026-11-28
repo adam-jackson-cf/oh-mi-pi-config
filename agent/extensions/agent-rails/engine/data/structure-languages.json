@@ -1,0 +1,169 @@
+{
+  "about": "Per-language definitions for the structure rules. Each value names its published source; a rule a language cannot use is listed under not_applicable with its reason. A language with no measured cutoff for a scored rule does not run that rule until one is measured (docs/structure-languages.md).",
+  "languages": {
+    "python": {
+      "extensions": [".py", ".pyi"],
+      "source": "engine/data/conventions/python.json"
+    },
+    "typescript": {
+      "extensions": [
+        ".ts",
+        ".tsx",
+        ".mts",
+        ".cts",
+        ".js",
+        ".jsx",
+        ".mjs",
+        ".cjs"
+      ],
+      "source": "engine/data/conventions/typescript.json"
+    },
+    "go": {
+      "extensions": [".go"],
+      "source": "engine/data/conventions/go.json"
+    }
+  },
+  "rules": {
+    "imports": {
+      "rules": [
+        "STRUCT.dependency-direction",
+        "STRUCT.tier-readership",
+        "STRUCT.sibling-isolation",
+        "STRUCT.single-owner-placement"
+      ],
+      "python": {
+        "module": "dotted path under structure.import_direction.source_root, prefixed by import_direction.package",
+        "edges": "import and from-import statements, relative levels resolved against the importer's package",
+        "source": "https://docs.python.org/3/reference/import.html"
+      },
+      "typescript": {
+        "module": "the file",
+        "edges": "static import and export-from specifiers, import() and require() with a string literal; relative specifiers resolve against the importer's folder, then tsconfig compilerOptions.paths and baseUrl from the nearest tsconfig.json; a specifier tries the file, the TypeScript source for a .js specifier, the listed extensions and index files; bare package specifiers are third-party and ignored; type-only imports count",
+        "source": "https://www.typescriptlang.org/docs/handbook/modules/reference.html#module-resolution"
+      },
+      "go": {
+        "module": "the package: one folder; its import path is the go.mod module path plus the folder relative to go.mod",
+        "edges": "import specs whose path starts with the module path; _test.go files are not part of the graph",
+        "source": "https://go.dev/ref/mod#go-mod-file-module",
+        "note": "The compiler already rejects import cycles and enforces internal/ visibility; it allows sibling imports, so sibling-isolation and tier direction still apply."
+      }
+    },
+    "STRUCT.runtime-data-placement": {
+      "python": {
+        "code_folder": "nearest folder holding .py or .pyi source",
+        "bundle_manifests": [
+          "SKILL.md",
+          "pyproject.toml",
+          "setup.cfg",
+          "setup.py"
+        ],
+        "exempt": [],
+        "source": "https://packaging.python.org/en/latest/guides/using-manifest-in/"
+      },
+      "typescript": {
+        "code_folder": "nearest folder holding TypeScript or JavaScript source",
+        "bundle_manifests": ["SKILL.md", "package.json"],
+        "exempt": [
+          "a data file a source file in the same folder imports by a relative specifier (a JSON module is part of the code)",
+          "tooling fixed files (package.json, tsconfig*.json and the other tooling-pack names)"
+        ],
+        "source": "https://www.typescriptlang.org/tsconfig/#resolveJsonModule"
+      },
+      "go": {
+        "code_folder": "nearest folder holding .go source",
+        "bundle_manifests": ["SKILL.md", "go.mod"],
+        "exempt": [
+          "a file a //go:embed pattern in a .go file of the same package matches (embed patterns may not leave the package folder)",
+          "files under testdata/, which the go tool ignores"
+        ],
+        "source": "https://pkg.go.dev/embed#hdr-Directives"
+      }
+    },
+    "STRUCT.entry-point-placement": {
+      "python": {
+        "entry": "__main__.py (Python) and cli.py (house style)",
+        "top_tier": "the package root and the folders directly under it",
+        "source": "https://docs.python.org/3/library/__main__.html",
+        "entry_modules": ["__main__.py", "cli.py"]
+      },
+      "typescript": {
+        "entry": "files a package.json bin or main field names, when Git tracks them",
+        "top_tier": "the folder holding that package.json and the folders directly under it",
+        "source": "https://docs.npmjs.com/cli/v11/configuring-npm/package-json#bin"
+      },
+      "go": {
+        "entry": "a non-test file declaring package main, except files constrained by //go:build ignore",
+        "top_tier": "the module root, or cmd/<name>/ directly under it",
+        "source": "https://go.dev/doc/modules/layout"
+      }
+    },
+    "STRUCT.overlapping-responsibilities": {
+      "unit": "source files of one language directly in one folder; units of different languages are never compared",
+      "python": {
+        "definitions": "top-level functions and classes, and the methods of top-level classes; docstrings and comments removed",
+        "pair_score_cutoff": 0.336,
+        "source": "measured: 235 labelled unit pairs, leave-one-repository-out"
+      },
+      "typescript": {
+        "definitions": "top-level function and class declarations, methods of top-level classes, and top-level const or let declarations whose value is an arrow function or function expression, exported or not; comments removed",
+        "pair_score_cutoff": null,
+        "source": "not yet measured: the rule does not run for TypeScript"
+      },
+      "go": {
+        "definitions": "top-level function and method declarations; comments removed",
+        "pair_score_cutoff": null,
+        "source": "not yet measured: the rule does not run for Go"
+      }
+    },
+    "STRUCT.prefix-folder": {
+      "python": {
+        "members": "sibling .py files",
+        "domain_word_sources": "docstrings and class names",
+        "weights": {
+          "import_edge": 0.35,
+          "shared_reader": 0.25,
+          "co_change": 0.25,
+          "prefix_is_domain_word": 0.15
+        },
+        "cluster_score_cutoff": 0.15,
+        "source": "measured: 63 labelled clusters, leave-one-repository-out"
+      },
+      "typescript": {
+        "members": "sibling TypeScript or JavaScript source files; stems split at _, -, . and lower-to-upper case boundaries",
+        "domain_word_sources": "comments and class, interface and type alias names",
+        "weights": null,
+        "cluster_score_cutoff": null,
+        "source": "not yet measured: the rule does not run for TypeScript"
+      }
+    },
+    "RENAME.residue": {
+      "python": {
+        "identifiers": "defined names: functions, classes and assignment, for, with, walrus, type-alias and except-handler targets at module and class level; imports and comprehensions excluded"
+      },
+      "typescript": {
+        "identifiers": "identifier, property, type and shorthand-property identifier nodes"
+      },
+      "go": {
+        "identifiers": "identifier, field, type and package identifier nodes"
+      },
+      "source": "a rename retires the old name in every language file; no cutoff"
+    }
+  },
+  "not_applicable": {
+    "STRUCT.prefix-folder": {
+      "go": {
+        "reason": "A Go folder is a package. Moving prefixed files into a folder named for the concept creates a new package, which changes identifier visibility and import paths: a design change, not a placement fix. Go keeps related files in one package, often with a shared prefix.",
+        "source": "https://go.dev/ref/spec#Packages"
+      }
+    },
+    "all structure rules": {
+      "shell": {
+        "reason": "Shell scripts have no packages, imports or definitions the rules read.",
+        "source": "engine/data/conventions/shell.json"
+      }
+    }
+  },
+  "later": {
+    "candidate proposers (kind-candidates, consumer-candidates, name-pairs)": "Extraction exists for all three languages, but they propose Python only: the judgments they feed were measured on Python cases, so TypeScript and Go proposals wait for labelled TypeScript and Go cases."
+  }
+}

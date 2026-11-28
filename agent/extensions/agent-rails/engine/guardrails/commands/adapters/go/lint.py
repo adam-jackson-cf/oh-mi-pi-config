@@ -14,12 +14,9 @@ from guardrails.commands.adapters.go.ownership import (
 from guardrails.commands.adapters.go.syntax import (
     arguments,
     call_name,
-    children,
     first_parameter,
     go_files,
-    has_errors,
     imports,
-    is_test_path,
     parse,
     string_value,
     test_functions,
@@ -31,6 +28,7 @@ from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import tests_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import normalized_path, repo_paths
+from guardrails.foundation.source import go as go_source, tree
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -154,7 +152,7 @@ def self_mocking(
         if node.kind() != "assignment_statement":
             continue
         left = node.field("left")
-        targets = children(left) if left is not None else []
+        targets = tree.named(left) if left is not None else []
         if any(
             target.kind() == "selector_expression"
             and (operand := target.field("operand")) is not None
@@ -177,21 +175,21 @@ def skip_call(call: SgNode, receiver: str | None) -> bool:
 
 def body_statements(function: SgNode) -> list[SgNode]:
     body = function.field("body")
-    blocks = children(body) if body is not None else []
+    blocks = tree.named(body) if body is not None else []
     return [
         statement
         for block in blocks
         if block.kind() == "statement_list"
-        for statement in children(block)
+        for statement in tree.named(block)
     ]
 
 
 def static_skips(function: SgNode) -> list[SgNode]:
     receiver = first_parameter(function)
     expressions = [
-        children(statement)[0]
+        tree.named(statement)[0]
         for statement in body_statements(function)
-        if statement.kind() == "expression_statement" and children(statement)
+        if statement.kind() == "expression_statement" and tree.named(statement)
     ]
     return [
         call
@@ -257,7 +255,7 @@ def seeded(literal: SgNode | None) -> bool:
         return False
     for item in walk(literal):
         if item.kind() == "keyed_element":
-            key = children(item)[0] if children(item) else None
+            key = tree.named(item)[0] if tree.named(item) else None
             if key is not None and key.text() == "Rand":
                 return True
     return False
@@ -337,7 +335,7 @@ def hook_findings(source: Source) -> list[Finding]:
     found.extend(marker_reads(source))
     for node in walk(source.root):
         if node.kind() in DECLARING:
-            for item in children(node):
+            for item in tree.named(node):
                 if item.kind() in NAMES and hook_phrase(item.text()):
                     found.append((
                         item,
@@ -352,13 +350,13 @@ def hook_findings(source: Source) -> list[Finding]:
 
 def declared_names(root: SgNode) -> list[tuple[str, int]]:
     found = []
-    for node in children(root):
+    for node in tree.named(root):
         if node.kind() == "function_declaration":
             name = node.field("name")
             if name is not None and name.text() not in {"main", "init"}:
                 found.append((name.text(), line(name)))
         if node.kind() == "type_declaration":
-            for spec in children(node):
+            for spec in tree.named(node):
                 name = spec.field("name")
                 if spec.kind() == "type_spec" and name is not None:
                     found.append((name.text(), line(name)))
@@ -431,8 +429,9 @@ def load(repo: Path, path: str) -> Source | None:
         text = (repo / path).read_text(encoding="utf-8")
     except (OSError, UnicodeError):
         return None
-    root = parse(text)
-    if has_errors(root):
+    try:
+        root = tree.parse(path, text)
+    except tree.SourceError:
         return None
     return Source(path, root, imports(root))
 
@@ -440,9 +439,9 @@ def load(repo: Path, path: str) -> Source | None:
 def type_names(root: SgNode) -> set[str]:
     specs = [
         spec
-        for node in children(root)
+        for node in tree.named(root)
         if node.kind() == "type_declaration"
-        for spec in children(node)
+        for spec in tree.named(node)
         if spec.kind() == "type_spec"
     ]
     return {name.text() for spec in specs if (name := spec.field("name")) is not None}
@@ -465,10 +464,10 @@ def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
     production: dict[str, Source] = {}
     tests: dict[str, Source] = {}
     for path in every:
-        if is_test_path(path) or owned_path(path, config):
+        if go_source.is_test_file(path) or owned_path(path, config):
             source = load(repo, path)
             if source is not None:
-                (tests if is_test_path(path) else production)[path] = source
+                (tests if go_source.is_test_file(path) else production)[path] = source
     owned_types = owned_type_names(production)
     findings: list[Finding] = []
     reported: set[str] = set()

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import json
 import sys
 import tempfile
@@ -23,6 +22,7 @@ from test_agentrails_fixture import config, write_config
 from guardrails.commands.structure_naming import prefix_folder
 from guardrails.context import changes
 from guardrails.foundation.findings import catalogue_rules, remediations
+from guardrails.foundation.source.tree import parse
 
 FIXTURE = json.loads(
     (
@@ -37,7 +37,7 @@ TEST_LAYOUT = {"tests": {"layout": {"test_file_patterns": ["test_*.py", "*_test.
 def prefixes(paths: list[str], added: set[str]) -> list[str]:
     return [
         found["prefix"]
-        for found in prefix_folder.groups(sorted(paths), added, TEST_LAYOUT)
+        for found in prefix_folder.groups(sorted(paths), added, TEST_LAYOUT, "python")
     ]
 
 
@@ -55,7 +55,7 @@ class PrefixGroupTests(unittest.TestCase):
             "src/shop/grading/coverage_offline.py",
             "src/shop/grading/prefix_grade.py",
         }
-        found = prefix_folder.groups(paths, added, TEST_LAYOUT)
+        found = prefix_folder.groups(paths, added, TEST_LAYOUT, "python")
         assert [item["prefix"] for item in found] == ["coverage", "prefix"]
         for item, producer in zip(
             found, ["coverage_offline", "prefix_grade"], strict=True
@@ -111,7 +111,7 @@ class PrefixGroupTests(unittest.TestCase):
     def test_the_leading_name_token_is_the_prefix(self) -> None:
         paths = ["src/shop/cross_mode.py", "src/shop/cross_mode_metrics.py"]
         (found,) = prefix_folder.groups(
-            paths, {"src/shop/cross_mode_metrics.py"}, TEST_LAYOUT
+            paths, {"src/shop/cross_mode_metrics.py"}, TEST_LAYOUT, "python"
         )
         assert found["prefix"] == "cross"
         assert found["members"] == paths
@@ -136,7 +136,7 @@ class PrefixGroupTests(unittest.TestCase):
 @pytest.mark.fast
 class PrefixFolderScoreTests(unittest.TestCase):
     def test_a_pair_score_weights_each_relationship_and_caps_co_change(self) -> None:
-        weights = prefix_folder.contract()["weights"]
+        weights = prefix_folder.contracts()["python"]["weights"]
         features = {
             "import_edge": 1.0,
             "shared_reader": 0.0,
@@ -147,21 +147,44 @@ class PrefixFolderScoreTests(unittest.TestCase):
         assert prefix_folder.pair_score({**features, "co_change": 3.0}, weights) == 0.75
 
     def test_domain_words_come_from_docstrings_and_class_names(self) -> None:
-        tree = prefix_folder.parsed(
-            '"""Audit events."""\n\n\nclass InvoiceDrafts:\n    pass\n'
+        source = (
+            '"""Audit\\nevents."""\n\n\nclass InvoiceDrafts:\n'
+            "    def total(self):\n        f'''Ledger {self}'''\n"
+            "        class Nested:\n            '''Rebate.'''\n"
         )
-        assert {"audit", "event", "invoice", "draft"} <= prefix_folder.domain_words(
-            tree
-        )
+        words = prefix_folder.domain_words("m.py", prefix_folder.parsed("m.py", source))
+        assert {"audit", "event", "invoice", "draft", "nested", "rebate"} <= words
+        assert not {"nevent", "ledger"} & words
 
-    def test_the_cutoff_weights_and_owner_evidence_live_in_the_catalogue(self) -> None:
+    def test_script_domain_words_come_from_comments_and_type_names(self) -> None:
+        source = (
+            "// Audit trail\n/** Invoice drafts */\nexport class LedgerBook {}\n"
+            "interface RebateRule { a: number }\ntype OrderLine = { x: 1 };\n"
+            "const value = 'Shipment';\n"
+        )
+        words = prefix_folder.domain_words("m.ts", prefix_folder.parsed("m.ts", source))
+        assert {"audit", "trail", "invoice", "draft", "ledger", "book"} <= words
+        assert {"rebate", "rule", "order", "line"} <= words
+        assert "shipment" not in words
+        script = "// Audit\nclass LedgerBook {}\n"
+        assert prefix_folder.domain_words(
+            "m.js", prefix_folder.parsed("m.js", script)
+        ) == {"audit", "ledger", "book"}
+
+    def test_the_cutoff_and_weights_are_per_language(self) -> None:
+        contracts = prefix_folder.contracts()
+        assert contracts["python"]["cluster_score_cutoff"] == 0.15
+        assert set(contracts["python"]["weights"]) == set(prefix_folder.FEATURES)
+        assert contracts["typescript"]["weights"] is None
+        assert contracts["typescript"]["cluster_score_cutoff"] is None
+        assert "go" not in contracts
+        assert prefix_folder.measured() == ["python"]
+
+    def test_the_owner_evidence_lives_in_the_catalogue(self) -> None:
         rule = next(
             item for item in catalogue_rules() if item["id"] == prefix_folder.RULE
         )
-        contract = rule["contract"]
-        assert contract["cluster_score_cutoff"] == 0.15
-        assert set(contract["weights"]) == set(prefix_folder.FEATURES)
-        assert contract["evidence"]["accepted_on"] == "2026-11-23"
+        assert rule["contract"]["evidence"]["accepted_on"] == "2026-11-23"
         assert remediations()[prefix_folder.RULE].render().startswith("root cause: ")
 
 
@@ -186,11 +209,12 @@ class ImportGraphTests(unittest.TestCase):
             "tools/helpers.py": "",
             "b/main.py": "import helpers\n",
         }
-        trees: dict[str, ast.Module | None] = {
-            path: ast.parse(text) for path, text in sources.items()
+        found: dict[str, list[prefix_folder.Import] | None] = {
+            path: prefix_folder.imports(parse(path, text))
+            for path, text in sources.items()
         }
-        trees["broken.py"] = None
-        graph = prefix_folder.ImportGraph(trees)
+        found["broken.py"] = None
+        graph = prefix_folder.ImportGraph(found)
         assert {
             path: sorted(found) for path, found in graph.edges.items() if found
         } == {
@@ -205,7 +229,64 @@ class ImportGraphTests(unittest.TestCase):
             ],
         }
         assert "broken.py" not in graph.edges
-        assert prefix_folder.domain_words(None) == set()
+        assert prefix_folder.domain_words("broken.py", None) == set()
+
+    def test_script_imports_resolve_relative_and_tsconfig_paths(self) -> None:
+        texts = {
+            "web/tsconfig.json": (
+                '{\n  // paths\n  "compilerOptions": {"baseUrl": ".", '
+                '"paths": {"@shop/*": ["src/shop/*"]}}\n}\n'
+            ),
+            "web/src/shop/order-store.ts": "export const store = 1;\n",
+            "web/src/shop/orderView.tsx": (
+                "import { store } from './order-store';\n"
+                "import type { Line } from '@shop/line';\nimport React from 'react';\n"
+            ),
+            "web/src/shop/line.ts": "export type Line = { a: 1 };\n",
+            "web/src/app.js": "const view = require('./shop/orderView.js');\n",
+            "web/src/broken.ts": "export const = ;\n",
+        }
+        evidence = prefix_folder.evidence_of("typescript", texts, [])
+        assert {
+            path: sorted(found) for path, found in evidence.graph.edges.items() if found
+        } == {
+            "web/src/app.js": ["web/src/shop/orderView.tsx"],
+            "web/src/shop/orderView.tsx": [
+                "web/src/shop/line.ts",
+                "web/src/shop/order-store.ts",
+            ],
+        }
+        assert "web/src/broken.ts" not in evidence.graph.edges
+        assert "web/tsconfig.json" not in evidence.words
+
+
+@pytest.mark.fast
+class ScriptGroupTests(unittest.TestCase):
+    def test_script_stems_split_at_separators_and_case_boundaries(self) -> None:
+        assert prefix_folder.script_name_tokens("userProfile-store.service") == [
+            "user",
+            "profile",
+            "store",
+            "service",
+        ]
+        assert prefix_folder.script_name_tokens("HTTPClient") == ["httpclient"]
+
+    def test_script_siblings_group_by_their_leading_token(self) -> None:
+        paths = [
+            "src/shop/orderStore.ts",
+            "src/shop/order-view.tsx",
+            "src/shop/order.test.ts",
+            "src/shop/order_main.py",
+            "src/shop/order_view.py",
+            "src/orders/orderLine.ts",
+            "src/orders/order-view.ts",
+        ]
+        (found,) = prefix_folder.groups(paths, set(paths), TEST_LAYOUT, "typescript")
+        assert (found["folder"], found["prefix"], found["members"]) == (
+            "src/shop",
+            "order",
+            ["src/shop/order-view.tsx", "src/shop/orderStore.ts"],
+        )
 
 
 @pytest.mark.seam
@@ -304,6 +385,39 @@ class PrefixFolderCommandTests(unittest.TestCase):
         assert changes.changed_paths(repo, base, head, "AR") == {
             "src/shop/grading/coverage_scorer.py"
         }
+
+    def test_script_clusters_do_not_run_but_yield_candidate_features(self) -> None:
+        head_files = {
+            "web/src/records/auditLog.ts": "// audit records\nexport const log = 1;\n",
+            "web/src/records/audit-view.ts": "import { log } from './auditLog';\n",
+            "web/src/records/other.go": "package audit\n",
+        }
+        repo, base, head = self.repository({"head": head_files})
+        assert prefix_folder.run(repo, {}, ["--base", base, "--head", head]) == []
+        assert prefix_folder.cluster_candidates(repo, head, "typescript", {}) == [
+            {
+                "folder": "web/src/records",
+                "prefix": "audit",
+                "members": [
+                    "web/src/records/audit-view.ts",
+                    "web/src/records/auditLog.ts",
+                ],
+                "pairs": [
+                    {
+                        "pair": [
+                            "web/src/records/audit-view.ts",
+                            "web/src/records/auditLog.ts",
+                        ],
+                        "features": {
+                            "import_edge": 1.0,
+                            "shared_reader": 0.0,
+                            "co_change": 1.0,
+                            "prefix_is_domain_word": 1.0,
+                        },
+                    }
+                ],
+            }
+        ]
 
     def test_unreadable_commits_are_a_finding(self) -> None:
         repo, base, _ = self.repository(FIXTURE["cases"][0])

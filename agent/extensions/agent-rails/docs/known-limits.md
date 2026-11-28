@@ -5,12 +5,23 @@ What the rails do not catch or measure today.
 - `RENAME.residue` sees a rename only at Git's 50% similarity (`RENAME_THRESHOLD` in
   `rename_residue.py`). A rewrite recorded as delete plus add gives no rename evidence, and a
   retired term reused outside the renamed folder or file is not flagged.
-- `STRUCT.runtime-data-placement` treats only folders holding Python source as code: data in
-  non-Python code (a Go package), data whose nearest Python sits in a sibling folder, and `.md`
-  templates are not flagged, while config beside a Python script folder is.
-- `STRUCT.overlapping-responsibilities` reads Python only, and its similarity counts shared 3-grams
-  held by at most 40 definitions: copies built from common idioms score low, and code repeated in
-  another language or inside one folder is not flagged.
+- `STRUCT.runtime-data-placement` judges each language on its own: in a folder holding Python and
+  TypeScript, Python still flags JSON the TypeScript code imports. Data whose nearest code sits in a
+  sibling folder, and `.md` templates, are not flagged. TypeScript JSON is exempt only when a source
+  file in the same folder imports it.
+- `STRUCT.overlapping-responsibilities` runs for Python only: TypeScript and Go have no measured
+  cutoff yet (`engine/data/structure-languages.json`). Its similarity counts shared 3-grams held by
+  at most 40 definitions, so copies built from common idioms score low, and code repeated in another
+  language or inside one folder is not flagged.
+- `STRUCT.prefix-folder` runs for Python only: TypeScript has no measured weights or cutoff yet, and
+  the rule does not apply to Go, where a folder is a package.
+- The structure rules read TypeScript and Go through tree-sitter grammars (`ast-grep-py`), which can
+  lag the languages: tree-sitter-go rejects Go 1.26 `new(expression)`, so a file using it is reported
+  as unreadable. tree-sitter also accepts a few Python errors CPython rejects (a repeated keyword
+  argument); the parser adds CPython's argument-order check, which keeps the measured Python results
+  identical on 57,016 definitions in 8 repositories.
+- The structure-naming candidate proposers (`kind-candidates`, `consumer-candidates`, `name-pairs`)
+  propose Python only: their judgments were measured on Python cases.
 - `structure-naming/same_thing` judges only the name pairs `name-pairs` proposes (alias, head noun,
   synonym, constant value, clone); two names for one concept that none of those rules links are
   never asked. Its held-out precision is 0.72 (13/18), below the 0.75 floor, by owner acceptance.

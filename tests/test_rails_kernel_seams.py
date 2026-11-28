@@ -1377,16 +1377,17 @@ class FeatureMapTests(RepositoryCase):
 
         def inspect_launch(cmd: list[str], **kwargs: Any) -> Any:
             if "rename-residue" in cmd:
-                assert cmd[:4] == [sys.executable, "-I", "-S", "-c"]
+                assert cmd[:3] == [sys.executable, "-I", "-c"]
                 assert (
-                    Path(cmd[5])
+                    Path(cmd[4])
                     == rails_kernel._harness_root() / rails_kernel.ENGINE_PATH
                 )
                 launches.append(list(cmd))
                 cmd = list(cmd)
-                cmd[4] = (
-                    "import sys; assert 'site' not in sys.modules; "
-                    "assert sys.flags.isolated; assert sys.flags.no_site; " + cmd[4]
+                cmd[3] = (
+                    "import sys; assert sys.flags.isolated; assert sys.flags.safe_path; "
+                    "assert sys.flags.no_user_site; assert sys.flags.ignore_environment; "
+                    + cmd[3]
                 )
             return original(cmd, **kwargs)
 
@@ -2164,7 +2165,7 @@ class StructureReviewTests(unittest.IsolatedAsyncioTestCase):
         ) as run:
             assert rails_kernel._name_pairs(self.repo, self.parent, self.head) == []
         argv = run.call_args.args[0]
-        assert argv[:3] == [sys.executable, "-I", "-S"]
+        assert argv[:3] == [sys.executable, "-I", "-c"]
         assert "name-pairs" in argv
         assert argv[-6:] == [
             "--repo",

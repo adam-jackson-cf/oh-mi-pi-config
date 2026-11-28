@@ -1,11 +1,25 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.adapters.pytest.syntax import (
+    IMPORT_KINDS,
+    NAMES,
+    STRING_KINDS,
+    Role,
+    format_texts,
+    import_aliases,
+    string_texts,
+    walk,
+)
 from guardrails.context.config.reader import tests_settings
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.source.python import defined
+from guardrails.foundation.source.tree import SourceError, line, named, parse
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 
 RULE = "TEST.no-test-hooks"
 FIX = (
@@ -14,7 +28,8 @@ FIX = (
 )
 
 
-DEFINITIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+DEFINITIONS = frozenset({"function_definition", "class_definition"})
+USED = NAMES | {Role.ATTRIBUTE, Role.FUNCTION, Role.CLASS}
 
 
 @dataclass(frozen=True)
@@ -24,35 +39,53 @@ class Definition:
     line: int
 
 
-def parse(source: str) -> ast.Module | None:
+def parsed(path: str, source: str) -> SgNode | None:
     try:
-        return ast.parse(source)
-    except (SyntaxError, ValueError):
+        return parse(path, source)
+    except SourceError:
         return None
 
 
-def definitions(path: str, tree: ast.Module) -> list[Definition]:
+def top_level(root: SgNode) -> list[tuple[SgNode, SgNode]]:
     return [
-        Definition(path, node.name, node.lineno)
-        for node in tree.body
-        if isinstance(node, DEFINITIONS) and not node.name.startswith("_")
+        (node, name)
+        for node in map(defined, named(root))
+        if node.kind() in DEFINITIONS and (name := node.field("name")) is not None
     ]
 
 
-def used_names(tree: ast.Module, *, skip: frozenset[int] = frozenset()) -> set[str]:
+def definitions(path: str, root: SgNode) -> list[Definition]:
+    return [
+        Definition(path, name.text(), line(node))
+        for node, name in top_level(root)
+        if not name.text().startswith("_")
+    ]
+
+
+def node_names(node: SgNode, role: Role, skip: frozenset[SgNode]) -> list[str]:
+    kind = node.kind()
+    if kind == "identifier":
+        return [node.text()] if role in USED and node not in skip else []
+    if kind in IMPORT_KINDS:
+        return [
+            part
+            for _, _, original in import_aliases(node)
+            for part in original.split(".")
+        ]
+    if kind == "format_specifier":
+        return format_texts(node)
+    parent = node.parent() if kind == "string" else None
+    if kind in STRING_KINDS and (
+        parent is None or parent.kind() != "concatenated_string"
+    ):
+        return string_texts(node)
+    return []
+
+
+def used_names(root: SgNode, *, skip: frozenset[SgNode] = frozenset()) -> set[str]:
     names: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name):
-            names.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            names.add(node.attr)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
-            for alias in node.names:
-                names.update(alias.name.split("."))
-        elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-            names.add(node.value)
-        elif isinstance(node, DEFINITIONS) and id(node) not in skip:
-            names.add(node.name)
+    for node, role in walk(root):
+        names.update(node_names(node, role, skip))
     return names
 
 
@@ -74,20 +107,20 @@ def test_only_findings(
     config: dict[str, Any],
     reported: set[str],
 ) -> list[Finding]:
-    defined: list[Definition] = []
+    defined_symbols: list[Definition] = []
     production_uses: set[str] = set()
     for path, source in production.items():
-        tree = parse(source)
-        if tree is None:
+        root = parsed(path, source)
+        if root is None:
             continue
-        own = frozenset(id(node) for node in tree.body if isinstance(node, DEFINITIONS))
-        production_uses |= used_names(tree, skip=own)
+        own = frozenset(name for _, name in top_level(root))
+        production_uses |= used_names(root, skip=own)
         if path in reported:
-            defined.extend(definitions(path, tree))
+            defined_symbols.extend(definitions(path, root))
     test_uses: dict[str, str] = {}
     for path, source in sorted(tests.items()):
-        tree = parse(source)
-        for name in used_names(tree) if tree is not None else set():
+        root = parsed(path, source)
+        for name in used_names(root) if root is not None else set():
             test_uses.setdefault(name, path)
     public = entry_point_symbols(config)
     return [
@@ -98,7 +131,7 @@ def test_only_findings(
             f"({test_uses[item.name]})",
             FIX,
         )
-        for item in defined
+        for item in defined_symbols
         if item.name in test_uses
         and item.name not in production_uses
         and item.name not in public

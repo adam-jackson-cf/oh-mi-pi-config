@@ -34,7 +34,8 @@
         "target_layer_dependency_allowlist_required": true,
         "reject_unmapped_or_forbidden_dependency_edges": true,
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
-        "diagnostic_names_file_edge_and_fix": true
+        "diagnostic_names_file_edge_and_fix": true,
+        "languages": "engine/data/structure-languages.json defines each language's modules, imports, definitions and exemptions"
       },
       "summary": "Reject dependencies outside the target's declared layer direction.",
       "remediation": {
@@ -86,7 +87,8 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "configured_python_import_graph_required": true,
+        "configured_import_graph_required": true,
+        "languages": "engine/data/structure-languages.json defines each language's modules, imports, definitions and exemptions",
         "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "shared_tier_minimum_distinct_readers": 2,
         "diagnostic_names_tier_and_fix": true
@@ -113,7 +115,8 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "configured_python_import_graph_required": true,
+        "configured_import_graph_required": true,
+        "languages": "engine/data/structure-languages.json defines each language's modules, imports, definitions and exemptions",
         "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "reject_shared_module_with_one_owner": true,
         "diagnostic_names_file_and_destination": true
@@ -140,7 +143,8 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "configured_python_import_graph_required": true,
+        "configured_import_graph_required": true,
+        "languages": "engine/data/structure-languages.json defines each language's modules, imports, definitions and exemptions",
         "event_scope": "added and renamed paths only; import graph context may span the repository; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "reject_same_tier_cross_part_imports": true,
         "diagnostic_names_file_edge_and_fix": true
@@ -183,20 +187,16 @@
           ".yaml",
           ".yml"
         ],
-        "code_folder": "the nearest folder above the file that holds Python source (.py or .pyi files other than a bundle manifest), which includes every package folder holding __init__.py; the repository root is never one",
-        "bundle_manifests": [
-          "SKILL.md",
-          "pyproject.toml",
-          "setup.cfg",
-          "setup.py"
-        ],
-        "bundle_root_without_python_ends_the_search": true,
-        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
+        "code_folder": "the nearest folder above the file that holds source of a language engine/data/structure-languages.json defines (for Python, every package folder holding __init__.py); the repository root is never one",
+        "bundle_manifests_and_exemptions": "per language in engine/data/structure-languages.json: a bundle manifest ends the search, and TypeScript JSON a same-folder source imports, Go //go:embed files and testdata/ are exempt",
+        "bundle_root_without_source_ends_the_search": true,
+        "test_holders_exempt": "any folder named by the language pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "exceptions": "config exceptions entries {rule, path, reason}",
+        "unreadable_source_is_a_finding": true,
         "diagnostic_names_file_and_code_folder": true
       },
-      "summary": "Reject runtime data and template files inside a folder of Python code.",
+      "summary": "Reject runtime data and template files inside a folder of code.",
       "remediation": {
         "root_cause": "Definitions, configuration or templates that the product loads at run time were put inside its Python code, so data changes look like code changes and one folder mixes two kinds of content.",
         "fix": "Move the file to a root data folder outside the code, load it from there by explicit path, and update every reader in the same change."
@@ -218,16 +218,17 @@
       "applicability": "always",
       "evidence_kind": "local_ci",
       "contract": {
-        "entry_modules": ["__main__.py", "cli.py"],
-        "package_root": "the top folder of the unbroken chain of folders holding __init__.py that contains the entry module's folder",
-        "top_tier": "the package root and the folders directly under it",
-        "reject_entry_modules_deeper_than_top_tier": true,
-        "test_holders_exempt": "any folder named by the Python pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
+        "entry_points": "per language in engine/data/structure-languages.json: Python __main__.py and cli.py; TypeScript files a package.json bin or main names; Go non-test package main files outside //go:build ignore",
+        "package_root": "Python: the top folder of the unbroken chain of folders holding __init__.py; TypeScript: the folder holding the package.json; Go: the module root",
+        "top_tier": "the package root and the folders directly under it; for Go the module root or cmd/<name>/",
+        "reject_entry_points_outside_top_tier": true,
+        "test_holders_exempt": "any folder named by the language pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "internal_tool_exemption": "an owner-approved config exceptions entry {rule, path, reason}",
+        "unreadable_source_is_a_finding": true,
         "diagnostic_names_file_depth_and_package": true
       },
-      "summary": "Keep __main__.py and cli.py entry modules in their package's top tier.",
+      "summary": "Keep each language's entry points in their package's top tier.",
       "remediation": {
         "root_cause": "A command entry module was added deep inside an implementation tier, so the package's interface is spread across its internals instead of sitting at its top tier.",
         "fix": "Move the entry module to the package root or a folder directly under it and import the implementation from there; for an internal tool that no user or deployment invokes, record an owner-approved exceptions entry instead."
@@ -250,15 +251,16 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "unit": "the .py files directly in one folder below the repository root, except test files (names starting with test or fixture, *_test.py, conftest.py), outside hidden folders, vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), test folders (names starting with test or fixture, __tests__, spec, specs), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
-        "definitions": "top-level functions and classes and the methods of top-level classes spanning at least 5 lines, with docstrings and comments removed",
+        "unit": "the source files of one language directly in one folder; units of different languages are never compared below the repository root, except test files (names starting with test or fixture, *_test.py, conftest.py), outside hidden folders, vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), test folders (names starting with test or fixture, __tests__, spec, specs), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
+        "definitions": "per language in engine/data/structure-languages.json, spanning at least 5 lines, with comments (and Python docstrings) removed",
         "tokens": "identifiers and single non-space characters",
         "features": "the set of token 3-grams; definitions with fewer than 15 are dropped",
         "definition_similarity": "Jaccard similarity of the two 3-gram sets",
         "pair_score": "the highest definition similarity between two units, over candidates sharing a 3-gram held by at most 40 definitions in the head tree",
-        "scope": "units holding a .py file added, modified or renamed in base..head, compared with every other unit at head",
-        "pair_score_cutoff": 0.336,
+        "scope": "units holding a source file added, modified or renamed in base..head, compared with every other unit at head",
+        "pair_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.336 (measured); a language with no measured cutoff does not run",
         "evidence": {
+          "language": "python",
           "accepted_by": "owner",
           "accepted_on": "2026-11-23",
           "held_out_precision": 0.74,
@@ -270,7 +272,7 @@
         "exceptions": "a config exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
         "diagnostic_names_both_units_and_closest_definition_pair": true
       },
-      "summary": "Reject a changed folder whose Python code repeats another folder's code.",
+      "summary": "Reject a changed folder whose code repeats another folder's code in the same language.",
       "remediation": {
         "root_cause": "The same logic was written in two folders, so each copy changes on its own and the two drift apart.",
         "fix": "Move the shared logic into one shared mechanism both folders use and delete the copy, or record an owner-approved exceptions entry {rule, path, reason} when the copies must stay apart."
@@ -289,23 +291,19 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "candidates": "prefix clusters: sibling .py files in one folder (not __init__.py, not test files by the config's test file patterns or by name (names starting with test or fixture, *_test.py, conftest.py), not under a test folder (names starting with test or fixture, __tests__, spec, specs); not under hidden or vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and -, of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
+        "candidates": "prefix clusters: sibling source files of one language in one folder (Python .py, or TypeScript and JavaScript; not __init__.py, not test files by the config's test file patterns or by name (names starting with test or fixture, *_test.py, conftest.py), not under a test folder (names starting with test or fixture, __tests__, spec, specs); not under hidden or vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and - (TypeScript also at . and lower-to-upper case boundaries), of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
         "pair_features": {
           "import_edge": "either member imports the other",
-          "shared_reader": "another owned .py file, tests included, imports both",
+          "shared_reader": "another owned source file of the same language, tests included, imports both",
           "co_change": "commits touching both divided by commits touching either, over the last 200 first-parent commits up to head (merges diffed against their first parent)",
-          "prefix_is_domain_word": "the singular prefix appears as a word in a docstring or class-name token of either member"
+          "prefix_is_domain_word": "the singular prefix appears as a word in a Python docstring or class name, or a TypeScript comment or class, interface or type alias name, of either member"
         },
-        "weights": {
-          "import_edge": 0.35,
-          "shared_reader": 0.25,
-          "co_change": 0.25,
-          "prefix_is_domain_word": 0.15
-        },
+        "weights": "per language in engine/data/structure-languages.json: Python measured (import_edge 0.35, shared_reader 0.25, co_change 0.25, prefix_is_domain_word 0.15)",
         "pair_score": "sum of weight * feature, co_change capped at 1",
         "cluster_score": "the highest pair score among the cluster's members",
-        "cluster_score_cutoff": 0.15,
+        "cluster_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.15 (measured); TypeScript runs once measured; not applicable to Go, where a folder is a package",
         "evidence": {
+          "language": "python",
           "accepted_by": "owner",
           "accepted_on": "2026-11-23",
           "replaces": "the structure-naming/prefix_should_be_folder Jev question; a judgment code can meet is deterministic only",

@@ -68,7 +68,6 @@ class RenameResidueCommandTests(unittest.TestCase):
             [
                 sys.executable,
                 "-I",
-                "-S",
                 "-c",
                 "import sys; sys.path.insert(0, sys.argv.pop(1)); "
                 "from guardrails.commands.cli import main; raise SystemExit(main())",
