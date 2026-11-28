@@ -65,7 +65,7 @@ export function onboardingInstruction(slug: string, root: string, gaps: string[]
 		"2. Read skill://test-guidance and run it against this repository. It writes no rails config: translate its tier map, adoption choice and " +
 			"signed plan into the tests section schema (the extension's engine/data/config-template.json, tests) and record it with the agentrails_config tool.",
 		`   A draft from \`guardrails init --repo ${root} --out <a file outside the repository>\` may seed these sections.`,
-		"3. Do not edit .git/info/exclude or set core.hooksPath: the extension keeps /.agentrails/ and /.proofs/ out of Git, and /agentrails onboard asks the owner about the hooks path.",
+		"3. Do not edit .git/info/exclude: the extension keeps /.agentrails/ and /.proofs/ out of Git. Set core.hooksPath only to a directory inside the repository (for example .githooks); any other value is refused.",
 		"4. When every section is recorded, ask the owner to run /agentrails onboard again: it runs a short Q&A and writes .agentrails/config.json.",
 	].join("\n");
 }
@@ -158,7 +158,7 @@ function onboardedConfig(at: { slug: string; branch: string }, draft: Draft, qa:
 async function offerHooksPath(run: Run, main: string): Promise<string | undefined> {
 	const hooks = await stat(join(main, ".githooks")).then(found => found.isDirectory(), () => false);
 	if (!hooks || await gitText(run, main, ["config", "--get", "core.hooksPath"]) === ".githooks") return undefined;
-	const asked = await run.ctx.ui.confirm("Set core.hooksPath to .githooks?", "The repository ships .githooks, where setup-repo-proofs wires its gates. Agents may not set it.");
+	const asked = await run.ctx.ui.confirm("Set core.hooksPath to .githooks?", "The repository ships .githooks, where setup-repo-proofs wires its gates. Agents may set core.hooksPath only to a directory inside the repository.");
 	if (!asked) return "core.hooksPath is unchanged.";
 	return await gitText(run, main, ["config", "core.hooksPath", ".githooks"]) === undefined
 		? "git config core.hooksPath .githooks failed; set it yourself." : "core.hooksPath is .githooks.";
