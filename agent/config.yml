@@ -4,6 +4,7 @@ theme:
   light: orca-sections-light
 setupVersion: 3
 extensions:
+  - ~/.agents/response-shaping/adapters/omp/response-shaping.ts
   - ~/.omp/agent/extensions/analyse.ts
   - ~/.omp/agent/extensions/agent-autocomplete.ts
   - ~/.omp/agent/extensions/quota-gate.ts
