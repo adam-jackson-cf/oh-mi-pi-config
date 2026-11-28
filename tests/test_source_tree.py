@@ -182,5 +182,52 @@ class ArgumentOrderTests(unittest.TestCase):
                 parse("m.py", source)
 
 
+GRAMMAR_SUPPORTED = (
+    "the pinned ast-grep-py grammar now parses {construct}: remove that limit from the "
+    "CODE.no-comments contract in engine/data/guardrail-rules.json, drop any workaround "
+    "for it, and delete this canary"
+)
+
+
+def invalid_line(path: str, source: str) -> int | None:
+    try:
+        parse(path, source)
+    except SourceError as error:
+        return error.line
+    return None
+
+
+class GrammarCanaryTests(unittest.TestCase):
+    def assert_rejected(self, construct: str, path: str, source: str, at: int) -> None:
+        assert invalid_line(path, source) == at, GRAMMAR_SUPPORTED.format(
+            construct=construct
+        )
+
+    def test_go_new_of_an_expression_is_rejected(self) -> None:
+        source = "package a\n\nfunc F() *int {\n\treturn new(%s)\n}\n"
+        parse("a.go", source % "int")
+        self.assert_rejected("Go 1.26 new(expression)", "a.go", source % "42", 4)
+
+    def test_python_type_parameter_defaults_are_rejected(self) -> None:
+        sources = (
+            "class Box[T = int]:\n    pass\n",
+            "def f[T = int]() -> None:\n    pass\n",
+            "type X[T = int] = list[T]\n",
+        )
+        for source in sources:
+            with self.subTest(source=source):
+                parse("m.py", source.replace(" = int", ""))
+                self.assert_rejected(
+                    "Python 3.13 type-parameter defaults", "m.py", source, 1
+                )
+
+    def test_a_bare_ampersand_in_jsx_text_is_rejected(self) -> None:
+        source = "export const V = () => <span>Findings %s annotations</span>\n"
+        for path in ("a.tsx", "a.jsx", "a.js"):
+            with self.subTest(path=path):
+                parse(path, source % "&amp;")
+                self.assert_rejected("a bare & in JSX text", path, source % "&", 1)
+
+
 if __name__ == "__main__":
     unittest.main()

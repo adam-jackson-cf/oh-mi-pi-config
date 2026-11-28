@@ -1636,9 +1636,10 @@
       "applicability": "always",
       "contract": {
         "scope": "added diff lines, including touched comment lines; existing unchanged comments remain",
-        "python": "tokenize comments and AST module/class/function docstrings",
-        "other_languages": "quote-aware lexer: hash, slash/block, SQL/Lua double-dash, Haskell/Elm block, HTML/XML/Markdown block, TeX/Erlang percent, Lisp semicolon and INI/properties comments; common extensions and Dockerfile/Makefile/CMakeLists/dotfiles",
-        "limits": "lexical, not a full non-Python parser; embedded languages, heredocs, regex literals and language-specific raw strings are not interpreted",
+        "python": "comments and module, class and function docstrings read through the tree-sitter Python grammar",
+        "typescript_javascript_go": "comments read through the tree-sitter TypeScript, TSX, JavaScript and Go grammars",
+        "other_languages": "every other file type: the line and block markers its convention pack's comment_syntax names (shell, and the tooling pack's per-file patterns), skipping markers inside the pack's string quotes",
+        "limits": "the grammars are those of the pinned ast-grep-py, and a file its grammar rejects gets one cannot-parse finding at its first invalid line: Go 1.26 new(expression), Python 3.13 type-parameter defaults and a bare & in JSX text are rejected today; comment_syntax files are read lexically, so embedded languages, heredocs, regex literals and language-specific raw strings are not interpreted",
         "exemptions": "shebang; noqa; type: ignore; pyright; fmt; ruff; isort; pylint; eslint-*; @ts-expect-error/ignore/nocheck; prettier-ignore; biome-ignore; go:build; nolint; SPDX-License-Identifier; markdownlint-*; vim/emacs modelines; encoding cookies; Rust #[allow] is syntax, not a comment"
       },
       "summary": "Block added comments of every supported syntax, including Python docstrings; preserve tool directives.",
