@@ -59,7 +59,7 @@ Infrastructure failures are not failed CI assertion evidence. Never waive a requ
 
 ### Declared CI contract
 
-The config's [`ci` policy](../../../docs/config.md#ci) declares
+The config's `ci` policy declares
 `requiredContext` (the commit-status context or check-run name that must be `success`
 on the exact head, whoever posts it) and `runner` (a role name). The machine config `ci-runners.json` in the omp base
 directory maps each role to its submit, wait, status and logs commands; `scripts/device_rollout.py` writes it per device.
@@ -86,7 +86,7 @@ workflow) never blocks.
 
 A repository-specific documented fallback is autonomous merge authority only if its exact `run.headSha` is validated
 and it publishes every required status. Otherwise stop/escalate the incident for owner decision; generic Actions success
-alone is insufficient. Repository-specific fallbacks live in the [config contract](../../../docs/config.md#oh-mi-pi-config-example).
+alone is insufficient. A repository documents its own fallback.
 
 A repository whose config enables `ci` has no no-CI exception: a missing required context is resolved or escalated,
 never replaced by a local run.

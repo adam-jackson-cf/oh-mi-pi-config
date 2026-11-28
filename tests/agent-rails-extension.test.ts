@@ -38,20 +38,6 @@ test("rails.yml forces no skill reads, and every native rule always loads as sel
 	}
 });
 
-test("external dependency map names only repo paths that exist", () => {
-	const root = join(import.meta.dir, "..");
-	const map = readFileSync(join(root, "agent/extensions/agent-rails/docs/external-dependencies.md"), "utf8");
-	const locations = map.split("\n").filter(line => line.startsWith("| ") && !line.startsWith("| ---") && !line.startsWith("| Dependency"))
-		.flatMap(line => [...(line.split(" | ")[1] ?? "").matchAll(/`([^`]+)`/g)].map(match => match[1] ?? ""))
-		.filter(path => path.includes("/") || path.includes("."))
-		.filter(path => !path.startsWith("~") && !path.startsWith("<"));
-	assert.ok(locations.length > 40, "map lists repo paths");
-	for (const path of locations) {
-		const found = path.includes("*") ? [...new Bun.Glob(path).scanSync(root)].length > 0 : existsSync(join(root, path));
-		assert.ok(found, `${path} is missing`);
-	}
-});
-
 test("instructions the rails enforce or the owner dropped are gone; the unenforced ones stay as instructions", () => {
 	const root = join(import.meta.dir, "..");
 	const rules = readFileSync(join(root, "agent/RULES.md"), "utf8");
@@ -62,9 +48,5 @@ test("instructions the rails enforce or the owner dropped are gone; the unenforc
 	const policy = readFileSync(join(root, "agent/AGENTS.md"), "utf8");
 	for (const removed of ["Device rollout:", "Git: read", "device_rollout.py"]) assert.equal(policy.includes(removed), false, removed);
 	for (const kept of ["Never run Git in or copy into the NUC's", "Restart OMP sessions on each device"]) assert.ok(policy.includes(kept), kept);
-	const limits = readFileSync(join(root, "agent/extensions/agent-rails/docs/known-limits.md"), "utf8");
-	for (const unenforced of ["no Git in the NUC's", "restart sessions after rail changes"]) {
-		assert.ok(limits.includes(unenforced), `the agent-rails known limits list ${unenforced} as not enforced`);
-	}
-	assert.equal(existsSync(join(root, ".omp/AGENTS.md")), false, "repo facts live in the agent-rails config docs and schema");
+	assert.equal(existsSync(join(root, ".omp/AGENTS.md")), false, "repo facts live in the agent-rails config schema");
 });
