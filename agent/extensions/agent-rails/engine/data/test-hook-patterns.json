@@ -1,0 +1,19 @@
+{
+  "about": "The TEST.no-test-hooks vocabulary every adapter reads (pytest, go, bun_test and vitest). fragments are regular expressions: the environment variable names, the values and the runner modules that mark a test run, and the JavaScript environment objects. A pattern file splices one in by writing its name between percent signs (%marker_name%). hook_phrases are the word pairs a production declaration ends with when it names a test-only hook (resetForTests, TEST_MODE), after the one identifier tokeniser (foundation/source/names.words) splits the name at underscores, digits and case changes.",
+  "fragments": {
+    "marker_name": "([A-Z0-9_]*_)?(PYTEST[A-Z0-9_]*|VITEST|JEST[A-Z0-9_]*|BUN_TEST|GO_?TEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?",
+    "marker_value": "(test|testing)",
+    "runner_module": "(pytest|unittest|jest|vitest|bun:test)",
+    "javascript_environment": "(process\\??\\.env|Bun\\??\\.env|import\\.meta\\??\\.env)"
+  },
+  "hook_phrases": [
+    ["for", "test"],
+    ["for", "tests"],
+    ["for", "testing"],
+    ["test", "hook"],
+    ["test", "hooks"],
+    ["test", "only"],
+    ["testing", "only"],
+    ["test", "mode"]
+  ]
+}

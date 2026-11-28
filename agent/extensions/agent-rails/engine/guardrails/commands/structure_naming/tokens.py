@@ -4,11 +4,11 @@ import re
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
-from guardrails.commands.structure_naming import typescript
-from guardrails.foundation.source import go, python
+from guardrails.foundation.source import go, python, typescript
 from guardrails.foundation.source.tree import (
     Definition,
     Span,
+    comment_spans,
     parse,
     source_language,
 )
@@ -22,22 +22,16 @@ SPACE = ord(" ")
 
 Gram = tuple[str, str, str]
 DefinitionReader = Callable[["SgNode", str], list[Definition]]
-SpanReader = Callable[["SgNode", str], list[Span]]
 
 DEFINITIONS: dict[str, DefinitionReader] = {
     "python": python.definitions,
     "typescript": typescript.definitions,
     "go": go.definitions,
 }
-COMMENTS: dict[str, SpanReader] = {
-    "python": python.comment_spans,
-    "typescript": typescript.comment_spans,
-    "go": go.comment_spans,
-}
 
 
 def removed_spans(language: str, root: SgNode, source: str) -> list[Span]:
-    found = COMMENTS[language](root, source)
+    found = comment_spans(root, source)
     if language == "python":
         found.extend(python.docstring_spans(root, source))
     return found

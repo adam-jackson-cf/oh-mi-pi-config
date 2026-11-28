@@ -1,25 +1,17 @@
 from __future__ import annotations
 
 import argparse
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming import typescript
 from guardrails.context.changes import DiffError, git, git_bytes
 from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
-from guardrails.foundation.source import go
-from guardrails.foundation.source.tree import (
-    SourceError,
-    grammar,
-    language_of,
-    named,
-    parse,
-)
+from guardrails.foundation.source import go, names, python, typescript
+from guardrails.foundation.source.tree import SourceError, language_of, parse
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 if TYPE_CHECKING:
@@ -27,38 +19,6 @@ if TYPE_CHECKING:
 
 RULE = "RENAME.residue"
 RENAME_THRESHOLD = "50%"
-NON_DEFINING = frozenset({
-    "import_statement",
-    "import_from_statement",
-    "future_import_statement",
-    "lambda",
-    "list_comprehension",
-    "set_comprehension",
-    "dictionary_comprehension",
-    "generator_expression",
-})
-DEFINING = frozenset({"function_definition", "class_definition"})
-TARGET_FIELDS = {
-    "assignment": "left",
-    "augmented_assignment": "left",
-    "for_statement": "left",
-    "named_expression": "name",
-    "type_alias_statement": "left",
-    "as_pattern": "alias",
-}
-TARGET_PATTERNS = frozenset({
-    "pattern_list",
-    "tuple_pattern",
-    "list_pattern",
-    "list_splat_pattern",
-    "tuple",
-    "list",
-    "list_splat",
-    "parenthesized_expression",
-    "as_pattern_target",
-    "type",
-    "generic_type",
-})
 
 
 @dataclass(frozen=True)
@@ -77,9 +37,7 @@ class RetiredTerm:
 
 
 def words(name: str) -> tuple[str, ...]:
-    name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
-    name = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
-    return tuple(re.findall(r"[a-z0-9]+", name.lower()))
+    return tuple(names.words(name))
 
 
 def contains(sequence: tuple[str, ...], term: tuple[str, ...]) -> bool:
@@ -135,57 +93,10 @@ def rename_terms(rename: Rename) -> list[RetiredTerm]:
     return found
 
 
-def bound(target: SgNode, found: list[str]) -> None:
-    if target.kind() == "identifier":
-        found.append(target.text())
-    elif target.kind() in TARGET_PATTERNS:
-        for item in named(target):
-            bound(item, found)
-    else:
-        defined(target, found)
-
-
-def visited(node: SgNode) -> list[SgNode]:
-    kind, parent = node.kind(), node.parent()
-    if kind == "function_definition":
-        return []
-    if kind in {"class_definition", "decorated_definition"}:
-        inner = node.field("body" if kind == "class_definition" else "definition")
-        return [] if inner is None else [inner]
-    children = named(node)
-    if kind == "case_clause":
-        return [child for child in children if child.kind() != "case_pattern"]
-    if kind == "except_clause":
-        return [child for child in children if child.kind() in {"as_pattern", "block"}]
-    if kind == "as_pattern" and parent is not None and parent.kind() == "except_clause":
-        return [child for child in children if child.kind() == "as_pattern_target"]
-    return children
-
-
-def defined(node: SgNode, found: list[str]) -> None:
-    kind = node.kind()
-    if kind in NON_DEFINING:
-        return
-    name = node.field("name")
-    if kind in DEFINING and name is not None:
-        found.append(name.text())
-    target = node.field(TARGET_FIELDS[kind]) if kind in TARGET_FIELDS else None
-    for child in visited(node):
-        if child == target:
-            bound(child, found)
-        else:
-            defined(child, found)
-
-
-def python_names(root: SgNode) -> list[str]:
-    found: list[str] = []
-    defined(root, found)
-    return list(dict.fromkeys(found))
-
-
-IDENTIFIERS: dict[str, Callable[[SgNode], list[str]]] = {
-    "python": python_names,
-    "go": go.identifiers,
+BOUND_NAMES: dict[str, Callable[[SgNode], list[str]]] = {
+    "python": python.bound_names,
+    "typescript": typescript.bound_names,
+    "go": go.bound_names,
 }
 
 
@@ -218,11 +129,7 @@ def residue_findings(
                     )
                 )
                 continue
-            identifiers = (
-                typescript.identifiers(root, grammar(path))
-                if language == "typescript"
-                else IDENTIFIERS[language](root)
-            )
+            identifiers = BOUND_NAMES[language](root)
         found.extend(term_findings(path, scoped, identifiers))
     return list(dict.fromkeys(found))
 

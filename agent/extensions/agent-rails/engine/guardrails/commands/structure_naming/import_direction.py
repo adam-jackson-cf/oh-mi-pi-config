@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from guardrails.commands.structure_naming.import_graph import (
     DIRECTION,
@@ -19,7 +19,11 @@ from guardrails.foundation.inventory import (
     matches_any,
     normalized_path,
 )
+from guardrails.foundation.source import python, tree
 from guardrails.host.process import run_text
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 
 
 def owner_tier(path: str, root: str) -> str | None:
@@ -101,4 +105,59 @@ def native_findings(
             f"run {' '.join(command)} and remove forbidden edges",
         )
         for path in sources
+    ]
+
+
+def forbidden_import_findings(
+    repo: Path, paths: list[str], options: dict[str, Any]
+) -> list[Finding]:
+    found = []
+    for rule in options.get("forbidden_imports", []):
+        found.extend(rule_import_findings(repo, paths, rule))
+    return found
+
+
+def rule_import_findings(
+    repo: Path, paths: list[str], rule: dict[str, Any]
+) -> list[Finding]:
+    banned = set(as_list(rule.get("modules")))
+    found = []
+    for path in paths:
+        if not (tree.language_of(path) == "python" and matches(path, rule["root"])):
+            continue
+        root = parse_python(repo, path)
+        if isinstance(root, Finding):
+            found.append(root)
+            continue
+        found.extend(
+            Finding(
+                DIRECTION,
+                path,
+                f"line {line}: files under {rule['root']} never import {name}",
+                "move the dependency behind a lower-tier contract",
+            )
+            for line, name in imported_modules(root)
+            if name.split(".")[0] in banned
+        )
+    return found
+
+
+def parse_python(repo: Path, path: str) -> SgNode | Finding:
+    try:
+        return tree.parse(path, tree.read(repo, path))
+    except (OSError, tree.SourceError) as error:
+        return Finding(
+            "PYS000",
+            path,
+            f"cannot parse Python source: {error}",
+            "restore readable Python",
+        )
+
+
+def imported_modules(root: SgNode) -> list[tuple[int, str]]:
+    """The absolute modules a file imports; relative imports name its own package."""
+    return [
+        (item.line, item.module)
+        for item in python.imports(root)
+        if not item.level and item.module
     ]

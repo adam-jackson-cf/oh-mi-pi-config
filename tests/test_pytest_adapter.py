@@ -23,6 +23,7 @@ from test_agentrails_fixture import config, write_config
 
 from guardrails.commands import cli
 from guardrails.commands.adapters import pytest as adapter
+from guardrails.commands.adapters.owned_source import Source
 from guardrails.commands.adapters.pytest import guards, mutation, symbol_usage
 from guardrails.commands.adapters.pytest.cases import (
     CollectionError,
@@ -30,7 +31,9 @@ from guardrails.commands.adapters.pytest.cases import (
 )
 from guardrails.commands.adapters.pytest.dialect import DIALECT
 from guardrails.commands.test_evidence import propagation
+from guardrails.context.config.entry_points import entry_points
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.source import tree
 from guardrails.host.process import run_text
 from guardrails.test_report.junit import dialect_for, parse_report, parse_text
 
@@ -258,17 +261,31 @@ class TestOnlySymbolCase(unittest.TestCase):
         )
     }
 
-    REPO_CONFIG = {"tests": {"public_entry_points": {"shop": "shop.cli:main"}}}
+    REPO_CONFIG = {"tests": {"public_entry_points": {"shop": ["shop.cli:main"]}}}
 
     def findings(
         self,
         production: dict[str, str] | None = None,
         repo_config: dict[str, Any] | None = None,
+        manifests: dict[str, str] | None = None,
     ) -> list[Finding]:
         production = production or self.PRODUCTION
-        return symbol_usage.test_only_findings(
-            production, self.TESTS, repo_config or self.REPO_CONFIG, set(production)
-        )
+        files = {**production, **self.TESTS}
+        sources = {
+            path: Source(path, text, tree.parse(path, text))
+            for path, text in files.items()
+        }
+        points = entry_points(repo_config or self.REPO_CONFIG)
+        owned = symbol_usage.owner(points, files)
+        with tempfile.TemporaryDirectory() as scratch:
+            for path, text in (manifests or {}).items():
+                Path(scratch, path).write_text(text)
+            outside = symbol_usage.ScriptManifests(
+                Path(scratch), sorted(manifests or {}), points
+            )
+            return symbol_usage.test_only_findings(
+                sources, self.TESTS.__contains__, set(production), owned.index, outside
+            )
 
 
 class TestOnlySymbolTests(TestOnlySymbolCase):
@@ -284,10 +301,20 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
         production = {
             **self.PRODUCTION,
             "shop/__init__.py": (
-                "from shop.cart import Basket\n__all__ = ['reset_cache_for_tests']\n"
+                "from shop.cart import Basket\nfrom shop.cart import *\n"
+                "__all__ = ['reset_cache_for_tests']\n"
             ),
         }
         assert self.findings(production) == []
+
+    def test_console_scripts_are_production_uses(self) -> None:
+        manifest = '[project.scripts]\nreset = "shop.cart:reset_cache_for_tests"\n'
+        found = self.findings(manifests={"pyproject.toml": manifest})
+        assert [item.message.split("'")[1] for item in found] == ["Basket"]
+        (broken, *rest) = self.findings(manifests={"pyproject.toml": "[project"})
+        assert (broken.rule_id, broken.path) == ("TEST.no-test-hooks", "pyproject.toml")
+        assert "cannot read pyproject.toml" in broken.message
+        assert len(rest) == 2
 
     def test_symbol_nothing_uses_is_left_to_other_rules(self) -> None:
         production = {"shop/cart.py": "def unused():\n    pass\n"}
@@ -296,7 +323,10 @@ class TestOnlySymbolTests(TestOnlySymbolCase):
     def test_concatenated_and_escaped_strings_count_as_production_use(self) -> None:
         production = {
             **self.PRODUCTION,
-            "shop/__init__.py": "__all__ = ['reset_cache_' 'for_tests', 'Bas\\x6bet']\n",
+            "shop/__init__.py": (
+                "from shop.cart import *\n"
+                "__all__ = ['reset_cache_' 'for_tests', 'Bas\\x6bet']\n"
+            ),
         }
         assert self.findings(production) == []
 
@@ -306,6 +336,62 @@ def adapter_lint_rules() -> list[dict[str, Any]]:
         (ENGINE / "data/pytest-patterns.json").read_text()
     )
     return patterns
+
+
+def production_findings(text: str) -> list[str]:
+    from guardrails.commands.adapters.pytest import lint
+
+    path = "shop/settings.py"
+    loaded = Source(path, text, tree.parse(path, text))
+    rules = [rule for rule in lint.load_patterns() if rule.scope == "production"]
+    return [item.message for item in lint.file_findings(loaded, rules, frozenset())]
+
+
+class ProductionHookTests(unittest.TestCase):
+    def test_hook_phrases_count_in_declared_names_only(self) -> None:
+        assert production_findings(
+            "def reset_for_testing():\n    pass\n\n\n"
+            "class SwitchTestMode:\n    pass\n\n\n"
+            "def total(items, testOnly=False):\n    return len(items)\n"
+        ) == [
+            "line 1: production code declares a test-only hook (reset_for_testing)",
+            "line 5: production code declares a test-only hook (SwitchTestMode)",
+            "line 9: production code declares a test-only hook (testOnly)",
+        ]
+        assert (
+            production_findings(
+                "import lib\n\nis_testing = lib.reset_for_testing(1)\nlatest_only = 2\n\n\n"
+                "def test_only_findings():\n    pass\n"
+            )
+            == []
+        )
+
+    def test_a_binding_written_inside_a_string_binds_nothing(self) -> None:
+        assert (
+            production_findings(
+                'import os\n\nHELP = """\nMODE = "TESTING"\n"""\n\n\n'
+                "def mode():\n    return os.environ.get(MODE)\n"
+            )
+            == []
+        )
+        assert production_findings(
+            'import os\n\nMODE = "TESTING"\n\n\ndef mode():\n'
+            "    return os.environ.get(MODE)\n"
+        ) == [
+            "line 7: production code reads a test marker from the environment or loaded "
+            'modules ("TESTING")'
+        ]
+
+    def test_comparing_an_environment_value_with_a_test_value_is_a_marker_read(
+        self,
+    ) -> None:
+        assert production_findings(
+            "import os\n\nLOCAL = os.environ.get('APP_ENV') == 'test'\n"
+            "REMOTE = os.getenv('APP_ENV') != 'production'\n"
+        ) == [
+            "line 3: production code reads a test marker from the environment or loaded "
+            "modules (os.environ.get('APP_ENV') == 'test')"
+        ]
 
 
 class ExtraTests(unittest.TestCase):
@@ -349,6 +435,22 @@ class StaticCaseTests(unittest.TestCase):
             "test_sizes[a\\tb-0]",
             "test_sizes[a\\tb-1]",
         ]
+
+    def test_unittest_camel_case_names_name_their_behaviour(self) -> None:
+        from guardrails.checker.growth import Snapshot, growth_findings
+
+        collected = collect_cases(
+            "tests/test_cart.py",
+            "import unittest\n\n\nclass Cart(unittest.TestCase):\n"
+            "    def testAddsItemToBasket(self):\n        pass\n\n\n"
+            "def test_adds_item():\n    pass\n",
+        )
+        assert sorted(str(value) for value in collected.behaviours.values()) == [
+            "adds item",
+            "adds item to basket",
+        ]
+        head = Snapshot({}, dict(collected.behaviours), {})
+        assert growth_findings(Snapshot({}, {}, {}), head) == []
 
     def test_unparsable_test_file_is_a_collection_error(self) -> None:
         with pytest.raises(
@@ -455,6 +557,65 @@ def test_totals(items, expected):
 def test_sizes(size, flag):
     assert size >= 0
 """
+
+
+class ConformanceRunTests(unittest.TestCase):
+    def harness(self, **checks: Any) -> Any:
+        from guardrails.commands.adapters import conformance
+
+        def build(root: Path, case: dict[str, Any]) -> conformance.Project:
+            return conformance.Project(root, "placed", {})
+
+        return conformance.Harness("probe", "probe-", build, checks)
+
+    def test_a_crash_inside_one_case_fails_only_that_case(self) -> None:
+        from guardrails.commands.adapters import conformance
+
+        def crash(project: Any, case: dict[str, Any]) -> tuple[bool, str]:
+            raise AttributeError("adapter bug")
+
+        harness = self.harness(
+            source=crash, **{"static-cases": lambda project, case: (True, "ok")}
+        )
+        cases = [
+            case
+            for case in conformance.load_cases()
+            if case["evidence"] in {"source", "static-cases"}
+        ]
+        for case, result in zip(
+            cases, conformance.run_cases(harness, cases), strict=True
+        ):
+            with self.subTest(case=case["id"]):
+                assert result.passed is (case["evidence"] == "static-cases")
+                if not result.passed:
+                    assert result.detail == "AttributeError: adapter bug"
+
+    def test_a_missing_prerequisite_is_one_finding_and_blocks_only_runtime_cases(
+        self,
+    ) -> None:
+        from dataclasses import replace
+
+        from guardrails.commands.adapters import conformance
+
+        passing = {
+            kind: (lambda project, case: (True, "ok"))
+            for kind in ("source", "static-cases", "run-report", "collection")
+        }
+        harness = replace(
+            self.harness(**passing),
+            missing=conformance.Prerequisite("no runner here", "install the runner"),
+        )
+        cases = conformance.load_cases()
+        results = conformance.run_cases(harness, cases)
+        for case, result in zip(cases, results, strict=True):
+            with self.subTest(case=case["id"]):
+                runtime = case["evidence"] in conformance.RUNTIME_EVIDENCE
+                assert result.passed is not runtime
+        found = conformance.findings(harness, results)
+        assert [(item.rule_id, item.fix) for item in found] == [
+            (conformance.PREREQUISITE, "install the runner")
+        ]
+
 
 if __name__ == "__main__":
     unittest.main()

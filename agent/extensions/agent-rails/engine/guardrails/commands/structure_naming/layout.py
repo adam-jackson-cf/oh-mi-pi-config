@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-import ast
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.commands.structure_naming.go_placement import go_file_findings
-from guardrails.commands.structure_naming.import_direction import native_findings
+from guardrails.commands.structure_naming.import_direction import (
+    forbidden_import_findings,
+    native_findings,
+)
 from guardrails.commands.structure_naming.import_graph import import_graph_findings
 from guardrails.commands.structure_naming.package_placement import (
     package_file_findings,
@@ -20,7 +22,6 @@ from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     InventoryError,
     as_list,
-    matches,
     matches_any,
 )
 
@@ -142,62 +143,6 @@ def instance_findings(paths: list[str], options: dict[str, Any]) -> list[Finding
             for folder in sorted(folders - marked)
         )
     return found
-
-
-def forbidden_import_findings(
-    repo: Path, paths: list[str], options: dict[str, Any]
-) -> list[Finding]:
-    found = []
-    for rule in options.get("forbidden_imports", []):
-        found.extend(rule_import_findings(repo, paths, rule))
-    return found
-
-
-def rule_import_findings(
-    repo: Path, paths: list[str], rule: dict[str, Any]
-) -> list[Finding]:
-    banned = set(as_list(rule.get("modules")))
-    found = []
-    for path in paths:
-        if not (path.endswith(".py") and matches(path, rule["root"])):
-            continue
-        tree = parse_python(repo, path)
-        if isinstance(tree, Finding):
-            found.append(tree)
-            continue
-        found.extend(
-            Finding(
-                DIRECTION,
-                path,
-                f"line {line}: files under {rule['root']} never import {name}",
-                "move the dependency behind a lower-tier contract",
-            )
-            for line, name in imported_modules(tree)
-            if name.split(".")[0] in banned
-        )
-    return found
-
-
-def parse_python(repo: Path, path: str) -> ast.Module | Finding:
-    try:
-        return ast.parse((repo / path).read_bytes(), filename=path)
-    except (OSError, SyntaxError, ValueError) as error:
-        return Finding(
-            "PYS000",
-            path,
-            f"cannot parse Python source: {error}",
-            "restore readable Python",
-        )
-
-
-def imported_modules(tree: ast.Module) -> list[tuple[int, str]]:
-    names: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            names.extend((node.lineno, alias.name) for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            names.append((node.lineno, node.module))
-    return names
 
 
 def path_findings(

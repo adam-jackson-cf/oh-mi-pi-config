@@ -61,8 +61,14 @@ or a lower one, and two parts of one layer never import each other.
 
 `data/`, beside the package, is not a layer. It holds the run-time data: the
 rule catalogue, house style, convention packs, config template, adapter source
-patterns, conformance cases and the decision-store schema. Each module that reads
-a data file names it by explicit path (`DATA_FOLDER`).
+patterns and vocabularies, conformance cases and the decision-store schema. Language facts
+live there, not in code: extensions, test patterns and frameworks, ignored and output
+folders and fixed names in the convention packs; bundle manifests and entry modules in
+`structure-languages.json`; each adapter's vocabulary in its `*-patterns.json`, with the
+test-marker names, values and hook phrases every adapter shares in `test-hook-patterns.json`.
+Modules above the foundation read data through `foundation/conventions.py` (`DATA_FOLDER`,
+`data()`); foundation modules name the folder themselves, because the layer rules keep them
+from importing a sibling.
 
 ## Adapters
 
@@ -107,8 +113,9 @@ Pass those arguments to the repository's Vitest command together with its tier
 selector. `guard-evidence <report> --tier t1` verifies the recorded guard evidence.
 The harness setup covers setup, call and teardown, including swallowed guard
 errors; collection, reports and reporter shims remain outside the checkout.
-`adapter vitest conformance` runs the canonical cases using the installed native runner;
-missing dependencies fail rather than silently skipping a case.
+`adapter vitest conformance` runs the canonical cases using the installed native runner.
+Without it, one `GUARDRAILS.adapter-prerequisite` finding names the missing dependency, and
+only the source and static cases run.
 
 Vitest mutation evidence uses `@stryker-mutator/core@9.4.0` JSON reports.
 `adapter vitest mutation-report --input <stryker.json> --out <external report>` converts
@@ -166,7 +173,8 @@ or patterns such as `./cmd/...`.
   `mutation-report --input <gremlins.json>` converts its `--output` JSON.
 
 `adapter go conformance` passes every canonical case. It needs Go on `PATH`;
-without it every case fails.
+without it, one `GUARDRAILS.adapter-prerequisite` finding names the missing toolchain, and
+only the source and static cases run.
 
 Each finding prints as `path: RULE: message; fix`. A finding about the repo
 config names the section, e.g. `.agentrails/config.json#tests`. The exit code is

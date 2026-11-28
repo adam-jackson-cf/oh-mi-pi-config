@@ -18,6 +18,6 @@ def python_path_findings(
     if python_settings.is_excluded(path, options):
         return []
     segments = path_prefixes(existing_paths)
-    if path.endswith(".py"):
+    if python_settings.python_source(path):
         return path_names.structure_findings(path, options, segments)
     return path_names.skill_findings(path, options, segments)

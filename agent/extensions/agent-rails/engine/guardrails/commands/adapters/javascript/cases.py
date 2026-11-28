@@ -1,16 +1,20 @@
 from __future__ import annotations
 
-import ast
 import json
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from functools import cache
 from typing import TYPE_CHECKING, Any
+
+from guardrails.foundation import conventions
+from guardrails.foundation.source import tree, typescript
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
-SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
-RUNNER_MODULES = ("vitest", "bun:test")
+SUFFIXES = tree.languages()["typescript"]
+PATTERNS_FILE = "javascript-patterns.json"
+MEMBER_KINDS = frozenset({"member_expression", "subscript_expression"})
 REGISTRARS = frozenset({"test", "it", "describe", "suite"})
 TEST_REGISTRARS = frozenset({"test", "it"})
 SUITE_REGISTRARS = frozenset({"describe", "suite"})
@@ -62,63 +66,68 @@ def walk(node: SgNode) -> Iterator[SgNode]:
         yield from walk(item)
 
 
-def language(path: str) -> str:
-    return "tsx" if path.endswith((".tsx", ".jsx")) else "typescript"
+@dataclass(frozen=True)
+class Imported:
+    """Where a name comes from: an import specifier, the export it names (None for the
+    whole module) and the members read from it."""
+
+    module: str
+    name: str | None
+    members: tuple[str, ...] = ()
+
+    def member(self, name: str) -> Imported:
+        return Imported(self.module, self.name, (*self.members, name))
+
+    def path(self) -> tuple[str, ...]:
+        return self.members if self.name is None else (self.name, *self.members)
+
+    def symbol(self) -> str | None:
+        """The module export this reads: the imported name or the first member."""
+        path = self.path()
+        return path[0] if path else None
+
+    def dotted(self) -> str:
+        return ".".join((self.module, *self.path()))
+
+    def label(self) -> str:
+        """How findings name it: module, #export when one is named, then .members."""
+        named = "" if self.name is None else f"#{self.name}"
+        return self.module + named + "".join(f".{item}" for item in self.members)
 
 
 def parse(path: str, text: str) -> SgNode:
-    from ast_grep_py import SgRoot
-
-    root = SgRoot(text, language(path)).root()
-    if any(node.kind() == "ERROR" for node in walk(root)):
-        raise CollectionError(f"invalid JavaScript/TypeScript in {path}")
-    return root
-
-
-def string(node: SgNode | None) -> str | None:
-    if node is None or node.kind() not in {"string", "template_string"}:
-        return None
-    text = node.text()
-    if text.startswith("`"):
-        return text[1:-1] if "${" not in text else None
     try:
-        value = ast.literal_eval(text)
-    except (ValueError, SyntaxError):
-        return None
-    return value if isinstance(value, str) else None
+        return tree.parse(path, text)
+    except tree.SourceError as error:
+        raise CollectionError(str(error)) from error
 
 
-def _import_bindings(node: SgNode, module: str) -> dict[str, str]:
-    kind = node.kind()
-    if kind == "import_specifier":
-        name, alias = node.field("name"), node.field("alias")
-        return (
-            {(alias or name).text(): f"{module}#{name.text()}"}
-            if name is not None
-            else {}
-        )
-    if kind == "namespace_import":
-        names = children(node)
-        return {names[-1].text(): module} if names else {}
-    if kind == "import_clause":
-        target = module if module == "fast-check" else f"{module}#default"
-        return {
-            child.text(): target
-            for child in children(node)
-            if child.kind() == "identifier"
-        }
-    return {}
-
-
-def imports(root: SgNode) -> dict[str, str]:
-    found: dict[str, str] = {}
-    for statement in root.find_all({"rule": {"kind": "import_statement"}}):
-        module = string(statement.field("source"))
-        if module is None:
-            continue
-        for node in walk(statement):
-            found.update(_import_bindings(node, module))
+@cache
+def vocabulary() -> dict[str, Any]:
+    """javascript-patterns.json: the source patterns and the runner vocabulary."""
+    found: dict[str, Any] = conventions.data(PATTERNS_FILE)
     return found
+
+
+def namespace_default(specifier: str) -> bool:
+    """Whether a module's default export is its namespace, so a default import reads
+    its members directly (fast-check)."""
+    return specifier in vocabulary()["namespace_defaults"]
+
+
+def binding_origin(binding: typescript.Binding) -> Imported:
+    whole = binding.imported == "default" and namespace_default(binding.specifier)
+    return Imported(binding.specifier, None if whole else binding.imported)
+
+
+def imports(root: SgNode) -> dict[str, Imported]:
+    """Each local name an import, require() or import() binds, with its origin."""
+    return {
+        binding.local: binding_origin(binding)
+        for site in typescript.imports(root)
+        for binding in site.bindings
+        if binding.local is not None and binding.form != "export-from"
+    }
 
 
 def arguments(call: SgNode) -> list[SgNode]:
@@ -126,39 +135,64 @@ def arguments(call: SgNode) -> list[SgNode]:
     return children(node) if node is not None else []
 
 
-def qualified(node: SgNode | None, aliases: Mapping[str, str]) -> str:
+def member_name(node: SgNode) -> str:
+    prop = node.field("property") or node.field("index")
+    return typescript.literal(prop) or (prop.text() if prop is not None else "")
+
+
+def origin(node: SgNode | None, aliases: Mapping[str, Imported]) -> Imported | None:
+    """The import an identifier or member chain reads, or None for a local name."""
+    if node is None:
+        return None
+    if node.kind() == "identifier":
+        return aliases.get(node.text())
+    if node.kind() in MEMBER_KINDS:
+        head = origin(node.field("object"), aliases)
+        return None if head is None else head.member(member_name(node))
+    return None
+
+
+def qualified(node: SgNode | None, aliases: Mapping[str, Imported]) -> str:
+    """An identifier or member chain as dotted text, imports spelled from their module."""
     if node is None:
         return ""
     if node.kind() == "identifier":
-        return aliases.get(node.text(), node.text())
-    if node.kind() in {"member_expression", "subscript_expression"}:
-        obj = qualified(node.field("object"), aliases)
-        prop = node.field("property") or node.field("index")
-        member = string(prop) or (prop.text() if prop is not None else "")
-        return f"{obj}.{member}"
+        found = aliases.get(node.text())
+        return node.text() if found is None else found.dotted()
+    if node.kind() in MEMBER_KINDS:
+        return f"{qualified(node.field('object'), aliases)}.{member_name(node)}"
     return ""
 
 
+def runner_modules() -> tuple[str, ...]:
+    """The modules the test runners' APIs import from (vitest, bun:test)."""
+    return tuple(runner["module"] for runner in vocabulary()["runners"].values())
+
+
 def runner_api(name: str) -> str:
-    for module in RUNNER_MODULES:
-        for prefix in (f"{module}#", f"{module}."):
-            if name.startswith(prefix):
-                return name[len(prefix) :]
+    for module in runner_modules():
+        if name.startswith(f"{module}."):
+            return name[len(module) + 1 :]
     return name
 
 
-def api_name(node: SgNode | None, aliases: Mapping[str, str]) -> str:
-    return runner_api(qualified(node, aliases))
+def api_name(node: SgNode | None, aliases: Mapping[str, Imported]) -> str:
+    """The test-runner API a callee names: runner imports and globals by their dotted
+    path, any other import by its label."""
+    found = origin(node, aliases)
+    if found is None:
+        return qualified(node, aliases)
+    return ".".join(found.path()) if found.module in runner_modules() else found.label()
 
 
-def literal(
+def static_value(
     node: SgNode, constants: Mapping[str, SgNode], active: frozenset[str] = frozenset()
 ) -> Any:
     if node.kind() == "identifier" and node.text() in constants:
         if node.text() in active:
             raise CollectionError("cyclic static parameter constant")
-        return literal(constants[node.text()], constants, active | {node.text()})
-    value = string(node)
+        return static_value(constants[node.text()], constants, active | {node.text()})
+    value = typescript.literal(node)
     if value is not None:
         return value
     if node.kind() in LITERAL_KINDS:
@@ -167,7 +201,7 @@ def literal(
         except ValueError:
             pass
     if node.kind() == "array":
-        return [literal(item, constants, active) for item in children(node)]
+        return [static_value(item, constants, active) for item in children(node)]
     if node.kind() == "object":
         result: dict[str, Any] = {}
         for pair in children(node):
@@ -176,7 +210,9 @@ def literal(
                 raise CollectionError(
                     "parameter objects require static key/value pairs"
                 )
-            result[string(key) or key.text()] = literal(entry, constants, active)
+            result[typescript.literal(key) or key.text()] = static_value(
+                entry, constants, active
+            )
         return result
     raise CollectionError(f"dynamic parameter value: {node.text()[:80]}")
 
@@ -227,7 +263,7 @@ def _temporaries(callback: SgNode) -> dict[str, SgNode]:
 
 
 def _constant(node: SgNode) -> list[Any] | None:
-    value = string(node)
+    value = typescript.literal(node)
     if value is not None:
         return ["literal", value]
     if node.kind() in LITERAL_KINDS:
@@ -240,7 +276,10 @@ def _constant(node: SgNode) -> list[Any] | None:
 
 class _Normalizer:
     def __init__(
-        self, aliases: Mapping[str, str], bindings: Mapping[str, Any], callback: SgNode
+        self,
+        aliases: Mapping[str, Imported],
+        bindings: Mapping[str, Any],
+        callback: SgNode,
     ) -> None:
         self.aliases = aliases
         self.bindings = bindings
@@ -280,11 +319,9 @@ class _Normalizer:
         )
 
     def _imported_member(self, node: SgNode) -> list[str] | None:
-        origin = qualified(node, self.aliases)
-        head = qualified(node.field("object"), self.aliases)
-        if head and any(head.startswith(module) for module in self.aliases.values()):
-            return ["identifier", runner_api(origin.replace("#", "."))]
-        return None
+        if origin(node.field("object"), self.aliases) is None:
+            return None
+        return ["identifier", runner_api(qualified(node, self.aliases))]
 
     def _identifier(self, node: SgNode) -> Any:
         name = node.text()
@@ -295,24 +332,26 @@ class _Normalizer:
             result = self.node(value)
             self.temporaries[name] = value
             return result
-        origin = runner_api(self.aliases.get(name, name))
-        return ["identifier", self.local.get(name, origin.replace("#", "."))]
+        found = runner_api(qualified(node, self.aliases))
+        return ["identifier", self.local.get(name, found)]
 
 
-def _call_order(node: SgNode, aliases: Mapping[str, str], calls: list[str]) -> None:
+def _call_order(
+    node: SgNode, aliases: Mapping[str, Imported], calls: list[str]
+) -> None:
     for child in children(node):
         _call_order(child, aliases, calls)
     if node.kind() == "call_expression":
         function = node.field("function")
-        origin = qualified(function, aliases).replace("#", ".")
+        callee = qualified(function, aliases)
         if (
             function is not None
             and function.kind() == "member_expression"
-            and not origin
+            and not callee
         ):
             prop = function.field("property")
-            origin = prop.text() if prop is not None else ""
-        calls.append(runner_api(origin))
+            callee = prop.text() if prop is not None else ""
+        calls.append(runner_api(callee))
 
 
 def _body(callback: SgNode) -> SgNode:
@@ -323,7 +362,7 @@ def _body(callback: SgNode) -> SgNode:
 
 
 def fingerprint(
-    callback: SgNode, aliases: Mapping[str, str], bindings: Mapping[str, Any]
+    callback: SgNode, aliases: Mapping[str, Imported], bindings: Mapping[str, Any]
 ) -> str:
     body = _body(callback)
     calls: list[str] = []
@@ -417,7 +456,7 @@ class _Collector:
         values = arguments(function)
         if len(values) != 1:
             raise CollectionError("each requires one static parameter table")
-        each = literal(values[0], self.constants)
+        each = static_value(values[0], self.constants)
         if not isinstance(each, list):
             raise CollectionError("each requires a static array")
         return factory, each
@@ -444,7 +483,7 @@ class _Collector:
         if dynamic:
             raise CollectionError("test registration inside dynamic control flow")
         args = arguments(node)
-        title = string(args[0]) if args else None
+        title = typescript.literal(args[0]) if args else None
         if title is None:
             raise CollectionError("test and suite titles must be static strings")
         callbacks = [arg for arg in args[1:] if arg.kind() in CALLBACK_KINDS]

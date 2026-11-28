@@ -1,67 +1,23 @@
-"""Go source syntax: parsing, test functions, imports and identifier words."""
+"""Go source syntax: test functions, calls, strings and the files the go tool builds."""
 
 from __future__ import annotations
 
-import re
 from collections.abc import Iterator
-from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
-from guardrails.foundation.source import tree
-from guardrails.foundation.source.go import STRING_KINDS, TEST_NAME
+from guardrails.foundation import conventions
+from guardrails.foundation.source import go, tree
+from guardrails.foundation.source.go import TEST_NAME
 from guardrails.foundation.source.tree import named
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
-
-SOURCE_SUFFIX = ".go"
-SKIPPED_PARTS = frozenset({".git", "vendor", "testdata", "node_modules"})
-VERSION_ELEMENT = re.compile(r"^v\d+$")
-WORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+")
-
-
-def parse(text: str) -> SgNode:
-    from ast_grep_py import SgRoot
-
-    return SgRoot(text, "go").root()
 
 
 def walk(node: SgNode) -> Iterator[SgNode]:
     yield node
     for item in named(node):
         yield from walk(item)
-
-
-def string_value(node: SgNode | None) -> str | None:
-    if node is None or node.kind() not in STRING_KINDS:
-        return None
-    return node.text()[1:-1]
-
-
-def default_alias(path: str) -> str:
-    elements = path.split("/")
-    name = elements[-1]
-    if VERSION_ELEMENT.match(name) and len(elements) > 1:
-        name = elements[-2]
-    name = name.split(".")[0].removeprefix("go-").removesuffix("-go")
-    return name.replace("-", "")
-
-
-def imports(root: SgNode) -> dict[str, str]:
-    found: dict[str, str] = {}
-    for node in root.find_all(kind="import_spec"):
-        path = string_value(node.field("path"))
-        if path is None:
-            continue
-        name = node.field("name")
-        alias = name.text() if name is not None else default_alias(path)
-        if alias not in {".", "_"}:
-            found[alias] = path
-    return found
-
-
-def words(name: str) -> list[str]:
-    return [item.lower() for item in WORD.findall(name)]
 
 
 def test_functions(root: SgNode) -> list[SgNode]:
@@ -104,11 +60,12 @@ def arguments(call: SgNode) -> list[SgNode]:
 
 
 def go_files(paths: list[str]) -> list[str]:
+    """The paths the go tool reads as package source (go.built_path), outside every
+    folder no scan reads."""
     return sorted({
         path
         for path in paths
-        if path.endswith(SOURCE_SUFFIX)
-        and not SKIPPED_PARTS.intersection(PurePosixPath(path).parts)
+        if go.built_path(path) and not conventions.ignored_path(path)
     })
 
 

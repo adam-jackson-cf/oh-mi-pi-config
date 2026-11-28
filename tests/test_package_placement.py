@@ -68,8 +68,9 @@ class PackagePlacementTests(unittest.TestCase):
         )
         assert data.render() == (
             "src/shop/rules/policy.yaml: STRUCT.runtime-data-placement: "
-            "runtime data file inside code folder src/shop/; move it to a root data "
-            "folder outside the code and read it from there"
+            "runtime data file inside code folder src/shop/; move it to a data folder "
+            "(a root data folder, or a data/ folder of its own that holds no code) and "
+            "read it from there"
         )
         assert entry.render() == (
             "src/shop/engine/jobs/__main__.py: STRUCT.entry-point-placement: "
@@ -88,7 +89,7 @@ class PackagePlacementTests(unittest.TestCase):
             (DATA_FOLDER / "structure-languages.json").read_text(encoding="utf-8")
         )
         python = languages["rules"][package_placement.ENTRY_POINT]["python"]
-        assert python["entry_modules"] == sorted(package_placement.ENTRY_MODULES)
+        assert python["entry_modules"] == sorted(package_placement.entry_modules())
 
 
 class SourceRepoCase(unittest.TestCase):
@@ -145,8 +146,8 @@ class ScriptRuntimeDataTests(SourceRepoCase):
         rendered = {item.path: item.render() for item in found}
         assert rendered["web/src/settings.yaml"] == (
             "web/src/settings.yaml: STRUCT.runtime-data-placement: runtime data file "
-            "inside code folder web/src/; move it to a root data folder outside the "
-            "code and read it from there"
+            "inside code folder web/src/; move it to a data folder (a root data folder, "
+            "or a data/ folder of its own that holds no code) and read it from there"
         )
 
     def test_json_a_same_folder_source_imports_by_relative_specifier_is_code(
@@ -159,11 +160,11 @@ class ScriptRuntimeDataTests(SourceRepoCase):
             "web/src/table.json": "{}",
             "web/src/lazy.tsx": 'export const m = import("./lazy.json");\n',
             "web/src/lazy.json": "{}",
-            "web/src/view.ts": 'import data from "./data/rows.json";\n',
-            "web/src/data/rows.json": "[]",
+            "web/src/view.ts": 'import rows from "./tables/rows.json";\n',
+            "web/src/tables/rows.json": "[]",
             "web/src/named.ts": 'import cfg from "config.json";\n',
         })
-        assert pairs(found) == {(DATA, "web/src/data/rows.json")}
+        assert pairs(found) == {(DATA, "web/src/tables/rows.json")}
 
     def test_tooling_fixed_files_are_not_runtime_data(self) -> None:
         found = self.script({
@@ -175,6 +176,16 @@ class ScriptRuntimeDataTests(SourceRepoCase):
             "web/src/pnpm-lock.yaml": "",
         })
         assert found == []
+
+    def test_knip_and_prettier_configs_are_not_runtime_data(self) -> None:
+        found = self.script({
+            "tools/lint/index.js": "",
+            "tools/lint/knip.json": "{}",
+            "tools/lint/.prettierrc.json": "{}",
+            "tools/lint/.prettierignore": "",
+            "tools/lint/rules.json": "{}",
+        })
+        assert pairs(found) == {(DATA, "tools/lint/rules.json")}
 
     def test_a_bundle_manifest_ends_the_code_folder_search(self) -> None:
         found = self.script({
@@ -192,6 +203,30 @@ class ScriptRuntimeDataTests(SourceRepoCase):
             "web/src/app.ts": "",
             "web/src/tests/cases.json": "{}",
             "web/src/fixtures/order.json": "{}",
+            "web/src/harness/golden/run.json": "{}",
+            "web/src/__snapshots__/app.json": "{}",
+        })
+        assert found == []
+
+    def test_a_data_folder_without_code_ends_the_search(self) -> None:
+        found = self.script({
+            "eval/replay.ts": "",
+            "eval/run-1/data/maps/a.json": "{}",
+            "eval/run-2/data-rev8/b.json": "{}",
+            "eval/run-3/raw_data/c.yaml": "",
+            "eval/run-4/results/d.json": "{}",
+            "eval/run-5/data/loader.ts": "",
+            "eval/run-5/data/e.json": "{}",
+        })
+        assert pairs(found) == {
+            (DATA, "eval/run-4/results/d.json"),
+            (DATA, "eval/run-5/data/e.json"),
+        }
+
+    def test_hidden_folders_hold_no_runtime_data(self) -> None:
+        found = self.script({
+            "tools/check/index.ts": "",
+            "tools/check/.moon/cache/report.json": "{}",
         })
         assert found == []
 
@@ -285,7 +320,7 @@ class GoRuntimeDataTests(SourceRepoCase):
             (DATA, "internal/web/templates/index.tmpl"),
             (DATA, "internal/web/config.yaml"),
         }
-        assert found[0].fix.startswith("move it to a root data folder")
+        assert found[0].fix.startswith("move it to a data folder")
         assert "code folder internal/web/" in found[0].message
 
     def test_files_a_same_package_embed_pattern_matches_are_code(self) -> None:
@@ -405,10 +440,31 @@ class LanguageSpecTests(SourceRepoCase):
             for language, entry in LANGUAGES["STRUCT.runtime-data-placement"].items()
         }
         assert manifests == {
-            "python": sorted(package_placement.BUNDLE_MANIFESTS),
-            "typescript": sorted(script_placement.BUNDLE_MANIFESTS),
-            "go": sorted(go_placement.BUNDLE_MANIFESTS),
+            language: sorted(package_placement.bundle_manifests(language))
+            for language in ("python", "typescript", "go")
         }
+
+    def test_tool_configs_and_bundle_manifests_beside_code_are_not_runtime_data(
+        self,
+    ) -> None:
+        inventory = self.repo({
+            "tools/x/cli.py": "",
+            "tools/x/pyproject.toml": "",
+            "tools/x/ruff.toml": "",
+            "tools/x/setup.cfg": "",
+            "tools/x/mypy.ini": "",
+            "svc/main.go": "package main\n",
+            "svc/.golangci.yml": "",
+            "web/view.ts": "",
+            "web/biome.json": "{}",
+            "pkg/core.py": "",
+            "pkg/rules.yaml": "",
+            "pkg/data/rules.yaml": "",
+            "vendor/lib/lib.go": "package lib\n",
+            "vendor/lib/schema.json": "{}",
+        })
+        found = layout.package_placement_findings(self.root, inventory, inventory, {})
+        assert pairs(found) == {(DATA, "pkg/rules.yaml")}
 
     def test_one_finding_per_file_when_languages_share_a_folder(self) -> None:
         inventory = self.repo({

@@ -12,7 +12,7 @@ import pytest
 
 from guardrails.foundation.source import go
 from guardrails.foundation.source.go import GoImport
-from guardrails.foundation.source.tree import SourceError, parse
+from guardrails.foundation.source.tree import SourceError, comment_spans, parse
 
 pytestmark = pytest.mark.fast
 
@@ -77,9 +77,9 @@ class DefinitionTests(unittest.TestCase):
         assert texts(SOURCE, [found[3].span]) == ["func Top() { /* inner é */ }"]
 
 
-class CommentAndIdentifierTests(unittest.TestCase):
+class CommentAndDeclarationTests(unittest.TestCase):
     def test_comment_spans(self) -> None:
-        spans = go.comment_spans(parse("server.go", SOURCE), SOURCE)
+        spans = comment_spans(parse("server.go", SOURCE), SOURCE)
         assert texts(SOURCE, spans) == [
             "//go:build ignore",
             "// Package server runs things.",
@@ -88,18 +88,87 @@ class CommentAndIdentifierTests(unittest.TestCase):
             "/* inner é */",
         ]
 
-    def test_identifier_kinds(self) -> None:
-        source = 'package a\n\nimport f "fmt"\n\ntype T struct{ size int }\n\nfunc (t T) Show() { f.Println(t.size) }\n'
-        assert go.identifiers(parse("a.go", source)) == [
+    def test_bound_names_are_package_level_declarations_not_imports_or_reads(
+        self,
+    ) -> None:
+        source = (
+            'package a\n\nimport f "fmt"\n\n'
+            "type T struct{ size, depth int }\n"
+            "type Shape interface{ Area() float64 }\n"
+            "type Alias = *T\n"
+            "const (\n\tFirst = iota\n\tSecond\n)\n"
+            "var left, right = 1, 2\n"
+            "var _ = f.Sprint\n"
+            "func (t T) Show() { local := t.size; f.Println(local) }\n"
+            "func Make() T { return T{} }\n"
+        )
+        assert go.bound_names(parse("a.go", source)) == [
             "a",
-            "f",
             "T",
             "size",
-            "int",
-            "t",
+            "depth",
+            "Shape",
+            "Area",
+            "Alias",
+            "First",
+            "Second",
+            "left",
+            "right",
             "Show",
-            "Println",
+            "Make",
         ]
+        methods = [
+            (item.name, item.owner)
+            for item in go.declarations(parse("a.go", source))
+            if item.kind == "method"
+        ]
+        assert methods == [("Area", "Shape"), ("Show", "T")]
+
+
+class LiteralTests(unittest.TestCase):
+    def test_interpreted_strings_decode_go_escapes(self) -> None:
+        cases = {
+            '"plain"': "plain",
+            r'"tab\tquote\"slash\\"': 'tab\tquote"slash\\',
+            r'"\a\b\f\n\r\v"': "\a\b\f\n\r\v",
+            r'"\x41\101"': "AA",
+            r'"\xc3\xa9"': "\N{LATIN SMALL LETTER E WITH ACUTE}",
+            '"\\'
+            + "u00e9\\"
+            + 'U0001F600"': "\N{LATIN SMALL LETTER E WITH ACUTE}\N{GRINNING FACE}",
+        }
+        for text, value in cases.items():
+            with self.subTest(text=text):
+                assert go.literal(text) == value
+
+    def test_raw_strings_are_verbatim_without_carriage_returns(self) -> None:
+        assert go.literal("`C:\\dir\\n\r\nnext`") == "C:\\dir\\n\nnext"
+
+    def test_escapes_the_compiler_rejects_give_no_value(self) -> None:
+        rejected = (
+            r'"\q"',
+            r'"\400"',
+            '"\\' + 'uD800"',
+            '"\\' + 'U00110000"',
+            r'"\'"',
+            "x",
+        )
+        for text in rejected:
+            with self.subTest(text=text):
+                assert go.literal(text) is None
+
+    def test_import_paths_and_string_values_are_decoded(self) -> None:
+        source = (
+            'package a\n\nimport (\n\tq "a\\x2fb"\n\t`raw/path`\n)\n\nvar s = "x\\ty"\n'
+        )
+        root = parse("a.go", source)
+        assert go.imports(root) == [GoImport("a/b", 4), GoImport("raw/path", 5)]
+        assert go.import_aliases(root) == {"q": "a/b", "path": "raw/path"}
+        values = [
+            go.string_value(node)
+            for node in root.find_all(kind="interpreted_string_literal")
+        ]
+        assert values == ["a/b", "x\ty"]
 
 
 class DirectiveTests(unittest.TestCase):
@@ -114,6 +183,24 @@ class DirectiveTests(unittest.TestCase):
     def test_quoted_embed_patterns_decode_go_escapes(self) -> None:
         source = 'package a\n\n//go:embed "esc\\x41.txt"\nvar f string\n'
         assert go.embed_patterns(parse("a.go", source)) == ["escA.txt"]
+
+    def test_embed_patterns_match_by_go_path_match(self) -> None:
+        cases = [
+            ("data/[^_]*.json", "data/a.json", True),
+            ("data/[^_]*.json", "data/_a.json", False),
+            ("data/[!a]x", "data/bx", False),
+            ("data/*.json", "data/deep/a.json", False),
+            ("data/**.json", "data/a.json", True),
+            ("data/a\\*", "data/a*", True),
+            ("data", "data/deep/a.json", True),
+            ("data", "data/.hidden/a.json", False),
+            ("all:data", "data/.hidden/a.json", True),
+        ]
+        for pattern, path, embedded in cases:
+            with self.subTest(pattern=pattern, path=path):
+                assert go.embeds(pattern, path) is embedded
+        with pytest.raises(SourceError, match="invalid //go:embed pattern"):
+            go.embeds("data/[]a]", "data/a")
 
     def test_an_invalid_quoted_embed_pattern_is_an_error(self) -> None:
         source = 'package a\n\n//go:embed "bad\\q"\nvar f string\n'
@@ -137,6 +224,74 @@ class DirectiveTests(unittest.TestCase):
         assert go.is_test_file("pkg/server_test.go")
         assert not go.is_test_file("pkg/server.go")
         assert not go.is_test_file("pkg/test.go")
+
+
+class FileSetTests(unittest.TestCase):
+    def test_built_paths_skip_the_folders_and_names_the_go_tool_ignores(self) -> None:
+        built = ["main.go", "shop/cart.go", "shop/cart_test.go", "cmd/x/main.go"]
+        ignored = [
+            "shop/testdata/fixture.go",
+            "vendor/x/y.go",
+            "_tools/gen.go",
+            ".cache/gen.go",
+            "shop/_draft.go",
+            "shop/.hidden.go",
+            "shop/cart.ts",
+        ]
+        assert [path for path in built + ignored if go.built_path(path)] == built
+
+    def test_a_build_ignore_file_is_not_built(self) -> None:
+        ignored = parse("shop/gen.go", "//go:build ignore\n\npackage main\n")
+        kept = parse("shop/cart.go", "//go:build linux\n\npackage shop\n")
+        assert not go.built("shop/gen.go", ignored)
+        assert go.built("shop/cart.go", kept)
+
+    def test_test_files_and_suffixes_come_from_the_go_pack(self) -> None:
+        assert go.test_suffixes() == ("_test.go",)
+        assert go.is_test_file("shop/cart_test.go")
+        assert not go.is_test_file("shop/cart_test.go.txt")
+
+
+class ReferenceTests(unittest.TestCase):
+    def test_imported_names_and_own_package_names_are_references(self) -> None:
+        root = parse(
+            "shop/report.go",
+            """package shop
+
+import (
+\tcore "example.com/app/core"
+\t"example.com/app/v2"
+)
+
+type Report struct{ total core.Amount }
+
+func Build(items []Item) Report {
+\tvalue := Sum(items)
+\treturn Report{total: core.Round(value)}
+}
+
+func (r Report) Value() int { return app.Version(r.helper()) }
+""",
+        )
+        found = {(item.import_path, item.name) for item in go.references(root)}
+        assert {
+            ("example.com/app/core", "Amount"),
+            ("example.com/app/core", "Round"),
+            ("example.com/app/v2", "Version"),
+            (None, "Item"),
+            (None, "Sum"),
+            (None, "Report"),
+        } <= found
+        assert (None, "Build") not in found
+        assert (None, "helper") not in found
+        assert (None, "core") not in found
+
+    def test_aliases_follow_the_last_path_element_past_a_major_version(self) -> None:
+        root = parse(
+            "x.go",
+            'package x\n\nimport (\n\t"github.com/a/go-thing/v3"\n\t. "dot"\n\t_ "blank"\n)\n',
+        )
+        assert go.import_aliases(root) == {"thing": "github.com/a/go-thing/v3"}
 
 
 if __name__ == "__main__":

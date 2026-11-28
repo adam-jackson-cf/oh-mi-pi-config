@@ -48,6 +48,24 @@ class IntegrityCommentTests(IntegrityCase):
         assert {item.path for item in findings} == set(files)
         assert {item.rule_id for item in findings} == {"CODE.no-comments"}
 
+    def test_tooling_pack_files_with_hash_comments_block_added_comments(self) -> None:
+        files = {
+            "Containerfile": "# explanation\nFROM scratch\n",
+            "GNUmakefile": "# explanation\nall:\n",
+            "Dockerfile.prod": "# explanation\nFROM scratch\n",
+            "lib/run.zsh": "# explanation\nprint ok\n",
+        }
+        findings = self.check(files)
+        assert {item.path for item in findings} == set(files)
+
+    def test_container_file_parser_directives_are_not_comments(self) -> None:
+        assert (
+            self.check({
+                "docker/Containerfile": "# syntax=docker/dockerfile:1\nFROM scratch\n"
+            })
+            == []
+        )
+
     def test_string_literals_and_rust_attributes_are_not_comments(self) -> None:
         assert (
             self.check({
@@ -193,6 +211,28 @@ class IntegrityCommentTests(IntegrityCase):
             ("src/again.py", "line 10: added comment")
         ]
 
+    def test_grammar_read_literals_neither_hide_nor_fake_comments(self) -> None:
+        findings = self.check({
+            "src/raw.go": "package a\n\nvar root = `C:\\` // drive\n",
+            "src/regex.ts": "const slash = /\\/\\//;\nconst tick = /[`]/; // after\n",
+        })
+        assert sorted((item.path, item.message) for item in findings) == [
+            ("src/raw.go", "line 3: added comment"),
+            ("src/regex.ts", "line 2: added comment"),
+        ]
+
+    def test_unparseable_typescript_and_go_are_one_finding_each(self) -> None:
+        findings = self.check({
+            "src/broken.ts": "const x = foo(1;\n",
+            "src/broken.go": "package a\n\nfunc (\n",
+        })
+        assert sorted(
+            (item.path, item.message.split(":")[1].strip()) for item in findings
+        ) == [
+            ("src/broken.go", "cannot parse src/broken.go as go"),
+            ("src/broken.ts", "cannot parse src/broken.ts as typescript"),
+        ]
+
     def test_staged_moves_keep_existing_comments_out_of_the_commit_check(self) -> None:
         self.repo.git("mv", "src/existing.py", "src/renamed.py")
         assert integrity.commit_findings(self.repo.path, BASE_REPO_CONFIG) == []
@@ -230,6 +270,19 @@ class IntegrityCodeTests(IntegrityCase):
         assert {item.path for item in findings} == set(sources)
         assert [item.rule_id for item in findings] == ["CODE.no-product-mocks"] * 6
 
+    def test_conftest_and_pack_test_files_hold_no_product_mocks_but_runner_mocks_block(
+        self,
+    ) -> None:
+        findings = self.check({
+            "conftest.py": "from unittest import mock\n",
+            "src/cart.test.ts": "vi.mock('./db');\n",
+            "src/app.ts": "mock.module('./db', () => ({}));\nvi.spyOn(api, 'get');\n",
+        })
+        assert sorted((item.path, item.message) for item in findings) == [
+            ("src/app.ts", "line 1: mock call in product code"),
+            ("src/app.ts", "line 2: mock call in product code"),
+        ]
+
     def test_excluded_fixture_trees_hold_no_product_code_but_still_ban_comments(
         self,
     ) -> None:
@@ -248,6 +301,27 @@ class IntegrityCodeTests(IntegrityCase):
         assert [(item.rule_id, item.path) for item in findings] == [
             ("CODE.no-comments", "frozen/case.py")
         ]
+
+    def test_relative_imports_of_a_module_named_mock_are_product_code(self) -> None:
+        findings = self.check({
+            "src/shop/mock.py": "def build():\n    return 1\n",
+            "src/shop/use.py": "from .mock import build\nfrom . import mock\n",
+            "src/shop/real.py": "from unittest import mock\n",
+        })
+        assert [(item.rule_id, item.path) for item in findings] == [
+            ("CODE.no-product-mocks", "src/shop/real.py")
+        ]
+
+    def test_a_byte_order_mark_does_not_make_python_unreadable(self) -> None:
+        assert self.check({"src/marked.py": "\N{BYTE ORDER MARK}x = 1\n"}) == []
+
+    def test_unparseable_python_is_one_finding_at_its_line(self) -> None:
+        (found,) = self.check({"src/broken.py": "x = 1\ndef f(:\n"})
+        assert (found.rule_id, found.path) == ("CODE.no-comments", "src/broken.py")
+        assert found.message.startswith("line 2: cannot parse src/broken.py as python")
+
+    def test_mock_text_in_markdown_is_not_product_code(self) -> None:
+        assert self.check({"docs/guide.md": "Call vi.mock('x') in tests.\n"}) == []
 
     def test_mock_words_in_strings_and_comments_do_not_count_as_imports(self) -> None:
         findings = self.check({

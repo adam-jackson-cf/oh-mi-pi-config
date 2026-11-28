@@ -118,7 +118,7 @@ SHOP_REPO_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop": "shop.core:Basket"},
+        "public_entry_points": {"shop": ["shop.core:Basket"]},
         "tiers": {
             "t1": {"command": "pytest -m fast"},
             "t2": {"command": "pytest -m slow"},
@@ -134,6 +134,48 @@ SHOP_REPO_CONFIG: dict[str, Any] = {
         approval("exemption", "tiers.t3", "no exploratory tier"),
     ],
 }
+
+
+class UnreadableSourceTests(unittest.TestCase):
+    def test_unparseable_and_undecodable_files_are_findings_not_skips(self) -> None:
+        from guardrails.commands.adapters.pytest.lint import lint
+
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = shop_repository(Path(scratch))
+            (repo / "shop/broken.py").write_text("def broken(:\n    pass\n")
+            (repo / "tests/test_bytes.py").write_bytes(b"\xff\xfe")
+            git(repo, "add", ".")
+            found = lint(repo, SHOP_REPO_CONFIG, [])
+        unreadable = sorted(
+            (item.rule_id, item.path, item.message.split(":")[0])
+            for item in found
+            if item.message.startswith("cannot")
+        )
+        assert unreadable == [
+            (
+                "TEST.no-evasion",
+                "tests/test_bytes.py",
+                "cannot read source for AST analysis",
+            ),
+            (
+                "TEST.no-test-hooks",
+                "shop/broken.py",
+                "cannot parse source for AST analysis",
+            ),
+        ]
+
+    def test_an_invalid_collect_timeout_is_a_finding(self) -> None:
+        from guardrails.commands.adapters.pytest.tiers import list_tiers
+
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = shop_repository(Path(scratch))
+            repo_config = {
+                **SHOP_REPO_CONFIG,
+                "checkers": {"adapter_pytest": {"collect_timeout_s": 0}},
+            }
+            (found,) = list_tiers(repo, repo_config, ["t1"], Path(scratch) / "out")
+        assert found.rule_id == "TEST.failure-propagation"
+        assert "collect_timeout_s must be a positive finite number" in found.message
 
 
 SHOP_TEST = """\

@@ -6,9 +6,10 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.commands.init.native_tools import HEADER, load_data
+from guardrails.foundation import conventions
 from guardrails.foundation.inventory import InventoryError, repo_paths
 
-SHELL_SUFFIXES = (".sh", ".bash")
+SHELL_SUFFIXES = tuple(conventions.load_pack("shell")["extensions"])
 OXLINT_FILES = (".oxlintrc.json", "oxlint.config.ts")
 ESLINT_FILES = (
     "eslint.config.js",
@@ -153,13 +154,16 @@ def setting_text(value: object) -> str:
 
 
 def editorconfig_report(text: str, shfmt: dict[str, Any]) -> list[str]:
+    section = glob_pattern(shfmt["section"].strip("[]"))
+    scripts = [
+        name
+        for suffix in SHELL_SUFFIXES
+        if section.fullmatch(name := f"script{suffix}") is not None
+    ]
     report = []
     for key, value in shfmt["settings"].items():
         wanted = setting_text(value)
-        if any(
-            editorconfig_values(text, f"script{suffix}").get(key) != wanted
-            for suffix in SHELL_SUFFIXES
-        ):
+        if any(editorconfig_values(text, name).get(key) != wanted for name in scripts):
             report.append(
                 f"native: .editorconfig lacks SHFMT.{key} ({key} = {wanted} for shell files)"
             )

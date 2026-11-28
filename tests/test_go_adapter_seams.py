@@ -19,6 +19,7 @@ from test_diff_checks import FixtureRepo
 
 from guardrails.commands import cli
 from guardrails.commands.adapters.conformance import load_cases
+from guardrails.commands.adapters.go import lint as go_lint
 from guardrails.commands.adapters.go.conformance import run_conformance
 from guardrails.host.process import run_text
 from guardrails.test_report.collect_list import read_ids
@@ -36,7 +37,7 @@ REPO_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop": ["Total"]},
+        "public_entry_points": {"shop": ["example.com/shop/shop:Total"]},
         "tiers": {
             "t1": {"command": "guardrails adapter go run --tier t1"},
             "t3": {"none": True},
@@ -169,6 +170,46 @@ class GoAffectedTests(unittest.TestCase):
         )
         assert code == 1
         assert "no-such-ref" in out
+
+
+class GoSourceSetTests(unittest.TestCase):
+    def test_ignored_files_are_no_use_and_unparseable_files_are_findings(self) -> None:
+        files = {
+            "go.mod": "module example.com/shop\n\ngo 1.22\n",
+            "shop/core.go": "package shop\n\nfunc Helper() int { return 1 }\n",
+            "shop/gen.go": (
+                '//go:build ignore\n\npackage main\n\nimport "example.com/shop/shop"\n\n'
+                "func main() { shop.Helper() }\n"
+            ),
+            "shop/testdata/use.go": (
+                'package use\n\nimport "example.com/shop/shop"\n\n'
+                "func Use() int { return shop.Helper() }\n"
+            ),
+            "shop/broken.go": "package shop\n\nfunc Broken( {\n",
+            "tests/core_test.go": (
+                'package tests\n\nimport (\n\t"testing"\n\n\t"example.com/shop/shop"\n)\n\n'
+                "func TestHelperReturnsOne(t *testing.T) {\n"
+                "\tif shop.Helper() != 1 {\n\t\tt.Fatal()\n\t}\n}\n"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as scratch:
+            repo = Path(scratch)
+            for path, text in files.items():
+                (repo / path).parent.mkdir(parents=True, exist_ok=True)
+                (repo / path).write_text(text)
+            run_text(["git", "init", "-q", str(repo)], check=True, timeout=60)
+            run_text(["git", "-C", str(repo), "add", "."], check=True, timeout=60)
+            config = {
+                "tests": {
+                    "public_entry_points": {"shop": ["example.com/shop/shop:Total"]}
+                }
+            }
+            found = go_lint.lint(repo, config, [])
+        assert sorted((item.path, item.message.split(":")[0]) for item in found) == [
+            ("shop/broken.go", "cannot parse source for AST analysis"),
+            ("shop/core.go", "line 3"),
+        ]
+        assert {item.rule_id for item in found} == {"TEST.no-test-hooks"}
 
 
 if __name__ == "__main__":

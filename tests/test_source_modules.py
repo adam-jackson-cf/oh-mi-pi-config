@@ -17,25 +17,157 @@ from guardrails.foundation.source.tree import SourceError, parse
 pytestmark = pytest.mark.fast
 
 
-def edges(source: str, module: str, package: str = "pkg") -> list[str]:
+def edges(source: str, path: str, package: str = "pkg") -> list[str]:
+    module = modules.python_module(path, package)
     return modules.python_edges(python.imports(parse("m.py", source)), module, package)
 
 
 class PythonEdgeTests(unittest.TestCase):
     def test_absolute_imports_inside_the_package(self) -> None:
         source = "import os\nimport pkg.a.b\nfrom pkg.c import d, e\nfrom pkg import *\nimport pkgextra\n"
-        assert edges(source, "pkg.x") == ["pkg.a.b", "pkg.c.d", "pkg.c.e", "pkg"]
+        assert edges(source, "x.py") == ["pkg.a.b", "pkg.c.d", "pkg.c.e", "pkg"]
 
     def test_relative_imports_resolve_against_the_importer_package(self) -> None:
         source = "from . import a\nfrom ..b import c\nfrom .d import *\n"
-        assert edges(source, "pkg.sub.mod") == ["pkg.sub.a", "pkg.b.c", "pkg.sub.d"]
+        assert edges(source, "sub/mod.py") == ["pkg.sub.a", "pkg.b.c", "pkg.sub.d"]
 
     def test_a_package_init_resolves_against_itself(self) -> None:
-        assert edges("from . import a\n", "pkg.sub.__init__") == ["pkg.sub.a"]
+        assert edges("from . import a\n", "sub/__init__.py") == ["pkg.sub.a"]
 
     def test_relative_imports_beyond_the_top_level_are_errors(self) -> None:
         with pytest.raises(SourceError, match="line 2: attempted relative import"):
-            edges("import os\nfrom ... import a\n", "pkg.mod")
+            edges("import os\nfrom ... import a\n", "mod.py")
+
+
+class PythonModuleNamingTests(unittest.TestCase):
+    def test_a_file_is_named_by_its_path_under_the_import_root(self) -> None:
+        assert modules.python_module("shop/cart.py") == modules.PythonModule(
+            "shop.cart", is_package=False
+        )
+        assert modules.python_module("cart.py", "shop").name == "shop.cart"
+
+    def test_a_package_marker_is_the_package_itself(self) -> None:
+        found = modules.python_module("shop/__init__.py")
+        assert found == modules.PythonModule("shop", is_package=True)
+        assert found.package == "shop"
+        assert modules.python_module("shop/cart.py").package == "shop"
+        assert modules.python_module("__init__.py", "shop").name == "shop"
+
+    def test_a_stub_names_the_module_it_describes(self) -> None:
+        assert modules.python_module("shop/cart.pyi").name == "shop.cart"
+        assert modules.python_module("shop/__init__.pyi").name == "shop"
+
+
+def absolute(source: str, path: str) -> list[str]:
+    importer = modules.python_module(path)
+    return [
+        modules.absolute(item, importer)
+        for item in python.imports(parse("m.py", source))
+    ]
+
+
+class RelativeImportTests(unittest.TestCase):
+    def test_a_module_resolves_against_its_package_and_a_package_against_itself(
+        self,
+    ) -> None:
+        source = "from . import a\nfrom ..b import c\nimport os\n"
+        assert absolute(source, "pkg/sub/mod.py") == ["pkg.sub", "pkg.b", "os"]
+        assert absolute(source, "pkg/sub/__init__.py") == ["pkg.sub", "pkg.b", "os"]
+
+    def test_climbing_above_the_top_package_or_leaving_no_package_is_an_error(
+        self,
+    ) -> None:
+        with pytest.raises(SourceError, match="beyond top-level package") as raised:
+            absolute("from ... import a\n", "pkg/mod.py")
+        assert raised.value.line == 1
+        with pytest.raises(SourceError, match="no package specified"):
+            absolute("from . import a\n", "mod.py")
+
+    def test_a_from_import_binds_each_name_under_its_module(self) -> None:
+        (item,) = python.imports(parse("m.py", "from .core import run as go, stop\n"))
+        importer = modules.python_module("pkg/cli.py")
+        assert modules.imported_names(item, importer) == [
+            "pkg.core.run",
+            "pkg.core.stop",
+        ]
+        assert item.bindings == ("go", "stop")
+
+
+def resolved(files: dict[str, str], importer: str) -> list[list[str]]:
+    index = modules.PythonIndex(files)
+    return [
+        index.resolve(importer, item)
+        for item in python.imports(parse(importer, files[importer]))
+    ]
+
+
+class PythonIndexTests(unittest.TestCase):
+    def test_files_are_named_by_every_path_suffix(self) -> None:
+        index = modules.PythonIndex([
+            "src/shop/__init__.py",
+            "src/shop/cart.py",
+            "src/shop/sub/__init__.py",
+            "src/shop/sub/cart.py",
+            "scripts/tool.py",
+            "README.md",
+        ])
+        assert index.names["src/shop/cart.py"] == ["src.shop.cart", "shop.cart"]
+        assert index.names["src/shop/sub/cart.py"] == [
+            "src.shop.sub.cart",
+            "shop.sub.cart",
+            "sub.cart",
+        ]
+        assert index.names["src/shop/__init__.py"] == ["src.shop", "shop"]
+        assert index.names["scripts/tool.py"] == ["scripts.tool", "tool"]
+        assert "README.md" not in index.names
+
+    def test_imports_name_modules_submodules_and_the_module_holding_a_name(
+        self,
+    ) -> None:
+        files = {
+            "src/shop/__init__.py": "",
+            "src/shop/cart.py": "",
+            "src/shop/tax.py": "",
+            "src/shop/sub/__init__.py": "",
+            "src/shop/sub/run.py": (
+                "from .. import cart\nfrom ..tax import rate\nfrom ... import x\n"
+                "import shop.cart\nimport cart\nfrom shop import missing\n"
+            ),
+        }
+        assert resolved(files, "src/shop/sub/run.py") == [
+            ["src/shop/cart.py"],
+            ["src/shop/tax.py"],
+            [],
+            ["src/shop/cart.py"],
+            [],
+            ["src/shop/__init__.py"],
+        ]
+
+    def test_a_stub_is_the_target_only_without_its_module(self) -> None:
+        files = {
+            "app/fast.pyi": "",
+            "app/cart.py": "",
+            "app/cart.pyi": "",
+            "app/main.py": "import fast\nimport cart\n",
+        }
+        assert resolved(files, "app/main.py") == [["app/fast.pyi"], ["app/cart.py"]]
+
+    def test_a_package_folder_used_as_an_import_root_resolves(self) -> None:
+        files = {
+            "shared/__init__.py": "",
+            "shared/core/__init__.py": "",
+            "shared/core/base.py": "",
+            "shared/tools/run.py": "from core.base import Thing\nimport base\n",
+        }
+        assert resolved(files, "shared/tools/run.py") == [["shared/core/base.py"], []]
+
+    def test_the_nearest_of_several_same_named_modules_wins(self) -> None:
+        files = {
+            "a/helpers.py": "",
+            "b/helpers.py": "",
+            "a/main.py": "import helpers\n",
+        }
+        assert resolved(files, "a/main.py") == [["a/helpers.py"]]
 
 
 TRACKED = frozenset({
@@ -201,6 +333,97 @@ class GoModuleTests(unittest.TestCase):
         )
         with pytest.raises(SourceError, match="outside the Go module"):
             modules.package_import_path("example.com/app", "svc", "other/pkg")
+
+
+def references(files: dict[str, str], path: str) -> set[tuple[str, str]]:
+    index = modules.PythonIndex(files)
+    found = modules.python_references(path, parse(path, files[path]), index)
+    return {(use.path, use.symbol) for use in found.uses}
+
+
+class PythonReferenceTests(unittest.TestCase):
+    FILES = {
+        "shop/__init__.py": "from .core import reset\n",
+        "shop/core.py": "def reset():\n    return 0\n",
+        "shop/cache.py": "class Cache:\n    def reset(self):\n        return 1\n",
+    }
+
+    def test_imports_module_attributes_and_relative_imports_resolve_to_files(
+        self,
+    ) -> None:
+        files = {
+            **self.FILES,
+            "app/a.py": "from shop.core import reset\nreset()\n",
+            "app/b.py": "import shop.core\nshop.core.reset()\n",
+            "app/c.py": "from shop import core as c\nc.reset()\n",
+            "shop/d.py": "from . import core\ncore.reset()\n",
+        }
+        for path in ["app/a.py", "app/b.py", "app/c.py", "shop/d.py"]:
+            with self.subTest(path=path):
+                assert ("shop/core.py", "reset") in references(files, path)
+
+    def test_an_unrelated_attribute_of_the_same_name_is_not_a_reference(self) -> None:
+        files = {
+            **self.FILES,
+            "app/e.py": "from shop.cache import Cache\nCache().reset()\nsubprocess.run()\n",
+        }
+        found = references(files, "app/e.py")
+        assert ("shop/core.py", "reset") not in found
+        assert ("shop/cache.py", "Cache") in found
+
+    def test_strings_naming_a_module_attribute_are_references(self) -> None:
+        files = {**self.FILES, "app/f.py": "patch('shop.core.reset')\n"}
+        assert ("shop/core.py", "reset") in references(files, "app/f.py")
+
+    def test_modules_named_by_string_are_read_through_unresolved_names(self) -> None:
+        files = {
+            **self.FILES,
+            "app/dispatch.py": (
+                "import importlib\n"
+                "COMMANDS = {'reset': 'shop.core'}\n"
+                "module = importlib.import_module(COMMANDS['reset'])\n"
+                "module.reset()\n"
+            ),
+            "app/lookup.py": (
+                "from importlib import import_module\n"
+                "getattr(import_module('shop.cache'), 'Cache')\n"
+            ),
+        }
+        assert ("shop/core.py", "reset") in references(files, "app/dispatch.py")
+        assert ("shop/cache.py", "Cache") in references(files, "app/lookup.py")
+        assert ("shop/core.py", "reset") not in references(
+            {**files, "app/plain.py": "thing.reset()\n"}, "app/plain.py"
+        )
+
+    def test_a_package_reexports_what_it_imports(self) -> None:
+        index = modules.PythonIndex(self.FILES)
+        root = parse("shop/__init__.py", self.FILES["shop/__init__.py"])
+        found = modules.python_references("shop/__init__.py", root, index)
+        assert found.reexports == (modules.Reexport("reset", "shop/core.py", "reset"),)
+
+
+class ManifestTests(unittest.TestCase):
+    def test_package_entries_read_exports_then_main(self) -> None:
+        assert (
+            modules.package_entry({"exports": "./a.js", "main": "./b.js"}) == "./a.js"
+        )
+        assert modules.package_entry({"exports": {".": "./c.js"}}) == "./c.js"
+        assert modules.package_entry({
+            "exports": {"./x": "./x.js"},
+            "main": "m.js",
+        }) == ("m.js")
+        assert modules.package_entry({"name": "x"}) is None
+
+    def test_manifests_that_do_not_read_are_source_errors(self) -> None:
+        with pytest.raises(SourceError, match="package.json"):
+            modules.package_manifest("package.json", '{"name": ')
+        with pytest.raises(SourceError, match="must hold a JSON object"):
+            modules.package_manifest("package.json", "[]")
+        with pytest.raises(SourceError, match="pyproject.toml"):
+            modules.pyproject("pyproject.toml", "a = = b")
+        assert modules.pyproject("pyproject.toml", "[project]\nname = 'x'\n") == {
+            "project": {"name": "x"}
+        }
 
 
 if __name__ == "__main__":

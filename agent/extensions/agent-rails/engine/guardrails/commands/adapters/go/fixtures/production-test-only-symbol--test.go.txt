@@ -1,0 +1,13 @@
+package tests
+
+import (
+	"testing"
+
+	"example.com/project/shop"
+)
+
+func TestResetCacheEmptiesTheCache(t *testing.T) {
+	if shop.ResetCache() != 0 {
+		t.Fatal("cache not empty")
+	}
+}

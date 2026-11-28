@@ -3,19 +3,21 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure_naming.name_pair.extract import SOURCE_SUFFIXES
 from guardrails.commands.structure_naming.name_pair.propose import (
+    RESOLVER_FILES,
     NameIndex,
     Pair,
     Proposer,
 )
 from guardrails.commands.structure_naming.scan_scope import (
-    is_test_path,
+    checked,
     is_vendored_path,
+    language_list,
 )
 from guardrails.context.changes import (
     DiffError,
@@ -26,13 +28,16 @@ from guardrails.context.changes import (
 )
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.source.tree import language_of
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.name-pairs"
 EXCEPTION_RULE = "structure-naming/same_thing"
 BUNDLE_MANIFEST = "SKILL.md"
+READS = frozenset({"python", "typescript", "go"})
 MAX_SOURCE_BYTES = 300_000
 USE_SITES = 3
 USE_TEXT = 160
@@ -57,13 +62,25 @@ def site_pattern(name: str, site: Site) -> re.Pattern[str]:
     return re.compile(rf"(?<![\w$]){re.escape(name.split('.')[-1])}(?![\w$])")
 
 
+IsTest = Callable[[str], bool]
+
+
+@dataclass(frozen=True)
+class Sources:
+    """The source files a proposal reads, by path, and which of them are test source."""
+
+    tree: dict[str, str]
+    is_test: IsTest
+
+
 def site_hits(
-    tree: dict[str, str], pattern: re.Pattern[str], site: Site
+    sources: Sources, pattern: re.Pattern[str], site: Site
 ) -> list[tuple[str, int, str]]:
+    tree = sources.tree
     hits: list[tuple[str, int, str]] = []
-    for path in sorted(tree, key=lambda path: (is_test_path(path), path)):
+    for path in sorted(tree, key=lambda path: (sources.is_test(path), path)):
         text = tree[path]
-        if not path.endswith(SOURCE_SUFFIXES) or not pattern.search(text):
+        if language_of(path) is None or not pattern.search(text):
             continue
         for number, line in enumerate(text.split("\n"), 1):
             if path == site.path and site.lines[0] <= number <= site.lines[1]:
@@ -73,8 +90,8 @@ def site_hits(
     return hits
 
 
-def use_sites(tree: dict[str, str], name: str, site: Site) -> list[str]:
-    hits = site_hits(tree, site_pattern(name, site), site)
+def use_sites(sources: Sources, name: str, site: Site) -> list[str]:
+    hits = site_hits(sources, site_pattern(name, site), site)
     chosen: list[tuple[str, int, str]] = []
     for hit in hits:
         if hit[0] not in {item[0] for item in chosen} and len(chosen) < USE_SITES:
@@ -92,7 +109,7 @@ def described(item: dict[str, Any]) -> dict[str, str]:
 
 
 def string_evidence(
-    tree: dict[str, str], name: Pair, held: dict[str, Any] | None
+    sources: Sources, name: Pair, held: dict[str, Any] | None
 ) -> dict[str, Any]:
     span = (name["line"], name["line"] + (held["nlines"] - 1 if held else 0))
     return {
@@ -105,15 +122,15 @@ def string_evidence(
             "code": held["code"] if held else "",
         },
         "uses": use_sites(
-            tree, name["name"], Site("string_value", name["path"], span, name["value"])
+            sources,
+            name["name"],
+            Site("string_value", name["path"], span, name["value"]),
         ),
     }
 
 
-def binding_evidence(
-    tree: dict[str, str], name: Pair, text: str | None
-) -> dict[str, Any]:
-    lines, line = tree[name["path"]].split("\n"), name["line"]
+def binding_evidence(sources: Sources, name: Pair, text: str | None) -> dict[str, Any]:
+    lines, line = sources.tree[name["path"]].split("\n"), name["line"]
     return {
         "name": name["name"].split(".")[-1],
         "kind": "alias binding",
@@ -124,28 +141,28 @@ def binding_evidence(
             "code": "\n".join(lines[max(0, line - 3) : line + 2]),
         },
         "uses": use_sites(
-            tree, name["name"], Site("alias", name["path"], (line, line))
+            sources, name["name"], Site("alias", name["path"], (line, line))
         ),
     }
 
 
 def evidence(
-    tree: dict[str, str],
+    sources: Sources,
     name: Pair,
     text: str | None = None,
     held: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if name["kind"] == "string_value":
-        return string_evidence(tree, name, held)
+        return string_evidence(sources, name, held)
     if name["kind"] == "alias":
-        return binding_evidence(tree, name, text)
+        return binding_evidence(sources, name, text)
     if name["kind"] == "external":
         return {
             "name": name["name"],
             "kind": "name not defined in this repository",
             "path": None,
             "definition": None,
-            "uses": use_sites(tree, name["name"], Site("external")),
+            "uses": use_sites(sources, name["name"], Site("external")),
         }
     item = name.get("_def")
     if item is None:
@@ -162,7 +179,7 @@ def evidence(
             "kind": f"member of {item['kind']} {item['name']}",
             "path": item["path"],
             "definition": described(item),
-            "uses": use_sites(tree, name["name"], Site("member", item["path"])),
+            "uses": use_sites(sources, name["name"], Site("member", item["path"])),
         }
     site = Site(item["kind"], item["path"], (item["line"], item["end"]))
     return {
@@ -170,23 +187,36 @@ def evidence(
         "kind": item["kind"],
         "path": item["path"],
         "definition": described(item),
-        "uses": use_sites(tree, item["name"], site),
+        "uses": use_sites(sources, item["name"], site),
     }
 
 
-def pair_state(tree: dict[str, str], pair: dict[str, Any]) -> dict[str, Any]:
+def pair_state(sources: Sources, pair: dict[str, Any]) -> dict[str, Any]:
     first, second = pair["a"], pair["b"]
     text = (pair.get("alias") or {}).get("text")
     held = first.get("_def") if second["kind"] == "string_value" else None
     return {
-        "first": evidence(tree, first, text=text),
-        "second": evidence(tree, second, held=held),
+        "first": evidence(sources, first, text=text),
+        "second": evidence(sources, second, held=held),
     }
 
 
 def pair_id(pair: dict[str, Any]) -> str:
     return "<>".join(
         f"{name.get('path') or ''}::{name['name']}" for name in (pair["a"], pair["b"])
+    )
+
+
+def pair_language(pair: dict[str, Any]) -> str | None:
+    """The language both names of a pair are written in: the proposer pairs names of one
+    language only."""
+    return next(
+        (
+            language_of(name["path"])
+            for name in (pair["a"], pair["b"])
+            if name.get("path")
+        ),
+        None,
     )
 
 
@@ -211,7 +241,9 @@ def owned_sources(entries: dict[str, TreeEntry], excluded: list[str]) -> list[st
         for path, (mode, kind, _, size) in entries.items()
         if kind == "blob"
         and mode != "120000"
-        and path.endswith(SOURCE_SUFFIXES)
+        and (
+            language_of(path) is not None or PurePosixPath(path).name in RESOLVER_FILES
+        )
         and not is_vendored_path(path)
         and not bundled(path)
         and size.isdigit()
@@ -228,18 +260,27 @@ def head_tree(repo: Path, head: str, excluded: list[str]) -> dict[str, str]:
 
 
 def name_pair_candidates(
-    tree: dict[str, str], changed: set[str], config: dict[str, Any]
+    tree: dict[str, str],
+    changed: set[str],
+    config: dict[str, Any],
+    languages: Collection[str],
 ) -> list[dict[str, Any]]:
+    """The changed same-thing name pairs of the languages asked for, each with its language
+    (both names share it): the kernel asks for the languages its question has settings for,
+    a measurement for any language this proposer reads."""
+    sources = Sources(tree, lambda path: is_test_source(path, config))
+    index = NameIndex(tree, sources.is_test, checked(languages, READS))
     found = []
-    for pair in Proposer(NameIndex(tree)).propose():
+    for pair in Proposer(index).propose():
         paths = {pair["a"].get("path"), pair["b"].get("path")}
         if not paths & changed or exempt(pair, config):
             continue
         found.append({
             "id": pair_id(pair),
+            "language": pair_language(pair),
             "proposer_score": pair["proposer_score"],
             "features": pair["features"],
-            "state": pair_state(tree, pair),
+            "state": pair_state(sources, pair),
         })
     return sorted(found, key=lambda item: item["id"])
 
@@ -248,6 +289,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=SUBCOMMANDS["name-pairs"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
+    parser.add_argument("--languages", required=True, type=language_list)
     args = parser.parse_args(argv)
     excluded = as_list(checker_settings(config, "check").get("exclude")) + as_list(
         checker_settings(config, "python").get("excluded_paths")
@@ -255,7 +297,10 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     try:
         tree = head_tree(repo, args.head, excluded)
         pairs = name_pair_candidates(
-            tree, changed_paths(repo, args.base, args.head, "AMR"), config
+            tree,
+            changed_paths(repo, args.base, args.head, "AMR"),
+            config,
+            args.languages,
         )
     except (DiffError, ValueError) as error:
         return [

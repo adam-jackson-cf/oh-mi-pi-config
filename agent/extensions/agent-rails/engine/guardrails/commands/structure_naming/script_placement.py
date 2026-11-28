@@ -1,28 +1,25 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Collection, Iterable
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure_naming import typescript
 from guardrails.commands.structure_naming.package_placement import (
-    DATA_SUFFIXES,
     ENTRY_POINT,
     RUNTIME_DATA,
     TOP_TIER_DEPTH,
     CodeTree,
     Sources,
     data_finding,
-    held_by_tests,
     unreadable,
 )
-from guardrails.foundation import conventions
+from guardrails.commands.structure_naming.programs import manifest_entries
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
+from guardrails.foundation.source import typescript
 from guardrails.foundation.source.modules import folder_of, joined
 from guardrails.foundation.source.tree import SourceError, languages
 
-BUNDLE_MANIFESTS = frozenset({"SKILL.md", "package.json"})
 PACKAGE_MANIFEST = "package.json"
 RELATIVE_PREFIXES = ("./", "../")
 
@@ -42,9 +39,7 @@ def imported_beside(path: str, sources: Sources) -> bool:
 
 
 def runtime_data_findings(path: str, tree: CodeTree, sources: Sources) -> list[Finding]:
-    if PurePosixPath(path).suffix not in DATA_SUFFIXES or conventions.fixed_file(path):
-        return []
-    folder = tree.enclosing(path)
+    folder = tree.misplaced_data(path)
     if folder is None:
         return []
     try:
@@ -53,30 +48,6 @@ def runtime_data_findings(path: str, tree: CodeTree, sources: Sources) -> list[F
     except SourceError as error:
         return [unreadable(RUNTIME_DATA, path, error)]
     return [data_finding(path, folder)]
-
-
-def manifest_entries(manifest: str, text: str) -> list[tuple[str, str]]:
-    try:
-        data = json.loads(text)
-    except ValueError as error:
-        raise SourceError(f"cannot parse {manifest}: {error}") from error
-    if not isinstance(data, dict):
-        raise SourceError(f"{manifest} must hold a JSON object")
-    found: list[tuple[str, str]] = []
-    commands, main = data.get("bin"), data.get("main")
-    if isinstance(commands, str):
-        found.append(("bin", commands))
-    elif isinstance(commands, dict) and all(
-        isinstance(value, str) for value in commands.values()
-    ):
-        found.extend(("bin", value) for value in commands.values())
-    elif commands is not None:
-        raise SourceError(f"{manifest}: bin must be a path or a map of names to paths")
-    if isinstance(main, str):
-        found.append(("main", main))
-    elif main is not None:
-        raise SourceError(f"{manifest}: main must be a path")
-    return found
 
 
 def manifests_above(path: str, tracked: Collection[str]) -> list[str]:
@@ -123,7 +94,7 @@ def entry_point_findings(
                 entry is not None
                 and entry in tracked
                 and path in {entry, manifest}
-                and not held_by_tests(entry, config)
+                and not is_test_source(entry, config)
             ):
                 found.extend(entry_finding(entry, manifest, field))
     return found
@@ -136,11 +107,11 @@ def script_file_findings(
     config: dict[str, Any],
 ) -> list[Finding]:
     tracked = set(inventory)
-    tree = CodeTree(tracked, extensions(), BUNDLE_MANIFESTS)
+    tree = CodeTree(tracked, "typescript")
     sources = Sources(root, tracked)
     found: list[Finding] = []
     for path in paths:
         found.extend(entry_point_findings(path, tracked, sources, config))
-        if not held_by_tests(path, config):
+        if not is_test_source(path, config):
             found.extend(runtime_data_findings(path, tree, sources))
     return found

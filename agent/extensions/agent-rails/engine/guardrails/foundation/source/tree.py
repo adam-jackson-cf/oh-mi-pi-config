@@ -19,13 +19,16 @@ GRAMMARS = {
     ".cjs": "javascript",
 }
 EMPTY_TOKENS = frozenset({"raw_string_literal_content"})
+BYTE_ORDER_MARK = "\N{BYTE ORDER MARK}"
 KEYWORD_ARGUMENTS = frozenset({"keyword_argument"})
 
 Span = tuple[int, int]
 
 
 class SourceError(ValueError):
-    pass
+    def __init__(self, message: str, line: int | None = None) -> None:
+        super().__init__(message)
+        self.line = line
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,19 @@ class Definition:
     span: Span
 
 
+@dataclass(frozen=True)
+class Declaration:
+    """One name a file declares at its top level or in a top-level type's body: kind is
+    what declares it (function, method, class, type, type_alias, field, constant,
+    variable, namespace or package), owner the type a member belongs to, node the
+    declaring node."""
+
+    name: str
+    kind: str
+    node: SgNode
+    owner: str | None = None
+
+
 @cache
 def structure_languages() -> dict[str, Any]:
     data: dict[str, Any] = json.loads(
@@ -44,11 +60,28 @@ def structure_languages() -> dict[str, Any]:
     return data
 
 
+@cache
+def language_pack(language: str) -> dict[str, Any]:
+    """The convention pack structure-languages.json names as a language's source."""
+    source = structure_languages()["languages"][language]["source"]
+    pack: dict[str, Any] = json.loads((DATA_FOLDER.parents[1] / source).read_bytes())
+    return pack
+
+
 def languages() -> dict[str, tuple[str, ...]]:
+    """Each structure language's source extensions, from its convention pack."""
     return {
-        name: tuple(entry["extensions"])
-        for name, entry in structure_languages()["languages"].items()
+        name: tuple(language_pack(name)["extensions"])
+        for name in structure_languages()["languages"]
     }
+
+
+def not_applicable(rule_id: str) -> dict[str, dict[str, str]]:
+    """The languages a structure rule does not apply to, each with its reason."""
+    found: dict[str, dict[str, str]] = structure_languages()["not_applicable"].get(
+        rule_id, {}
+    )
+    return found
 
 
 def rule_definitions(rule_id: str) -> dict[str, dict[str, Any]]:
@@ -77,25 +110,49 @@ def grammar(path: str) -> str:
     return GRAMMARS.get(PurePosixPath(path).suffix, source_language(path))
 
 
+def decode(path: str, data: bytes) -> str:
+    """The source text of a file's bytes: UTF-8 with any leading byte-order mark removed,
+    as Python, TypeScript and Go compilers read it."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise SourceError(
+            f"could not decode {path} as UTF-8: {error.reason}"
+        ) from error
+    return text.removeprefix(BYTE_ORDER_MARK)
+
+
+def read(folder: Path, path: str) -> str:
+    """The source text of the file at a path under a folder."""
+    return decode(path, (folder / path).read_bytes())
+
+
 def missing(node: SgNode) -> bool:
     return (
         node.parent() is not None and node.is_leaf() and node.kind() not in EMPTY_TOKENS
     )
 
 
-def parse(path: str, source: str) -> SgNode:
+def tolerant_tree(source: str, language: str) -> SgNode:
+    """The syntax tree of source in a grammar, keeping error nodes, for pattern scans of
+    text that need not parse (such as source with bindings inlined)."""
     from ast_grep_py import SgRoot
 
+    return SgRoot(source, language).root()
+
+
+def parse(path: str, source: str) -> SgNode:
     language = grammar(path)
-    root = SgRoot(source, language).root()
+    root = tolerant_tree(source, language)
     broken = (
         root.find(kind="ERROR")
         or next((node for node in root.find_all(regex="^$") if missing(node)), None)
         or (argument_order_error(root) if language == "python" else None)
     )
     if broken is not None:
+        at = line(broken)
         raise SourceError(
-            f"cannot parse {path} as {language}: line {line(broken)} is not valid"
+            f"cannot parse {path} as {language}: line {at} is not valid", at
         )
     return root
 
@@ -137,10 +194,6 @@ def of_kinds(root: SgNode, kinds: frozenset[str]) -> list[SgNode]:
     return root.find_all({"rule": {"any": [{"kind": kind} for kind in sorted(kinds)]}})
 
 
-def unique_texts(root: SgNode, kinds: frozenset[str]) -> list[str]:
-    return list(dict.fromkeys(node.text() for node in of_kinds(root, kinds)))
-
-
 class Offsets:
     def __init__(self, source: str) -> None:
         self.table = (
@@ -160,6 +213,15 @@ class Offsets:
 def spans(source: str, nodes: list[SgNode]) -> list[Span]:
     offsets = Offsets(source)
     return [offsets.span(node) for node in nodes]
+
+
+def comment_nodes(root: SgNode) -> list[SgNode]:
+    """The comment nodes of a tree: every grammar names them comment."""
+    return root.find_all(kind="comment")
+
+
+def comment_spans(root: SgNode, source: str) -> list[Span]:
+    return spans(source, comment_nodes(root))
 
 
 def definition(name: str, offsets: Offsets, first: SgNode, last: SgNode) -> Definition:

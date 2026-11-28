@@ -264,8 +264,17 @@ def _judgment_questions(directory: Path) -> dict[str, OfferedQuestion]:
     offered: dict[str, OfferedQuestion] = {}
     for ident, decision in thresholds["decisions"].items():
         kind = questions["questions"][ident]["type"]
+        # A per-language decision is offered at its highest mode across its languages; the
+        # rails run each language at the lower of its own mode and the config's.
+        settings = [
+            {**decision, **found}
+            for found in decision.get("languages", {"": {}}).values()
+        ]
         offered[f"{directory.name}/{ident}"] = OfferedQuestion(
-            decision["mode"], shadow_capable(kind, decision)
+            "enforced"
+            if any(found["mode"] == "enforced" for found in settings)
+            else "shadow",
+            any(shadow_capable(kind, found) for found in settings),
         )
     return offered
 

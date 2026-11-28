@@ -1,0 +1,12 @@
+package tests
+
+import (
+	"os/exec"
+	"testing"
+)
+
+func TestTotalWhenDockerIsPresent(t *testing.T) {
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("needs docker")
+	}
+}

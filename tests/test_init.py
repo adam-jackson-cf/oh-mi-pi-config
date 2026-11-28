@@ -396,6 +396,14 @@ class NativeConfigTests(InitCase):
             else:
                 assert tables[family][name] == contract["value"], rule_id
 
+    def test_an_unreadable_pyproject_is_reported_not_read_as_empty(self) -> None:
+        self.write("pyproject.toml", "[project\nrequires-python = '>=3.11'\n")
+        planned, report = native_python.planned_configs(self.repo, {})
+        assert planned == {}
+        assert report[0].startswith(
+            "native: cannot read pyproject.toml (pyproject.toml:"
+        )
+
     def test_proposes_ruff_and_mypy_from_the_repo_and_data(self) -> None:
         self.write("src/target/__init__.py", "")
         code, output = self.init()
@@ -684,6 +692,16 @@ class LanguageNativeConfigTests(InitCase):
             '{"compilerOptions": {"strict": true}}',
         )
         assert "lacks TSC.noImplicitOverride" in self.init()[1]
+
+    def test_a_zsh_only_repo_gets_the_shell_configs(self) -> None:
+        self.write("bin/run.zsh", "#!/bin/zsh\nprint ok\n")
+        code, output = self.init()
+        assert code == 0, output
+        for name in (".shellcheckrc", ".editorconfig"):
+            assert (
+                f"native: proposed {name} (apply it to the repository as a fix)"
+                in output
+            )
 
     def test_existing_linters_are_kept_and_never_doubled(self) -> None:
         self.write("package.json", "{}\n")

@@ -14,7 +14,7 @@ pytestmark = pytest.mark.seam
 
 REPO_CONFIG: dict[str, Any] = {
     "tests": {
-        "public_entry_points": {"shop/core.ts": ["checkout"]},
+        "public_entry_points": {"shop": ["shop/core.ts:checkout"]},
         "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "tests"}}}],
         "layout": {"test_file_patterns": ["*.test.ts", "*.spec.tsx"]},
     }
@@ -87,7 +87,7 @@ class VitestInventoryTests(unittest.TestCase):
                 **REPO_CONFIG,
                 "tests": {
                     **REPO_CONFIG.get("tests", {}),
-                    "public_entry_points": {"@shop/core": {".": "./src/index.ts"}},
+                    "public_entry_points": {"@shop/core": ["@shop/core:publicApi"]},
                 },
             }
             found = lint.lint(repo, repo_config, [])
@@ -97,6 +97,35 @@ class VitestInventoryTests(unittest.TestCase):
                 and item.path == "packages/shop/src/index.ts"
                 for item in found
             )
+
+    def test_a_package_json_that_does_not_parse_is_a_finding_not_a_crash(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            repo = Path(folder)
+            run_text(["git", "init", "-q", str(repo)], check=True, timeout=30)
+            (repo / "shop").mkdir()
+            (repo / "shop/core.ts").write_text("export function checkout() {}")
+            (repo / "shop/package.json").write_text('{"name": "shop",')
+            found = lint.lint(repo, REPO_CONFIG, [])
+            assert [(item.rule_id, item.path) for item in found] == [
+                ("TEST.no-test-hooks", "shop/package.json")
+            ]
+            assert "cannot read package.json" in found[0].message
+
+    def test_public_entry_points_in_another_form_are_a_config_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            repo = Path(folder)
+            run_text(["git", "init", "-q", str(repo)], check=True, timeout=30)
+            repo_config = {
+                "tests": {
+                    **REPO_CONFIG["tests"],
+                    "public_entry_points": {"shop": ["checkout"]},
+                }
+            }
+            (found,) = lint.lint(repo, repo_config, [])
+            assert found.rule_id == "CONFIG.complete"
+            assert "'<module>:<symbol>'" in found.message
 
     def test_invalid_owned_syntax_is_a_finding_not_a_crash(self) -> None:
         with tempfile.TemporaryDirectory() as folder:

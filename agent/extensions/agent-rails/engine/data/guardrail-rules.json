@@ -188,9 +188,10 @@
           ".yml"
         ],
         "code_folder": "the nearest folder above the file that holds source of a language engine/data/structure-languages.json defines (for Python, every package folder holding __init__.py); the repository root is never one",
-        "bundle_manifests_and_exemptions": "per language in engine/data/structure-languages.json: a bundle manifest ends the search, and TypeScript JSON a same-folder source imports, Go //go:embed files and testdata/ are exempt",
+        "bundle_manifests_and_exemptions": "per language in engine/data/structure-languages.json: a bundle manifest ends the search, a folder without code that data_folders names (data, data-*, data_*, *-data, *_data) ends it, and TypeScript JSON a same-folder source imports, Go //go:embed files and testdata/ are exempt",
+        "hidden_and_ignored_folders_exempt": "files under a hidden folder or one the language packs ignore (scan_scope.is_vendored_path)",
         "bundle_root_without_source_ends_the_search": true,
-        "test_holders_exempt": "any folder named by the language pack's tests root or fixtures folder, the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
+        "test_holders_exempt": "test source (suite_files.is_test_source): any folder named by the language pack's tests root, fixtures or support folder or test data folders (placement test_data_dirs: __snapshots__, golden, goldens), the config's tests.layout fixtures_dir and support_dir, and every configured test tier location",
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "exceptions": "config exceptions entries {rule, path, reason}",
         "unreadable_source_is_a_finding": true,
@@ -198,8 +199,8 @@
       },
       "summary": "Reject runtime data and template files inside a folder of code.",
       "remediation": {
-        "root_cause": "Definitions, configuration or templates that the product loads at run time were put inside its Python code, so data changes look like code changes and one folder mixes two kinds of content.",
-        "fix": "Move the file to a root data folder outside the code, load it from there by explicit path, and update every reader in the same change."
+        "root_cause": "Definitions, configuration or templates that the product loads at run time were put inside its code, so data changes look like code changes and one folder mixes two kinds of content.",
+        "fix": "Move the file to a data folder (a root data folder outside the code, or a data/ folder of its own that holds no code), load it from there by explicit path, and update every reader in the same change."
       },
       "implementation": [
         {
@@ -251,23 +252,39 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "unit": "the source files of one language directly in one folder; units of different languages are never compared below the repository root, except test files (names starting with test or fixture, *_test.py, conftest.py), outside hidden folders, vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), test folders (names starting with test or fixture, __tests__, spec, specs), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
+        "unit": "the source files of one language directly in one folder; units of different languages are never compared; below the repository root, excluding test source (suite_files.is_test_source: the language pack's test_patterns and test_support_files, files in its tests, fixtures, support and test data folders, and the config's test file patterns, test holders and tests data), files under hidden folders or folders the language packs ignore (ignored_folders, and the language's own output_folders, through conventions.ignored_path), migrations folders and any folder at or below one holding SKILL.md, after the config's check and python exclusions",
         "definitions": "per language in engine/data/structure-languages.json, spanning at least 5 lines, with comments (and Python docstrings) removed",
         "tokens": "identifiers and single non-space characters",
         "features": "the set of token 3-grams; definitions with fewer than 15 are dropped",
         "definition_similarity": "Jaccard similarity of the two 3-gram sets",
         "pair_score": "the highest definition similarity between two units, over candidates sharing a 3-gram held by at most 40 definitions in the head tree",
         "scope": "units holding a source file added, modified or renamed in base..head, compared with every other unit at head",
-        "pair_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.336 (measured); a language with no measured cutoff does not run",
+        "pair_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.336, TypeScript 0.476 and Go 0.4 (each language's evidence below; Go's is owner-accepted below the 0.75 floor); a language with no cutoff does not run",
         "evidence": {
-          "language": "python",
-          "accepted_by": "owner",
-          "accepted_on": "2026-11-23",
-          "held_out_precision": 0.74,
-          "held_out_flags": "80/108",
-          "held_out_recall": 0.81,
-          "labelled_pairs": "235 council-labelled unit pairs from the owner's projects, leave-one-repository-out cutoff",
-          "note": "the owner accepted 0.74 held-out precision as a pass"
+          "python": {
+            "accepted_by": "owner",
+            "accepted_on": "2026-11-23",
+            "held_out_precision": 0.74,
+            "held_out_flags": "80/108",
+            "held_out_recall": 0.81,
+            "labelled_pairs": "235 council-labelled unit pairs from the owner's projects, leave-one-repository-out cutoff",
+            "note": "the owner accepted 0.74 held-out precision as a pass"
+          },
+          "typescript": {
+            "measured_on": "2026-11-27",
+            "held_out_precision": 0.86,
+            "held_out_flags": "6/7",
+            "held_out_recall": "6/13",
+            "labelled_pairs": "64 council-labelled unit pairs from 4 of the owner's TypeScript repositories (overlap label guide v9 for TypeScript, splits arbitrated by Claude), leave-one-repository-out cutoff"
+          },
+          "go": {
+            "accepted_by": "owner",
+            "accepted_on": "2026-11-27",
+            "held_out_precision": 0.73,
+            "held_out_flags": "47/64",
+            "labelled_pairs": "247 council-labelled unit pairs from 5 Go repositories (overlap label guide v9 for Go, splits arbitrated by Claude), leave-one-repository-out cutoff",
+            "note": "the owner accepted 0.73 held-out precision at cutoff 0.4, below the 0.75 floor, so the rule runs for Go"
+          }
         },
         "exceptions": "a config exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
         "diagnostic_names_both_units_and_closest_definition_pair": true
@@ -291,26 +308,33 @@
       "evidence_kind": "local_ci",
       "contract": {
         "base_and_head_required": true,
-        "candidates": "prefix clusters: sibling source files of one language in one folder (Python .py, or TypeScript and JavaScript; not __init__.py, not test files by the config's test file patterns or by name (names starting with test or fixture, *_test.py, conftest.py), not under a test folder (names starting with test or fixture, __tests__, spec, specs); not under hidden or vendored folders (__pycache__, build, dist, example, examples, node_modules, site-packages, third_party, vendor), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and - (TypeScript also at . and lower-to-upper case boundaries), of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
+        "candidates": "prefix clusters: sibling source files of one language in one folder (Python .py, or TypeScript and JavaScript; not __init__.py, not test source (suite_files.is_test_source: the language pack's test_patterns and test_support_files, files in its tests, fixtures, support and test data folders, and the config's test file patterns, test holders and tests data), not under hidden folders or folders the language packs ignore (ignored_folders and the language's output_folders, through conventions.ignored_path), nor at or below a SKILL.md folder) whose stems share a leading token, split at _ and - (TypeScript also at . and lower-to-upper case boundaries), of 3+ characters that is not a modifier word and not a token of the folder's own name; at least 2 members, at least one added or moved in base..head",
         "pair_features": {
           "import_edge": "either member imports the other",
           "shared_reader": "another owned source file of the same language, tests included, imports both",
           "co_change": "commits touching both divided by commits touching either, over the last 200 first-parent commits up to head (merges diffed against their first parent)",
           "prefix_is_domain_word": "the singular prefix appears as a word in a Python docstring or class name, or a TypeScript comment or class, interface or type alias name, of either member"
         },
-        "weights": "per language in engine/data/structure-languages.json: Python measured (import_edge 0.35, shared_reader 0.25, co_change 0.25, prefix_is_domain_word 0.15)",
+        "weights": "per language in engine/data/structure-languages.json: Python measured (import_edge 0.35, shared_reader 0.25, co_change 0.25, prefix_is_domain_word 0.15); TypeScript uses the Python weights",
         "pair_score": "sum of weight * feature, co_change capped at 1",
         "cluster_score": "the highest pair score among the cluster's members",
-        "cluster_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.15 (measured); TypeScript runs once measured; not applicable to Go, where a folder is a package",
+        "cluster_score_cutoffs": "per language in engine/data/structure-languages.json: Python 0.15 and TypeScript 0.25 (measured); not applicable to Go, where a folder is a package",
         "evidence": {
-          "language": "python",
-          "accepted_by": "owner",
-          "accepted_on": "2026-11-23",
-          "replaces": "the structure-naming/prefix_should_be_folder Jev question; a judgment code can meet is deterministic only",
-          "labelled_clusters": "63 clusters (135 member pairs) from every snapshot of 8 of the owner's repositories, council labels with 26 splits arbitrated; 47 clusters hold a violation",
-          "held_out": "leave-one-repository-out precision 44/55 = 0.80, recall 44/47, bootstrap 95% 0.69-0.89",
-          "baselines": "flag every cluster 47/63 = 0.75; the Jev question alone 46/60 = 0.77, so Jev added nothing",
-          "synthetic": "council agreed with the intended label on 39/40 synthetic clusters"
+          "python": {
+            "accepted_by": "owner",
+            "accepted_on": "2026-11-23",
+            "replaces": "the structure-naming/prefix_should_be_folder Jev question; a judgment code can meet is deterministic only",
+            "labelled_clusters": "63 clusters (135 member pairs) from every snapshot of 8 of the owner's repositories, council labels with 26 splits arbitrated; 47 clusters hold a violation",
+            "held_out": "leave-one-repository-out precision 44/55 = 0.80, recall 44/47, bootstrap 95% 0.69-0.89",
+            "baselines": "flag every cluster 47/63 = 0.75; the Jev question alone 46/60 = 0.77, so Jev added nothing",
+            "synthetic": "council agreed with the intended label on 39/40 synthetic clusters"
+          },
+          "typescript": {
+            "measured_on": "2026-11-27",
+            "labelled_clusters": "28 clusters (43 member pairs) from 5 of the owner's TypeScript repositories, council labels (structure label guide v11 for TypeScript, splits arbitrated by Claude); 19 clusters hold a violation",
+            "weights": "the Python weights",
+            "held_out": "leave-one-repository-out precision 18/23 = 0.78, recall 18/19"
+          }
         },
         "exceptions": "a config exceptions entry {rule, path, reason} on the folder or any member suppresses the cluster",
         "diagnostic_names_prefix_members_and_closest_pair": true
@@ -453,7 +477,7 @@
       "contract": {
         "scope": "new_test_functions_relative_to_base_ref",
         "descriptive_behavior_name_required": true,
-        "input": "Python test function name without test_ and underscores; JS/TS test title",
+        "input": "Python test function name without its test prefix; Go test function name without its Test prefix; JS/TS test title; each split into words at underscores and case changes",
         "one_name_per_function_covers_parameter_rows": true,
         "presence_only_requires_two_words_other_than_test_case_todo_tbd_placeholder_example": true,
         "uncollectable_changed_test_file_is_failure": true,
@@ -1664,7 +1688,7 @@
       "kind": "bespoke",
       "applicability": "always",
       "contract": {
-        "scope": "added import/call lines outside configured tier, support and fixtures locations, using TEST.placement path matching",
+        "scope": "added import/call lines outside test source (suite_files.is_test_source: conftest.py, pack and configured test file patterns, tests/fixtures/support folders, tier, support and fixtures locations) and check.exclude",
         "libraries": [
           "unittest.mock",
           "mock",
@@ -1677,13 +1701,20 @@
           "proxyquire"
         ],
         "calls": [
-          "jest.mock",
           "jest.doMock",
+          "jest.fn",
+          "jest.mock",
+          "jest.spyOn",
           "jest.unstable_mockModule",
+          "mock.module",
+          "vi.doMock",
+          "vi.fn",
           "vi.mock",
-          "vi.doMock"
+          "vi.mockObject",
+          "vi.mocked",
+          "vi.spyOn"
         ],
-        "limits": "Python static imports and JS/TS static imports/requires plus jest/vi calls; dynamic computed names and aliases are not resolved"
+        "limits": "Python static imports and JS/TS static imports/requires plus the dotted mock calls of the runner vocabularies (engine/data/javascript-patterns.json mock_apis); dynamic computed names and aliases are not resolved"
       },
       "summary": "Keep mock libraries and mock calls out of product code.",
       "remediation": {
@@ -2017,7 +2048,9 @@
         "synchronous_process_call_requires_positive_timeout": true,
         "process_wait_or_communicate_requires_positive_timeout": true,
         "async_process_wait_requires_bounded_wait": true,
-        "diagnostic_names_file_line_and_timeout_fix": true
+        "diagnostic_names_file_line_and_timeout_fix": true,
+        "languages": ["python"],
+        "limits": "Python test source only (conftest.py, test files and files under test locations); no adapter reads TypeScript or Go subprocess calls"
       },
       "summary": "Bound subprocess calls in tests and keep failure output diagnosable.",
       "remediation": {
@@ -2051,6 +2084,18 @@
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.go"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.bun_test"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.vitest"
         }
       ]
     },
@@ -2084,11 +2129,18 @@
             "import.meta.vitest",
             "testing.Testing",
             "flag.Lookup"
+          ],
+          "compared_values": [
+            "process.env.NODE_ENV === 'test'",
+            "os.environ.get('APP_ENV') == 'test'",
+            "os.Getenv(\"APP_ENV\") == \"test\""
           ]
         },
         "marker_shaped_data_outside_reads_is_clean": true,
         "mechanism": "adapter_source_patterns",
-        "diagnostic_names_symbol_and_production_input_fix": true
+        "diagnostic_names_symbol_and_production_input_fix": true,
+        "vocabulary": "engine/data/test-hook-patterns.json: marker names, marker values, runner modules and hook phrases, shared by every adapter",
+        "hook_names": "declared names (functions, classes, methods, parameters, variables, constants, fields) whose last two words, split at underscores, digits and case changes, are a hook phrase such as for tests, test only or test mode"
       },
       "summary": "Reject test-only flags, hooks and production symbols that only tests use.",
       "remediation": {
@@ -2099,6 +2151,18 @@
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.go"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.bun_test"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.vitest"
         }
       ]
     },
@@ -2126,6 +2190,18 @@
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.go"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.bun_test"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.vitest"
         },
         {
           "subcommand": "report-check",
@@ -2163,6 +2239,18 @@
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.go"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.bun_test"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.vitest"
         }
       ]
     },
@@ -2309,6 +2397,18 @@
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.go"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.bun_test"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.vitest"
         }
       ]
     },
@@ -2335,6 +2435,18 @@
         {
           "subcommand": "adapter",
           "module": "guardrails.commands.adapters.pytest"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.go"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.bun_test"
+        },
+        {
+          "subcommand": "adapter",
+          "module": "guardrails.commands.adapters.vitest"
         },
         {
           "subcommand": "mutation-check",

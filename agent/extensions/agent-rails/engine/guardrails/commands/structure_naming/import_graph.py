@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.structure_naming import typescript
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import structure_settings
+from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import (
     InventoryError,
@@ -16,8 +16,8 @@ from guardrails.foundation.inventory import (
     matches_any,
     repo_paths,
 )
-from guardrails.foundation.source import go, modules, python
-from guardrails.foundation.source.tree import SourceError, language_of, parse
+from guardrails.foundation.source import go, modules, python, typescript
+from guardrails.foundation.source.tree import SourceError, language_of, parse, read
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -62,8 +62,14 @@ def import_settings(config: dict[str, Any]) -> ImportSettings | None:
 
 
 def graph_language(path: str) -> str | None:
+    """A file's language in the import graph: None for a file in a folder no scan reads
+    and for a Go file go build leaves out of the package (a test file, an ignored path)."""
     language = language_of(path)
-    return None if language == "go" and go.is_test_file(path) else language
+    if conventions.ignored_path(path) or (
+        language == "go" and (go.is_test_file(path) or not go.built_path(path))
+    ):
+        return None
+    return language
 
 
 @dataclass(frozen=True)
@@ -90,10 +96,6 @@ class RepoFiles:
 
 def first(components: tuple[str, ...]) -> str | None:
     return components[0] if components else None
-
-
-def python_module(package: str, relative: PurePosixPath | None) -> str:
-    return ".".join([package, *relative.with_suffix("").parts]) if relative else package
 
 
 def python_components(module: str, package: str) -> tuple[str, ...]:
@@ -129,7 +131,7 @@ class Reader:
         return RepoFiles(self.repo)
 
     def text(self, path: str) -> str:
-        return (self.repo / path).read_bytes().decode()
+        return read(self.repo, path)
 
     def source(self, path: str) -> SgNode:
         return parse(path, self.text(path))
@@ -146,8 +148,14 @@ class Reader:
                 raise SourceError(f"{path}: {error}") from error
         return self.go_modules[path]
 
+    def python_module(self, path: str, package: str) -> modules.PythonModule:
+        relative = self.relative(path)
+        if relative is None:
+            return modules.PythonModule(package, is_package=False)
+        return modules.python_module(relative.as_posix(), package)
+
     def python_edges(self, path: str, package: str) -> list[Edge]:
-        module = python_module(package, self.relative(path))
+        module = self.python_module(path, package)
         edges = modules.python_edges(python.imports(self.source(path)), module, package)
         return [python_edge(edge, package) for edge in edges]
 
@@ -170,6 +178,8 @@ class Reader:
 
     def go_edges(self, path: str) -> list[Edge]:
         tree = self.source(path)
+        if go.build_ignored(tree):
+            return []
         manifest = modules.nearest(path, GO_MOD, self.files)
         if manifest is None:
             raise SourceError(f"no {GO_MOD} at or above {path}")
@@ -215,7 +225,7 @@ class Reader:
         if language == "python":
             if package is None:
                 return None
-            module = python_module(package, relative).removesuffix(".__init__")
+            module = modules.python_module(relative.as_posix(), package).name
             return Unit(("python", module), python_components(module, package), path)
         if language == "typescript":
             return Unit(("typescript", path), script_components(relative), path)

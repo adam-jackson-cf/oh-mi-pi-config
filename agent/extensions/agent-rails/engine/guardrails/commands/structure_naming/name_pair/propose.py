@@ -3,12 +3,12 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter, defaultdict
+from collections.abc import Callable, Collection
 from functools import cache
-from pathlib import Path, PurePosixPath
+from pathlib import PurePosixPath
 from typing import Any
 
 from guardrails.commands.structure_naming.name_pair.extract import (
-    SOURCE_SUFFIXES,
     Found,
     Gram,
     extract_tree,
@@ -16,8 +16,10 @@ from guardrails.commands.structure_naming.name_pair.extract import (
     stem,
     words,
 )
+from guardrails.foundation import conventions
+from guardrails.foundation.source import modules
+from guardrails.foundation.source.tree import language_of, structure_languages
 
-DATA_FOLDER = Path(__file__).resolve().parents[4] / "data"
 TRIVIAL = re.compile(
     r"^(utf-?8|utf-?16|ascii|latin-?1|true|false|none|null|yes|no|on|off|json|yaml|text"
     r"|html|xml|csv|id|name|type|value|key|data|default|auto|main|master|dev|prod|test"
@@ -69,9 +71,22 @@ MAX_DOCUMENT_FREQUENCY = 40
 Pair = dict[str, Any]
 
 
+# The files the alias resolver reads besides source: tsconfig.json, for a TypeScript
+# rename's specifier (modules.ScriptResolver).
+RESOLVER_FILES = frozenset({modules.TSCONFIG})
+
+
+@cache
+def builtin_types(language: str) -> frozenset[str]:
+    """A language's built-in type names (structure-languages.json proposers.signals
+    STRUCT.name-pairs builtin_types): an alias of one names a role, not a repository concept."""
+    signals = structure_languages()["proposers"]["signals"]["STRUCT.name-pairs"]
+    return frozenset(signals[language]["builtin_types"])
+
+
 @cache
 def synonyms() -> dict[str, frozenset[str]]:
-    data = json.loads((DATA_FOLDER / "name-synonyms.json").read_bytes())
+    data = json.loads((conventions.DATA_FOLDER / "name-synonyms.json").read_bytes())
     found: dict[str, set[str]] = defaultdict(set)
     for group in data["groups"]:
         for first in group:
@@ -104,10 +119,6 @@ def name_similarity(first: str, second: str) -> float:
     )
 
 
-def suffix(path: str | None) -> str:
-    return PurePosixPath(path or "").suffix[:3]
-
-
 def definition_entry(item: dict[str, Any]) -> Pair:
     return {
         "name": item["name"],
@@ -119,18 +130,27 @@ def definition_entry(item: dict[str, Any]) -> Pair:
 
 
 class NameIndex:
-    def __init__(self, tree: dict[str, str]) -> None:
-        found: Found = extract_tree(tree)
+    """The definitions and aliases of a tree's source in the proposed languages, and
+    how often each word occurs in all its source."""
+
+    def __init__(
+        self,
+        tree: dict[str, str],
+        is_test: Callable[[str], bool],
+        languages: Collection[str],
+    ) -> None:
+        found: Found = extract_tree(tree, is_test, languages)
         self.tree = tree
         self.definitions = found.definitions
         self.aliases = found.aliases
         self.words: Counter[str] = Counter()
         for path, text in tree.items():
-            if path.endswith(SOURCE_SUFFIXES):
+            if language_of(path) is not None:
                 self.words.update(re.findall(r"[A-Za-z_$][\w$]*", text))
         self.by_base: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for item in self.definitions:
             self.by_base[item["base"]].append(item)
+        self.scripts = modules.ScriptResolver(set(tree), tree.__getitem__)
 
     def resolve(
         self, name: str, near: str | None = None, module: str | None = None
@@ -151,26 +171,48 @@ class NameIndex:
                 and PurePosixPath(item["path"]).parent == PurePosixPath(near).parent
             ):
                 score -= 1
-            if near and suffix(item["path"]) != suffix(near):
+            if near and item["lang"] != language_of(near):
                 score += 5
             return score, item["path"], item["line"]
 
         return sorted(found, key=rank)[0]
 
+    def resolve_imported(self, binding: dict[str, Any]) -> dict[str, Any] | None:
+        """A TypeScript rename's target through its specifier: the definition in the file
+        the specifier resolves to, else in that file's folder (an index that re-exports it);
+        None when the specifier names no tracked file or neither holds the name."""
+        found = self.scripts.resolve(binding["path"], binding["specifier"])
+        if found is None:
+            return None
+        base = binding["target"].split(".")[-1]
+        named = [
+            item
+            for item in self.by_base.get(base, [])
+            if item["kind"] != "module" and item["lang"] == "typescript"
+        ]
+        folder = PurePosixPath(found).parent
+        for held in (
+            [item for item in named if item["path"] == found],
+            [item for item in named if PurePosixPath(item["path"]).parent == folder],
+        ):
+            if held:
+                return sorted(held, key=lambda item: (item["path"], item["line"]))[0]
+        return None
+
     def resolve_alias(
         self, binding: dict[str, Any]
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+        if "specifier" in binding:
+            return self.resolve_imported(binding), None
         parts = binding["target"].split(".")
         if len(parts) == 1:
             return self.resolve(
                 binding["target"], binding["path"], binding.get("module")
             ), None
-        language = suffix(binding["path"])
+        language = language_of(binding["path"])
         wanted = ".".join(parts[-2:])
         exact = [
-            d
-            for d in self.definitions
-            if d["name"] == wanted and suffix(d["path"]) == language
+            d for d in self.definitions if d["name"] == wanted and d["lang"] == language
         ]
         if exact:
             return exact[0], None
@@ -180,14 +222,14 @@ class NameIndex:
                 for d in self.by_base.get(root, [])
                 if d["top"]
                 and d["kind"] in {"class", "type", "constant"}
-                and suffix(d["path"]) == language
+                and d["lang"] == language
             ]
             if owners:
                 return None, owners[0]
         tops = [
             d
             for d in self.by_base.get(parts[-1], [])
-            if d["top"] and d["kind"] != "module" and suffix(d["path"]) == language
+            if d["top"] and d["kind"] != "module" and d["lang"] == language
         ]
         if not tops:
             return None, None
@@ -279,7 +321,11 @@ class Proposer:
     def aliases(self) -> None:
         for binding in self.index.aliases:
             root = re.split(r"[.\[(]", binding["target"])[0]
-            if not BINDING.match(binding["target"]) or root in NOT_ALIAS_ROOTS:
+            if (
+                not BINDING.match(binding["target"])
+                or root in NOT_ALIAS_ROOTS
+                or binding["target"] in builtin_types(str(language_of(binding["path"])))
+            ):
                 continue
             first = {
                 "name": binding["alias"],

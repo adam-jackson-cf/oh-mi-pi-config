@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from guardrails.checker.growth import behaviour_name
 from guardrails.commands.adapters.pytest.parametrize import (
     Dimension,
     Scope,
@@ -21,14 +22,20 @@ from guardrails.commands.adapters.pytest.syntax import (
     import_aliases,
     walk,
 )
+from guardrails.foundation import conventions
 from guardrails.foundation.source.python import defined, text_literal
 from guardrails.foundation.source.tree import named, parse
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
 
-SUFFIXES = (".py",)
-UNITTEST_BASES = frozenset({"unittest.TestCase", "unittest.IsolatedAsyncioTestCase"})
+# pytest collects Python files that run; a stub holds no tests.
+SUFFIXES = conventions.runtime_extensions("python")
+FRAMEWORKS = conventions.test_frameworks("python")
+TEST_PREFIX: str = FRAMEWORKS["function_prefix"]
+UNITTEST_BASES = frozenset(
+    f"{FRAMEWORKS['case_module']}.{name}" for name in FRAMEWORKS["case_classes"]
+)
 OPAQUE_KINDS = frozenset({
     "function_definition",
     "class_definition",
@@ -118,7 +125,7 @@ def is_test_class(
     node: SgNode, aliases: Mapping[str, str], test_classes: set[str]
 ) -> bool:
     name = node.field("name")
-    if name is not None and name.text().startswith("Test"):
+    if name is not None and name.text().startswith(FRAMEWORKS["class_prefix"]):
         return True
     superclasses = node.field("superclasses")
     for base in named(superclasses) if superclasses is not None else []:
@@ -317,12 +324,10 @@ class Collector:
                     dimensions(decorators(statement), self.scope) + inherited,
                 )
             elif node.kind() == "function_definition" and name.text().startswith(
-                "test"
+                TEST_PREFIX
             ):
                 selector = f"{self.path}::{prefix}{name.text()}"
-                self.behaviours[selector] = (
-                    name.text().removeprefix("test_").replace("_", " ")
-                )
+                self.behaviours[selector] = behaviour_name(name.text(), TEST_PREFIX)
                 found = dimensions(decorators(statement), self.scope) + inherited
                 self.cases.extend(
                     expanded_cases(

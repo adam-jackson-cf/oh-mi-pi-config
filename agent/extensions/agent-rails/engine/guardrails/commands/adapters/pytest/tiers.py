@@ -9,10 +9,10 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from guardrails.commands.adapters.contract import collect_timeout
 from guardrails.commands.adapters.pytest.dialect import NAME
 from guardrails.commands.adapters.pytest.invocation import PLUGIN
 from guardrails.context.config.adapter_declarations import adapter_tiers
-from guardrails.context.config.reader import checker_settings
 from guardrails.foundation.child_env import repo_environment
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import as_list
@@ -72,7 +72,17 @@ def collect_tier(
             )
         ]
     locations = as_list(spec.get("location"))
-    timeout = checker_settings(config, SETTINGS).get("collect_timeout_s")
+    try:
+        timeout = collect_timeout(config, SETTINGS)
+    except ValueError as error:
+        return [
+            Finding(
+                PROPAGATION,
+                config_label("checkers"),
+                str(error),
+                f"set checkers.{SETTINGS}.collect_timeout_s to a positive number of seconds",
+            )
+        ]
     with tempfile.TemporaryDirectory(prefix="guardrails-collect-") as scratch:
         listing = Path(scratch) / "ids.json"
         command = collect_command(locations, spec["selector"], listing)

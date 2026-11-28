@@ -4,6 +4,8 @@ import json
 import re
 from pathlib import Path
 
+from guardrails.foundation.source import go
+
 GUARDS_VARIABLE = "GUARDRAILS_GO_GUARDS"
 PROTECTED_VARIABLE = "GUARDRAILS_GO_PROTECTED"
 ALLOWED_VARIABLE = "GUARDRAILS_GO_ALLOWED"
@@ -192,8 +194,8 @@ def write_overlay(goroot: Path, target: Path) -> Path:
     covered: set[str] = set()
     folder = target / "syscall"
     folder.mkdir(parents=True, exist_ok=True)
-    for path in sorted(source.glob("*.go")):
-        if path.name.endswith("_test.go"):
+    for path in sorted(source.iterdir()):
+        if not go.built_path(path.name) or go.is_test_file(path.name):
             continue
         text, patched = hooked(path.read_text(encoding="utf-8"))
         if not patched:

@@ -24,7 +24,7 @@ Explicit `guardrails naming`, `structure` or `path-check` without paths, or with
 - No grab-bag folders (house-style `banned_words`); shared code goes in the lowest tier, named for content. Enforced by NAME.conventions (guardrails naming).
 - Files jointly implementing one concept go in a folder named for it (`audit/`). Enforced by STRUCT.prefix-folder (guardrails prefix-folder).
 - Code repeated across folders moves into one shared mechanism. Enforced by STRUCT.overlapping-responsibilities (guardrails responsibility-overlap).
-- Run-time data (definitions, config, templates) stays out of Python code folders. Enforced by STRUCT.runtime-data-placement (guardrails structure, path-check).
+- Run-time data (definitions, config, templates) sits in a data folder, not code. Enforced by STRUCT.runtime-data-placement (guardrails structure, path-check).
 - Tests follow the language pack's placement; fixtures sit beside tests loading them. Enforced by STRUCT.folder-placement (guardrails structure, path-check).
 - Name each test file for the behaviour it checks. Enforced by NAME.test-files (guardrails naming).
 - A code move updates test imports in the same step; test files stay where they are. Guidance only.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeAlias
@@ -18,7 +17,8 @@ from guardrails.commands.adapters.pytest.syntax import (
     prefix,
     string_parts,
 )
-from guardrails.foundation.source.tree import named
+from guardrails.foundation.source.python import literal_value
+from guardrails.foundation.source.tree import SourceError, named
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -64,8 +64,8 @@ Dimension: TypeAlias = list[Row]
 
 def evaluate(text: str) -> object:
     try:
-        return ast.literal_eval(f"(\n{text}\n)")
-    except SyntaxError as error:
+        return literal_value(text)
+    except SourceError as error:
         raise ValueError(f"not a literal: {text}") from error
 
 

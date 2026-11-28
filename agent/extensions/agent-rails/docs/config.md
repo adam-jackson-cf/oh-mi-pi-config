@@ -236,8 +236,10 @@ obligations name it.
 global mode in `judgments/<judgment>/thresholds.json`.
 
 - The effective mode is the lower of the global mode and the override, with
-  off < shadow < enforced. An off question makes no judge call and writes no row.
-- `enforced` is refused when the global mode is `shadow`: only measurement promotes.
+  off < shadow < enforced. An off question makes no judge call and writes no row. A per-language
+  question applies the override to each language's own mode.
+- `enforced` is refused when the global mode is `shadow` (in every language): only measurement
+  promotes.
 - `shadow` is refused for a question that cannot run in shadow.
 - `in-scope/ask_first` and `dependency-severity/impact` cannot be configured.
 
@@ -250,6 +252,14 @@ global mode in `judgments/<judgment>/thresholds.json`.
 - `tiers.<tier>` holds only the `command` that runs every framework in the tier.
 - `adapters` has one entry per test framework (`pytest`, `vitest`, `bun_test`, `go`). Each
   gives a native `selector` and `location` for every tier it takes part in.
+- `public_entry_points` maps each owned package to a list of its public entry points as
+  `"<package>": ["<module>:<symbol>", ...]`, for example `{"ledger": ["ledger.cli:main"]}`. A
+  package may declare several, such as each adapter module's dynamically dispatched `run`. The
+  package is a Python package name, a folder or a package.json `name`; the adapters treat code
+  inside it as owned. The module is named as its language imports it: a dotted Python module, a
+  TypeScript file path or package name, or a Go import path. Each symbol is a top-level name
+  that `TEST.no-test-hooks` never reports as used only by tests. Every other form, a bare
+  `"<module>:<symbol>"` string included, is refused.
 - `fast_tier_budget.machines[]` entries are keyed by the `id` the budget probe reports.
 - `tiers.t3`, `verification_surface`, `identity_artefacts` and
   `run_events.nightly_scheduler` may be `{"none": true}`. Each such exemption needs an

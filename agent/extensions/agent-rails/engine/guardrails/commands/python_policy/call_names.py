@@ -15,11 +15,6 @@ PROCESS_CALLS = frozenset({
     "os.system",
     "os.popen",
 })
-DYNAMIC_IMPORT_CALLS = frozenset({
-    "importlib.import_module",
-    "__import__",
-    "builtins.__import__",
-})
 SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)
 
 
@@ -35,9 +30,10 @@ def import_names(tree: ast.AST) -> dict[str, str]:
             for alias in node.names:
                 root = alias.name.split(".")[0]
                 names[alias.asname or root] = alias.name if alias.asname else root
-        elif isinstance(node, ast.ImportFrom) and node.module:
+        elif isinstance(node, ast.ImportFrom):
+            source = "." * node.level + (f"{node.module}." if node.module else "")
             for alias in node.names:
-                names[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+                names[alias.asname or alias.name] = source + alias.name
     return names
 
 

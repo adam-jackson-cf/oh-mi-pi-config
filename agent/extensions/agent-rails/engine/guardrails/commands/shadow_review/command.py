@@ -35,7 +35,7 @@ JUDGMENT_MODES = ("enforced", "shadow")
 VERDICTS = ("true_flag", "false_flag", "missed", "true_pass")
 OUTCOMES = ("flag", "pass", "escalate")
 QUESTION_REPORT = """
-SELECT judgment, question, question_version, mode, MAX(threshold) AS threshold,
+SELECT judgment, question, question_version, language, mode, MAX(threshold) AS threshold,
   COUNT(*) AS decisions,
   SUM(status != 'ok') AS errors,
   SUM(outcome = 'flag') AS flags,
@@ -49,8 +49,8 @@ SELECT judgment, question, question_version, mode, MAX(threshold) AS threshold,
     / NULLIF(SUM(outcome = 'flag' AND review_label IN ('0', '1')), 0) AS precision
 FROM decisions
 WHERE source = 'jev' AND (? IS NULL OR judgment = ?)
-GROUP BY judgment, question, question_version, mode
-ORDER BY judgment, question, question_version, mode
+GROUP BY judgment, question, question_version, language, mode
+ORDER BY judgment, question, question_version, language, mode
 """
 
 
@@ -113,7 +113,7 @@ def rows(found: list[Any]) -> list[dict[str, Any]]:
 def report(stores: Stores, judgment: str | None) -> dict[str, Any]:
     progress = stores.query(
         "SELECT * FROM shadow_progress WHERE (? IS NULL OR judgment = ?) "
-        "ORDER BY judgment, question, question_version",
+        "ORDER BY judgment, question, question_version, language",
         (judgment, judgment),
     )
     shadow = [

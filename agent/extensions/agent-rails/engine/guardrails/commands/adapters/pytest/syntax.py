@@ -6,7 +6,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, TypeAlias
 
 from guardrails.foundation.source.python import from_import, imported_name, text_literal
-from guardrails.foundation.source.tree import SourceError, named, of_kinds, parse
+from guardrails.foundation.source.tree import named, of_kinds
 
 if TYPE_CHECKING:
     from ast_grep_py import SgNode
@@ -322,20 +322,10 @@ class Forms:
         return ("string", "".join(sorted(flags - {"r", "u"})), *pieces)
 
 
-def import_map(path: str, source: str) -> dict[str, str]:
-    try:
-        root = parse(path, source)
-    except SourceError:
-        return {}
+def import_map(root: SgNode) -> dict[str, str]:
     return {
         local: target
         for statement in of_kinds(root, IMPORT_KINDS)
         for local, target, _ in import_aliases(statement)
         if not target.startswith(".")
     }
-
-
-def pattern_root(source: str) -> SgNode:
-    from ast_grep_py import SgRoot
-
-    return SgRoot(source, "python").root()

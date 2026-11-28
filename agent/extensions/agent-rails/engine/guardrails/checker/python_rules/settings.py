@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from guardrails.context.config.reader import checker_settings
+from guardrails.foundation import conventions
 from guardrails.foundation.findings import Finding, config_label
 from guardrails.foundation.inventory import (
     GLOB_CHARACTERS,
@@ -17,21 +18,10 @@ from guardrails.foundation.inventory import (
     normalized_path,
     repo_paths,
 )
+from guardrails.foundation.source.python import cpython_module
+from guardrails.foundation.source.tree import SourceError, language_of, read
 
 CHECKER = "python"
-BUNDLED_EXCLUSIONS = (
-    ".build",
-    ".git",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-    ".tox",
-    ".venv",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
-)
 
 
 @dataclass(frozen=True)
@@ -95,10 +85,16 @@ def in_roots(relpath: str, roots: list[str]) -> bool:
 
 
 def is_excluded(relpath: str, options: PythonSettings) -> bool:
-    parts = segments(relpath)
-    if "__pycache__" in parts or (parts and parts[0] in BUNDLED_EXCLUSIONS):
-        return True
-    return matches_any(relpath, options.paths("excluded_paths"))
+    """A path in a folder no scan reads (installed, generated or tool-state code) or
+    under the configured excluded_paths."""
+    return conventions.ignored_path(relpath) or matches_any(
+        relpath, options.paths("excluded_paths")
+    )
+
+
+def python_source(path: str) -> bool:
+    """A Python source file, stubs included: the Python checks read both."""
+    return language_of(path) == CHECKER
 
 
 def parse_paths(command: str, argv: list[str]) -> list[str]:
@@ -117,7 +113,7 @@ def python_files(repo: Path, options: PythonSettings, selected: list[str]) -> li
     return [
         path
         for path in repo_paths(repo)
-        if path.endswith(".py")
+        if python_source(path)
         and (repo / path).is_file()
         and not is_excluded(path, options)
         and (not selected or matches_any(path, scope))
@@ -134,14 +130,10 @@ class Source:
 
 def read_source(repo: Path, relpath: str) -> Source:
     try:
-        text = (repo / relpath).read_text(encoding="utf-8")
-        return Source(relpath, text, ast.parse(text, filename=relpath))
-    except UnicodeDecodeError as error:
-        return Source(relpath, error=f"could not decode source: {error.reason}")
-    except SyntaxError as error:
-        return Source(
-            relpath, error=f"line {error.lineno or 1}: could not parse: {error.msg}"
-        )
+        text = read(repo, relpath)
+        return Source(relpath, text, cpython_module(relpath, text))
+    except SourceError as error:
+        return Source(relpath, error=str(error))
 
 
 def finding(

@@ -22,6 +22,7 @@ from test_agentrails_fixture import config, write_config
 from guardrails.commands.structure_naming import prefix_folder
 from guardrails.context import changes
 from guardrails.foundation.findings import catalogue_rules, remediations
+from guardrails.foundation.source import tree
 from guardrails.foundation.source.tree import parse
 
 FIXTURE = json.loads(
@@ -175,16 +176,16 @@ class PrefixFolderScoreTests(unittest.TestCase):
         contracts = prefix_folder.contracts()
         assert contracts["python"]["cluster_score_cutoff"] == 0.15
         assert set(contracts["python"]["weights"]) == set(prefix_folder.FEATURES)
-        assert contracts["typescript"]["weights"] is None
-        assert contracts["typescript"]["cluster_score_cutoff"] is None
+        assert contracts["typescript"]["weights"] == contracts["python"]["weights"]
+        assert contracts["typescript"]["cluster_score_cutoff"] == 0.25
         assert "go" not in contracts
-        assert prefix_folder.measured() == ["python"]
+        assert prefix_folder.measured() == ["python", "typescript"]
 
     def test_the_owner_evidence_lives_in_the_catalogue(self) -> None:
         rule = next(
             item for item in catalogue_rules() if item["id"] == prefix_folder.RULE
         )
-        assert rule["contract"]["evidence"]["accepted_on"] == "2026-11-23"
+        assert rule["contract"]["evidence"]["python"]["accepted_on"] == "2026-11-23"
         assert remediations()[prefix_folder.RULE].render().startswith("root cause: ")
 
 
@@ -209,12 +210,11 @@ class ImportGraphTests(unittest.TestCase):
             "tools/helpers.py": "",
             "b/main.py": "import helpers\n",
         }
-        found: dict[str, list[prefix_folder.Import] | None] = {
-            path: prefix_folder.imports(parse(path, text))
-            for path, text in sources.items()
+        trees: dict[str, tree.SgNode | None] = {
+            path: parse(path, text) for path, text in sources.items()
         }
-        found["broken.py"] = None
-        graph = prefix_folder.ImportGraph(found)
+        trees["broken.py"] = None
+        graph = prefix_folder.python_links(trees)
         assert {
             path: sorted(found) for path, found in graph.edges.items() if found
         } == {
@@ -222,7 +222,6 @@ class ImportGraphTests(unittest.TestCase):
             "b/main.py": ["tools/helpers.py"],
             "c/use.py": ["c/helpers.py"],
             "pkg/sub/main.py": [
-                "pkg/__init__.py",
                 "pkg/sub/__init__.py",
                 "pkg/sub/util.py",
                 "pkg/util.py",
@@ -230,6 +229,21 @@ class ImportGraphTests(unittest.TestCase):
         }
         assert "broken.py" not in graph.edges
         assert prefix_folder.domain_words("broken.py", None) == set()
+
+    def test_a_docstring_cpython_cannot_decode_skips_the_file(self) -> None:
+        texts: dict[str, str | None] = {
+            "pkg/__init__.py": "",
+            "pkg/order_a.py": '"""\\x"""\nimport pkg.order_b\n',
+            "pkg/order_b.py": '"""Orders."""\nimport pkg.order_a\n',
+            "pkg/order_c.py": None,
+        }
+        evidence = prefix_folder.evidence_of("python", texts, [])
+        assert evidence.graph.edges == {
+            "pkg/__init__.py": set(),
+            "pkg/order_b.py": {"pkg/order_a.py"},
+        }
+        assert evidence.words["pkg/order_a.py"] == set()
+        assert evidence.words["pkg/order_b.py"] == {"order"}
 
     def test_script_imports_resolve_relative_and_tsconfig_paths(self) -> None:
         texts = {
@@ -386,14 +400,18 @@ class PrefixFolderCommandTests(unittest.TestCase):
             "src/shop/grading/coverage_scorer.py"
         }
 
-    def test_script_clusters_do_not_run_but_yield_candidate_features(self) -> None:
+    def test_script_clusters_run_at_their_measured_cutoff(self) -> None:
         head_files = {
             "web/src/records/auditLog.ts": "// audit records\nexport const log = 1;\n",
             "web/src/records/audit-view.ts": "import { log } from './auditLog';\n",
             "web/src/records/other.go": "package audit\n",
         }
         repo, base, head = self.repository({"head": head_files})
-        assert prefix_folder.run(repo, {}, ["--base", base, "--head", head]) == []
+        (found,) = prefix_folder.run(repo, {}, ["--base", base, "--head", head])
+        assert (found.path, "at or above 0.25" in found.message) == (
+            "web/src/records/",
+            True,
+        )
         assert prefix_folder.cluster_candidates(repo, head, "typescript", {}) == [
             {
                 "folder": "web/src/records",
@@ -418,6 +436,16 @@ class PrefixFolderCommandTests(unittest.TestCase):
                 ],
             }
         ]
+
+    def test_go_has_no_candidates_because_the_rule_does_not_apply_to_it(self) -> None:
+        head_files = {
+            "svc/order_store.go": "package svc\n\nfunc Save() {}\n",
+            "svc/order_view.go": "package svc\n\nfunc Show() { Save() }\n",
+        }
+        repo, _, head = self.repository({"head": head_files})
+        assert prefix_folder.cluster_candidates(repo, head, "go", {}) == []
+        with pytest.raises(ValueError, match="no definition for shell"):
+            prefix_folder.cluster_candidates(repo, head, "shell", {})
 
     def test_unreadable_commits_are_a_finding(self) -> None:
         repo, base, _ = self.repository(FIXTURE["cases"][0])

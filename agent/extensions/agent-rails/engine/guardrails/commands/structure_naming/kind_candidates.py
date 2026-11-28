@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import argparse
-import ast
 import json
 import os.path
-import re
-from collections import defaultdict
+from collections.abc import Collection
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from guardrails.commands.structure_naming import importers, outline
 from guardrails.commands.structure_naming.scan_scope import (
-    is_test_path,
+    checked,
     is_vendored_path,
+    language_list,
+    runs,
 )
 from guardrails.context.changes import (
     DiffError,
@@ -21,8 +22,13 @@ from guardrails.context.changes import (
 )
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
+from guardrails.foundation.source.tree import SourceError, language_of, parse
+
+if TYPE_CHECKING:
+    from guardrails.foundation.source.tree import SgNode
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 RULE = "STRUCT.kind-candidates"
@@ -52,10 +58,9 @@ KIND_WORDS = (
     "utils",
     "validators",
 )
+READS = frozenset({"python", "typescript", "go"})
 MAX_SYMBOLS = 12
 MAX_IMPORTERS = 3
-DEFINITION = re.compile(r"(?:async\s+)?(def|class)\s+([A-Za-z_]\w*)")
-Import = tuple[int, int, str, list[str], str]
 
 
 def forms(word: str) -> set[str]:
@@ -95,210 +100,101 @@ def owned(paths: list[str]) -> list[str]:
     return [path for path in paths if not excluded(path, skills)]
 
 
-def parsed(source: str) -> ast.Module | None:
+Parsed = tuple["SgNode", outline.Outline]
+
+
+def parsed(path: str, source: str) -> Parsed | None:
+    """The tree and outline of a source file; an unparseable file is skipped (None): it
+    proposes no candidate and gives no import edges."""
     try:
-        return ast.parse(source)
-    except (SyntaxError, ValueError):
+        root = parse(path, source)
+        return root, outline.outline(path, root, source)
+    except SourceError:
         return None
 
 
-def first_line(doc: str | None) -> str:
-    for line in (doc or "").strip().splitlines():
-        if line.strip():
-            return line.strip()[:200]
-    return ""
-
-
-def signature_of(node: ast.stmt, lines: list[str]) -> str:
-    body = getattr(node, "body", [])
-    start = node.lineno - 1
-    end = body[0].lineno - 1 if body else start + 1
-    if body and body[0].lineno - 1 <= start:
-        end = start + 1
-    text = " ".join(line.strip() for line in lines[start : max(end, start + 1)])
-    depth = 0
-    for index, character in enumerate(text):
-        if character in "([{":
-            depth += 1
-        elif character in ")]}":
-            depth -= 1
-        elif character == ":" and depth == 0 and index > 0:
-            return text[:index].strip()[:300]
-    return text[:300]
-
-
-def definitions(source: str, tree: ast.Module | None) -> list[dict[str, str]]:
-    if tree is None:
-        return [
-            {"signature": line.rstrip().rstrip(":"), "doc": ""}
-            for line in source.splitlines()
-            if DEFINITION.match(line)
-        ]
-    lines = source.splitlines()
-    return [
-        {
-            "signature": signature_of(node, lines),
-            "doc": first_line(ast.get_docstring(node)),
-        }
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-    ]
-
-
-def line_at(lines: list[str], number: int) -> str:
-    return lines[number - 1].strip()[:240] if 0 < number <= len(lines) else ""
-
-
-def imports_of(source: str, tree: ast.Module | None) -> list[Import]:
-    if tree is None:
-        return []
-    lines = source.splitlines()
-    found: list[Import] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            found.extend(
-                (node.lineno, 0, alias.name, [], line_at(lines, node.lineno))
-                for alias in node.names
-            )
-        elif isinstance(node, ast.ImportFrom):
-            names = [alias.name for alias in node.names]
-            found.append((
-                node.lineno,
-                node.level or 0,
-                node.module or "",
-                names,
-                line_at(lines, node.lineno),
-            ))
-    return found
-
-
 class TreeModel:
-    def __init__(self, paths: list[str], sources: dict[str, str]) -> None:
+    def __init__(
+        self,
+        paths: list[str],
+        sources: dict[str, str],
+        config: dict[str, Any],
+        languages: Collection[str],
+    ) -> None:
         self.sources = sources
-        self.python = sorted(path for path in paths if path.endswith(".py"))
-        self.packages = {
-            os.path.dirname(path)
-            for path in paths
-            if os.path.basename(path) == "__init__.py"
+        self.config = config
+        self.files = sorted(path for path in paths if runs(path, languages))
+        self.read = {
+            path: found
+            for path in self.files
+            if (found := parsed(path, sources.get(path, ""))) is not None
         }
-        self.trees = {path: parsed(sources.get(path, "")) for path in self.python}
-        self.modules: dict[str, set[str]] = defaultdict(set)
-        for path in self.python:
-            parts = path[:-3].split("/")
-            if parts[-1] == "__init__":
-                parts = parts[:-1]
-            for index in range(len(parts)):
-                parent = "/".join(path.split("/")[:index])
-                if index == 0 or parent not in self.packages:
-                    self.modules[".".join(parts[index:])].add(path)
-        self.graph: dict[str, list[tuple[str, str]]] = defaultdict(list)
-        for importer in self.python:
-            seen: set[str] = set()
-            for _, level, module, names, text in imports_of(
-                sources.get(importer, ""), self.trees[importer]
-            ):
-                for target in sorted(self.resolve(importer, level, module, names)):
-                    if target != importer and target not in seen:
-                        seen.add(target)
-                        self.graph[target].append((importer, text))
-
-    def relative(
-        self, importer: str, level: int, module: str, names: list[str]
-    ) -> set[str]:
-        base = os.path.dirname(importer).split("/") if os.path.dirname(importer) else []
-        if level > 1:
-            base = base[: len(base) - (level - 1)] if level - 1 <= len(base) else []
-        stem = "/".join(base + (module.split(".") if module else []))
-        candidates = [stem] + [f"{stem}/{name}" if stem else name for name in names]
-        return {
-            target
-            for candidate in candidates
-            for target in (candidate + ".py", candidate + "/__init__.py")
-            if target in self.sources or target in self.python
-        }
-
-    def resolve(
-        self, importer: str, level: int, module: str, names: list[str]
-    ) -> set[str]:
-        if level:
-            return self.relative(importer, level, module, names)
-        targets: set[str] = set()
-        for name in [module] + (
-            [f"{module}.{item}" for item in names] if names else []
-        ):
-            hits = self.modules.get(name, set())
-            if len(hits) > 1:
-                common = {
-                    hit: len(
-                        os.path.commonprefix([hit.split("/"), importer.split("/")])
-                    )
-                    for hit in hits
-                }
-                best = max(common.values())
-                hits = {hit for hit, size in common.items() if size == best}
-            targets |= hits
-        return targets
+        roots = {path: found[0] for path, found in self.read.items()}
+        self.graph = importers.graph(self.files, sources, roots)
 
     def eligible(self) -> list[str]:
         return [
             path
-            for path in self.python
-            if os.path.basename(path) != "__init__.py"
+            for path in self.files
+            if not outline.folder_entry(path)
             and os.path.dirname(path)
             and os.path.dirname(path).split("/")[-1].lower() in KIND_FORMS
-            and definitions(self.sources.get(path, ""), self.trees[path])
+            and path in self.read
+            and self.read[path][1].entries
         ]
 
     def state(self, path: str) -> dict[str, Any]:
-        source = self.sources.get(path, "")
-        tree = self.trees[path]
+        found = self.read[path][1]
         symbols = [
-            item["signature"] + (f"  # {item['doc']}" if item["doc"] else "")
-            for item in definitions(source, tree)[:MAX_SYMBOLS]
+            item.signature + (f"  # {item.doc}" if item.doc else "")
+            for item in found.entries[:MAX_SYMBOLS]
         ]
         folder = os.path.dirname(path)
-        importers = sorted(
+        chosen = sorted(
             self.graph.get(path, []),
             key=lambda item: (
-                is_test_path(item[0]),
-                os.path.dirname(item[0]) == folder,
-                item[0],
+                is_test_source(item.path, self.config),
+                os.path.dirname(item.path) == folder,
+                item.path,
             ),
         )[:MAX_IMPORTERS]
-        doc = (ast.get_docstring(tree) or "").strip()[:600] if tree is not None else ""
         return {
-            "file": {"path": path, "docstring": doc, "symbols": symbols},
+            "file": {"path": path, "docstring": found.doc, "symbols": symbols},
             "folder": folder,
-            "importers": [
-                {"path": importer, "import": text} for importer, text in importers
-            ],
+            "importers": [{"path": item.path, "import": item.text} for item in chosen],
         }
 
 
-def model_of(tree: dict[str, str]) -> TreeModel:
+def model_of(
+    tree: dict[str, str], config: dict[str, Any], languages: Collection[str]
+) -> TreeModel:
     paths = owned(sorted(tree))
-    return TreeModel(
-        paths, {path: tree[path] for path in paths if path.endswith(".py")}
-    )
+    return TreeModel(paths, {path: tree[path] for path in paths}, config, languages)
 
 
-def head_tree(repo: Path, head: str, excluded_paths: list[str]) -> dict[str, str]:
+def head_tree(
+    repo: Path, head: str, excluded_paths: list[str], languages: Collection[str]
+) -> dict[str, str]:
+    """The owned paths of a head commit, with the text of the source files of the
+    languages and of the files their imports resolve through."""
     entries = {
         path: entry
         for path, entry in tree_entries(repo, head).items()
         if not matches_any(path, excluded_paths)
     }
     paths = owned(sorted(entries))
+    resolving = importers.manifests(languages)
     want = [
         (path, entries[path].oid)
         for path in paths
-        if path.endswith(".py") and entries[path].kind == "blob"
+        if (runs(path, languages) or os.path.basename(path) in resolving)
+        and entries[path].kind == "blob"
     ]
-    tree = dict.fromkeys(paths, "")
+    found = dict.fromkeys(paths, "")
     blobs = read_blobs(repo, sorted({oid for _, oid in want}))
     for path, oid in want:
-        tree[path] = blobs[oid].decode("utf-8", "replace")
-    return tree
+        found[path] = blobs[oid].decode("utf-8", "replace")
+    return found
 
 
 def exempt(path: str, config: dict[str, Any]) -> bool:
@@ -306,11 +202,17 @@ def exempt(path: str, config: dict[str, Any]) -> bool:
 
 
 def kind_candidates(
-    tree: dict[str, str], changed: set[str], config: dict[str, Any]
+    tree: dict[str, str],
+    changed: set[str],
+    config: dict[str, Any],
+    languages: Collection[str],
 ) -> list[dict[str, Any]]:
-    model = model_of(tree)
+    """The changed kind-folder files of the languages asked for, each with its language: the
+    kernel asks for the languages its question has settings for, a measurement for any
+    language this proposer reads."""
+    model = model_of(tree, config, checked(languages, READS))
     return [
-        {"path": path, "state": model.state(path)}
+        {"path": path, "language": language_of(path), "state": model.state(path)}
         for path in model.eligible()
         if path in changed and not exempt(path, config)
     ]
@@ -320,14 +222,16 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     parser = argparse.ArgumentParser(description=SUBCOMMANDS["kind-candidates"].summary)
     parser.add_argument("--base", required=True)
     parser.add_argument("--head", required=True)
+    parser.add_argument("--languages", required=True, type=language_list)
     args = parser.parse_args(argv)
     excluded_paths = as_list(
         checker_settings(config, "check").get("exclude")
     ) + as_list(checker_settings(config, "python").get("excluded_paths"))
     try:
-        tree = head_tree(repo, args.head, excluded_paths)
+        languages = checked(args.languages, READS)
+        tree = head_tree(repo, args.head, excluded_paths, languages)
         found = kind_candidates(
-            tree, changed_paths(repo, args.base, args.head, "AMR"), config
+            tree, changed_paths(repo, args.base, args.head, "AMR"), config, languages
         )
     except (DiffError, ValueError) as error:
         return [

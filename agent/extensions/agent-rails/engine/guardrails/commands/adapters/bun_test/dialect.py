@@ -284,7 +284,7 @@ class BunDialect(Dialect):
         )
 
 
-DIALECT = BunDialect(name="bun_test", source_suffix=".ts", requires_exit_code=True)
+DIALECT = BunDialect(name="bun_test", requires_exit_code=True)
 
 
 def guard_evidence(report: Path, tier: str) -> list[Finding]:

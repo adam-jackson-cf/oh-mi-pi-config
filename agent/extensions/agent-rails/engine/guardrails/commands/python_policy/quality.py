@@ -16,10 +16,10 @@ from guardrails.checker.python_rules.settings import (
     is_excluded,
     load_settings,
     python_files,
+    python_source,
     read_source,
 )
 from guardrails.commands.python_policy.call_names import (
-    DYNAMIC_IMPORT_CALLS,
     PROCESS_CALLS,
     import_names,
     qualified_name,
@@ -32,6 +32,10 @@ from guardrails.foundation.inventory import (
     as_list,
     matches_any,
     path_prefixes,
+)
+from guardrails.foundation.source.python import (
+    DYNAMIC_IMPORT_CALLS,
+    cpython_expression,
 )
 
 CLASS_LIMIT_DEFAULTS = {
@@ -224,10 +228,7 @@ def seam_findings(
 
 def annotation_tree(annotation: ast.AST) -> ast.AST:
     if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
-        try:
-            return ast.parse(annotation.value, mode="eval").body
-        except SyntaxError:
-            return annotation
+        return cpython_expression(annotation.value) or annotation
     return annotation
 
 
@@ -392,7 +393,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         files = [
             path
             for path in selected.inventory
-            if path.endswith(".py") and not is_excluded(path, options)
+            if python_source(path) and not is_excluded(path, options)
         ]
         roots = options.paths("maintained_roots")
         found: list[Finding] = []

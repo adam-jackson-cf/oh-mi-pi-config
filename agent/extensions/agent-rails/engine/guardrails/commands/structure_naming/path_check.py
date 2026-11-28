@@ -6,6 +6,7 @@ from typing import Any
 from guardrails.commands.structure_naming import layout, naming
 from guardrails.commands.structure_naming.import_direction import (
     direction_findings,
+    forbidden_import_findings,
     native_findings,
 )
 from guardrails.commands.structure_naming.import_graph import import_graph_findings
@@ -125,7 +126,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
                 )
             )
             found.extend(
-                layout.forbidden_import_findings(
+                forbidden_import_findings(
                     root,
                     selected.paths,
                     checker_settings(config, "layout"),

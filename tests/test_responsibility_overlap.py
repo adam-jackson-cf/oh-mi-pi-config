@@ -133,17 +133,26 @@ class DefinitionTests(unittest.TestCase):
     ) -> None:
         assert overlap.pair_score_cutoffs() == {
             "python": 0.336,
-            "typescript": None,
-            "go": None,
+            "typescript": 0.476,
+            "go": 0.4,
         }
-        assert overlap.measured_cutoffs() == {"python": 0.336}
+        assert overlap.measured_cutoffs() == {
+            "python": 0.336,
+            "typescript": 0.476,
+            "go": 0.4,
+        }
         rule = next(item for item in catalogue_rules() if item["id"] == overlap.RULE)
         evidence = rule["contract"]["evidence"]
-        assert (evidence["accepted_by"], evidence["accepted_on"]) == (
+        assert set(evidence) == set(overlap.measured_cutoffs())
+        assert (
+            evidence["python"]["accepted_by"],
+            evidence["python"]["accepted_on"],
+        ) == ("owner", "2026-11-23")
+        assert evidence["python"]["held_out_precision"] == 0.74
+        assert (evidence["go"]["accepted_by"], evidence["go"]["held_out_flags"]) == (
             "owner",
-            "2026-11-23",
+            "47/64",
         )
-        assert evidence["held_out_precision"] == 0.74
         assert remediations()[overlap.RULE].render().startswith("root cause: ")
 
 
@@ -200,7 +209,7 @@ class OverlapCommandTests(unittest.TestCase):
             "{rule, path, reason}"
         )
 
-    def test_a_language_without_a_cutoff_does_not_run_but_yields_candidates(
+    def test_each_language_runs_at_its_own_cutoff_and_yields_candidates(
         self,
     ) -> None:
         files = {
@@ -210,10 +219,13 @@ class OverlapCommandTests(unittest.TestCase):
             "src/shipping/summary.go": GO_COPY,
         }
         repo, base, head = self.repository({"head": files})
-        assert overlap.run(repo, {}, ["--base", base, "--head", head]) == []
+        found = overlap.run(repo, {}, ["--base", base, "--head", head])
+        assert sorted(
+            ("report.ts" in item.message, "report.go" in item.message) for item in found
+        ) == [(False, True), (True, False)]
         for language, suffix in (("typescript", "ts"), ("go", "go")):
             with self.subTest(language=language):
-                pairs = overlap.overlap_candidates(repo, head, language, [])
+                pairs = overlap.overlap_candidates(repo, head, language, {})
                 assert [
                     (pair.score, pair.first.file, pair.second.file)
                     for pair in pairs

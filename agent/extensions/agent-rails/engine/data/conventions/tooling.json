@@ -57,7 +57,28 @@
       ".oxlintrc.json": "https://oxc.rs/docs/guide/usage/linter/config.html",
       "oxlint.config.ts": "https://oxc.rs/docs/guide/usage/linter/config.html",
       "vitest.config.*": "https://vitest.dev/config/",
-      ".node-version": "https://github.com/shadowspawn/node-version-usage"
+      ".node-version": "https://github.com/shadowspawn/node-version-usage",
+      "setup.cfg": "https://setuptools.pypa.io/en/latest/userguide/declarative_config.html",
+      "pytest.ini": "https://docs.pytest.org/en/stable/reference/customize.html#pytest-ini",
+      ".eslintrc*": "https://eslint.org/docs/latest/use/configure/configuration-files-deprecated",
+      ".nycrc*": "https://github.com/istanbuljs/nyc#configuration-files",
+      "jest.config.*": "https://jestjs.io/docs/configuration",
+      "bun.lockb": "https://bun.com/docs/pm/lockfile",
+      "lefthook.yml": "https://lefthook.dev/configuration/",
+      ".pre-commit-config.yaml": "https://pre-commit.com/#2-add-a-pre-commit-configuration",
+      ".jscpd.json": "https://github.com/kucherenko/jscpd/tree/master/apps/jscpd#config-file",
+      ".dependency-cruiser.*": "https://github.com/sverweij/dependency-cruiser/blob/main/doc/cli.md#--config---validate",
+      ".ls-lint.yml": "https://ls-lint.org/2.3/configuration/the-basics.html",
+      ".gitleaks.toml": "https://github.com/gitleaks/gitleaks#configuration",
+      "knip.json": "https://knip.dev/overview/configuration",
+      "knip.jsonc": "https://knip.dev/overview/configuration",
+      ".knip.json": "https://knip.dev/overview/configuration",
+      ".knip.jsonc": "https://knip.dev/overview/configuration",
+      "knip.config.*": "https://knip.dev/overview/configuration",
+      ".prettierrc": "https://prettier.io/docs/configuration",
+      ".prettierrc.*": "https://prettier.io/docs/configuration",
+      "prettier.config.*": "https://prettier.io/docs/configuration",
+      ".prettierignore": "https://prettier.io/docs/ignore"
     },
     "fixed_folders": {
       ".devcontainer": "https://containers.dev/implementors/spec/#devcontainerjson",
@@ -69,9 +90,28 @@
     },
     "placement": {
       "root": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
+      "test_data_dirs": "https://jestjs.io/docs/snapshot-testing",
       "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "support_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "beside_code": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping"
+    },
+    "comment_syntax": {
+      "files": {
+        "Dockerfile": "https://docs.docker.com/reference/dockerfile/#format",
+        "Dockerfile.*": "https://docs.docker.com/reference/dockerfile/#format",
+        "Containerfile": "https://docs.docker.com/reference/dockerfile/#format",
+        "Makefile": "https://www.gnu.org/software/make/manual/html_node/Makefile-Contents.html",
+        "GNUmakefile": "https://www.gnu.org/software/make/manual/html_node/Makefile-Contents.html",
+        "makefile": "https://www.gnu.org/software/make/manual/html_node/Makefile-Contents.html",
+        ".gitignore": "https://git-scm.com/docs/gitignore#_pattern_format",
+        ".gitattributes": "https://git-scm.com/docs/gitattributes#_description"
+      },
+      "parser_directives": {
+        "Dockerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives",
+        "Dockerfile.*": "https://docs.docker.com/reference/dockerfile/#parser-directives",
+        "Containerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives",
+        "*.dockerfile": "https://docs.docker.com/reference/dockerfile/#parser-directives"
+      }
     }
   },
   "convention_notes": [
@@ -139,7 +179,28 @@
     ".oxlintrc.json",
     "oxlint.config.ts",
     "vitest.config.*",
-    ".node-version"
+    ".node-version",
+    "setup.cfg",
+    "pytest.ini",
+    ".eslintrc*",
+    ".nycrc*",
+    "jest.config.*",
+    "bun.lockb",
+    "lefthook.yml",
+    ".pre-commit-config.yaml",
+    ".jscpd.json",
+    ".dependency-cruiser.*",
+    ".ls-lint.yml",
+    ".gitleaks.toml",
+    "knip.json",
+    "knip.jsonc",
+    ".knip.json",
+    ".knip.jsonc",
+    "knip.config.*",
+    ".prettierrc",
+    ".prettierrc.*",
+    "prettier.config.*",
+    ".prettierignore"
   ],
   "fixed_folders": [".devcontainer", ".github", ".git"],
   "ignored_folders": [".git"],
@@ -157,12 +218,177 @@
     "https://docs.astral.sh/uv/concepts/projects/layout/",
     "https://golangci-lint.run/docs/configuration/file/",
     "https://oxc.rs/docs/guide/usage/linter/config.html",
-    "https://eslint.org/docs/latest/use/configure/configuration-files"
+    "https://eslint.org/docs/latest/use/configure/configuration-files",
+    "https://knip.dev/overview/configuration",
+    "https://prettier.io/docs/configuration"
   ],
   "placement": {
     "root": "tests",
+    "test_data_dirs": ["__snapshots__", "golden", "goldens"],
     "fixtures_dir": "fixtures",
     "support_dir": "support",
     "beside_code": false
+  },
+  "comment_syntax": {
+    "files": [
+      {
+        "patterns": [
+          "Dockerfile",
+          "Dockerfile.*",
+          "Containerfile",
+          "Makefile",
+          "GNUmakefile",
+          "makefile",
+          ".gitignore",
+          ".gitattributes",
+          "CMakeLists.txt",
+          "Rakefile",
+          "*.env",
+          "*.fish",
+          "*.yml",
+          "*.yaml",
+          "*.toml",
+          "*.conf",
+          "*.rb",
+          "*.pl",
+          "*.pm",
+          "*.r",
+          "*.ps1",
+          "*.dockerfile",
+          "*.mk",
+          "*.nix",
+          "*.jl",
+          "*.tcl",
+          "*.awk",
+          "*.tf",
+          "*.tfvars",
+          "*.hcl",
+          "*.graphql",
+          "*.gql",
+          "*.ex",
+          "*.exs",
+          "*.cmake",
+          "*.gemspec",
+          "*.rake"
+        ],
+        "line": ["#"]
+      },
+      {
+        "patterns": [
+          "*.jsonc",
+          "*.json5",
+          "*.c",
+          "*.h",
+          "*.cc",
+          "*.cpp",
+          "*.cxx",
+          "*.hpp",
+          "*.java",
+          "*.cs",
+          "*.rs",
+          "*.swift",
+          "*.kt",
+          "*.kts",
+          "*.scala",
+          "*.dart",
+          "*.php",
+          "*.scss",
+          "*.less",
+          "*.vue",
+          "*.svelte",
+          "*.proto",
+          "*.groovy",
+          "*.gradle",
+          "*.sol",
+          "*.m",
+          "*.mm",
+          "*.tf",
+          "*.tfvars",
+          "*.hcl",
+          "*.prisma"
+        ],
+        "line": ["//"],
+        "block": [["/*", "*/"]]
+      },
+      {
+        "patterns": ["*.css", "*.sql"],
+        "block": [["/*", "*/"]]
+      },
+      {
+        "patterns": [
+          "*.sql",
+          "*.lua",
+          "*.hs",
+          "*.elm",
+          "*.vhd",
+          "*.vhdl",
+          "*.ada"
+        ],
+        "line": ["--"]
+      },
+      {
+        "patterns": ["*.lua"],
+        "block": [["--[[", "]]"]]
+      },
+      {
+        "patterns": ["*.hs", "*.elm"],
+        "block": [["{-", "-}"]]
+      },
+      {
+        "patterns": ["*.tex", "*.erl", "*.hrl", "*.pro"],
+        "line": ["%"]
+      },
+      {
+        "patterns": [
+          "*.el",
+          "*.lisp",
+          "*.clj",
+          "*.cljs",
+          "*.edn",
+          "*.scm",
+          "*.rkt",
+          "*.asm"
+        ],
+        "line": [";"]
+      },
+      {
+        "patterns": ["*.ini", "*.cfg"],
+        "line": ["#", ";"]
+      },
+      {
+        "patterns": ["*.properties"],
+        "line": ["#", "!"]
+      },
+      {
+        "patterns": [
+          "*.html",
+          "*.htm",
+          "*.xml",
+          "*.svg",
+          "*.md",
+          "*.markdown",
+          "*.mdx",
+          "*.vue",
+          "*.svelte"
+        ],
+        "block": [["<!--", "-->"]]
+      }
+    ],
+    "quotes": ["\"", "'", "`"],
+    "markup": [
+      "*.html",
+      "*.htm",
+      "*.xml",
+      "*.svg",
+      "*.md",
+      "*.markdown",
+      "*.mdx"
+    ],
+    "parser_directives": [
+      "Dockerfile",
+      "Dockerfile.*",
+      "Containerfile",
+      "*.dockerfile"
+    ]
   }
 }

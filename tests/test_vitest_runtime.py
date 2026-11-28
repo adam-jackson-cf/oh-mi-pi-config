@@ -22,7 +22,14 @@ sys.path.insert(
 
 import pytest
 
-from guardrails.commands.adapters.conformance import fixture_case, load_cases
+from guardrails.commands.adapters.conformance import (
+    PREREQUISITE,
+    RUNTIME_EVIDENCE,
+    companion_fixture,
+    companions,
+    fixture_case,
+    load_cases,
+)
 from guardrails.commands.adapters.vitest import conformance
 from guardrails.commands.adapters.vitest.dialect import (
     DIALECT,
@@ -137,27 +144,35 @@ class VitestRuntimeTests(VitestRuntimeCase):
             with self.subTest(case=case["id"]):
                 fixture = fixture_case(case["id"])
                 assert conformance.fixture_source(fixture).strip()
+                for role in companions(case):
+                    assert conformance.fixture_source(companion_fixture(case, role))
         assert conformance.fixture_source("owned-package").strip()
 
     def test_conformance_never_silently_skips_a_missing_native_installation(
         self,
     ) -> None:
+        runtime = [
+            case["id"] for case in load_cases() if case["evidence"] in RUNTIME_EVIDENCE
+        ]
         with tempfile.TemporaryDirectory() as scratch:
             repo = Path(scratch)
             results = conformance.run_conformance(
-                [], repo=repo, config=conformance.BASE_CONFIG
+                runtime, repo=repo, config=conformance.BASE_CONFIG
+            )
+            found = conformance.run_cases(
+                runtime, repo=repo, config=conformance.BASE_CONFIG
             )
             with pytest.raises(ValueError, match="unknown conformance"):
                 conformance.run_conformance(
                     ["not-a-case"], repo=repo, config=conformance.BASE_CONFIG
                 )
-        assert [result.case_id for result in results] == [
-            case["id"] for case in load_cases()
-        ]
+        assert [result.case_id for result in results] == runtime
         assert all(
             not result.passed and "installed locally" in result.detail
             for result in results
         )
+        assert [item.rule_id for item in found] == [PREREQUISITE]
+        assert "run-report and collection cases cannot start" in found[0].message
 
 
 if __name__ == "__main__":

@@ -1,25 +1,13 @@
 {
-  "about": "Per-language definitions for the structure rules. Each value names its published source; a rule a language cannot use is listed under not_applicable with its reason. A language with no measured cutoff for a scored rule does not run that rule until one is measured (docs/structure-languages.md).",
+  "about": "Per-language definitions for the structure rules; each language reads its extensions from the convention pack its source names. Each value names its published source; a rule a language cannot use is listed under not_applicable with its reason. A language with no measured cutoff for a scored rule does not run that rule until one is measured (docs/structure-languages.md).",
   "languages": {
     "python": {
-      "extensions": [".py", ".pyi"],
       "source": "engine/data/conventions/python.json"
     },
     "typescript": {
-      "extensions": [
-        ".ts",
-        ".tsx",
-        ".mts",
-        ".cts",
-        ".js",
-        ".jsx",
-        ".mjs",
-        ".cjs"
-      ],
       "source": "engine/data/conventions/typescript.json"
     },
     "go": {
-      "extensions": [".go"],
       "source": "engine/data/conventions/go.json"
     }
   },
@@ -38,7 +26,7 @@
       },
       "typescript": {
         "module": "the file",
-        "edges": "static import and export-from specifiers, import() and require() with a string literal; relative specifiers resolve against the importer's folder, then tsconfig compilerOptions.paths and baseUrl from the nearest tsconfig.json; a specifier tries the file, the TypeScript source for a .js specifier, the listed extensions and index files; bare package specifiers are third-party and ignored; type-only imports count",
+        "edges": "static import and export-from specifiers, import() and require() with a string literal or a template literal without substitutions; relative specifiers resolve against the importer's folder, then tsconfig compilerOptions.paths and baseUrl from the nearest tsconfig.json; a specifier tries the file, the TypeScript source for a .js specifier, the listed extensions and index files; bare package specifiers are third-party and ignored; type-only imports count",
         "source": "https://www.typescriptlang.org/docs/handbook/modules/reference.html#module-resolution"
       },
       "go": {
@@ -50,6 +38,7 @@
     },
     "STRUCT.runtime-data-placement": {
       "python": {
+        "data_folders": ["data", "data-*", "data_*", "*-data", "*_data"],
         "code_folder": "nearest folder holding .py or .pyi source",
         "bundle_manifests": [
           "SKILL.md",
@@ -57,22 +46,31 @@
           "setup.cfg",
           "setup.py"
         ],
-        "exempt": [],
+        "exempt": [
+          "files below a folder data_folders names, between the file and its code folder: the data already has its own folder",
+          "files under a hidden folder (tool state such as .moon/) or a test data folder (the language pack's placement test_data_dirs)"
+        ],
         "source": "https://packaging.python.org/en/latest/guides/using-manifest-in/"
       },
       "typescript": {
+        "data_folders": ["data", "data-*", "data_*", "*-data", "*_data"],
         "code_folder": "nearest folder holding TypeScript or JavaScript source",
         "bundle_manifests": ["SKILL.md", "package.json"],
         "exempt": [
+          "files below a folder data_folders names, between the file and its code folder: the data already has its own folder",
+          "files under a hidden folder (tool state such as .moon/) or a test data folder (the language pack's placement test_data_dirs)",
           "a data file a source file in the same folder imports by a relative specifier (a JSON module is part of the code)",
           "tooling fixed files (package.json, tsconfig*.json and the other tooling-pack names)"
         ],
         "source": "https://www.typescriptlang.org/tsconfig/#resolveJsonModule"
       },
       "go": {
+        "data_folders": ["data", "data-*", "data_*", "*-data", "*_data"],
         "code_folder": "nearest folder holding .go source",
         "bundle_manifests": ["SKILL.md", "go.mod"],
         "exempt": [
+          "files below a folder data_folders names, between the file and its code folder: the data already has its own folder",
+          "files under a hidden folder (tool state such as .moon/) or a test data folder (the language pack's placement test_data_dirs)",
           "a file a //go:embed pattern in a .go file of the same package matches (embed patterns may not leave the package folder)",
           "files under testdata/, which the go tool ignores"
         ],
@@ -106,13 +104,13 @@
       },
       "typescript": {
         "definitions": "top-level function and class declarations, methods of top-level classes, and top-level const or let declarations whose value is an arrow function or function expression, exported or not; comments removed",
-        "pair_score_cutoff": null,
-        "source": "not yet measured: the rule does not run for TypeScript"
+        "pair_score_cutoff": 0.476,
+        "source": "measured: 64 labelled unit pairs from 4 repositories, leave-one-repository-out held-out precision 6/7"
       },
       "go": {
         "definitions": "top-level function and method declarations; comments removed",
-        "pair_score_cutoff": null,
-        "source": "not yet measured: the rule does not run for Go"
+        "pair_score_cutoff": 0.4,
+        "source": "measured: 247 labelled unit pairs from 5 repositories, leave-one-repository-out held-out precision 47/64 = 0.73, below the 0.75 floor and accepted by the owner (guardrail-rules.json evidence.go)"
       }
     },
     "STRUCT.prefix-folder": {
@@ -131,22 +129,27 @@
       "typescript": {
         "members": "sibling TypeScript or JavaScript source files; stems split at _, -, . and lower-to-upper case boundaries",
         "domain_word_sources": "comments and class, interface and type alias names",
-        "weights": null,
-        "cluster_score_cutoff": null,
-        "source": "not yet measured: the rule does not run for TypeScript"
+        "weights": {
+          "import_edge": 0.35,
+          "shared_reader": 0.25,
+          "co_change": 0.25,
+          "prefix_is_domain_word": 0.15
+        },
+        "cluster_score_cutoff": 0.25,
+        "source": "measured: 28 labelled clusters from 5 repositories with the Python weights, leave-one-repository-out held-out precision 18/23"
       }
     },
     "RENAME.residue": {
       "python": {
-        "identifiers": "defined names: functions, classes and assignment, for, with, walrus, type-alias and except-handler targets at module and class level; imports and comprehensions excluded"
+        "identifiers": "bound names at module and class level: functions, classes and assignment, for, with, walrus, type-alias, except-handler and match-as targets; imports and the names functions, lambdas and comprehensions bind excluded"
       },
       "typescript": {
-        "identifiers": "identifier, property, type and shorthand-property identifier nodes"
+        "identifiers": "declared names at top level: functions, classes with their methods and fields, interfaces with their members, enums with their members, type aliases with the members of an object type, namespaces, and every name a variable declaration binds (destructuring included); imports excluded"
       },
       "go": {
-        "identifiers": "identifier, field, type and package identifier nodes"
+        "identifiers": "declared names at package level: the package clause, functions, methods, types with their struct fields and interface methods, constants and variables; imports excluded"
       },
-      "source": "a rename retires the old name in every language file; no cutoff"
+      "source": "a rename retires the old name in every language file; a name's words split at underscores, case changes and digit runs (guardrails/foundation/source/names.py); no cutoff"
     }
   },
   "not_applicable": {
@@ -163,7 +166,270 @@
       }
     }
   },
-  "later": {
-    "candidate proposers (kind-candidates, consumer-candidates, name-pairs)": "Extraction exists for all three languages, but they propose Python only: the judgments they feed were measured on Python cases, so TypeScript and Go proposals wait for labelled TypeScript and Go cases."
+  "proposers": {
+    "rules": [
+      "STRUCT.kind-candidates",
+      "STRUCT.consumer-candidates",
+      "STRUCT.name-pairs"
+    ],
+    "languages": "Each proposer proposes only for the languages it is asked for (--languages). The rails ask for the languages its judgment question (kind-candidates: technical_kind_grouping, consumer-candidates: consumer_placement, name-pairs: same_thing) has settings for in thresholds.json decisions.<question>.languages, so a language without measured settings is never proposed for.",
+    "source": "agent/extensions/agent-rails/judgments/structure-naming/thresholds.json",
+    "signals": {
+      "about": "What each candidate proposer reads in each language, with its published source. A measurement asks a proposer for any language it reads (calibration scripts and tests); the rails ask only for the languages its question has settings for.",
+      "STRUCT.kind-candidates": {
+        "files": "a source file whose folder's last segment is a technical-kind word (any language), with at least one definition, except the file that stands for its folder",
+        "python": {
+          "folder_entry": "__init__.py, the package marker (conventions/python.json package_marker)",
+          "definitions": "top-level def and class statements: the header up to its colon, and the first docstring line",
+          "file_doc": "the module docstring",
+          "importers": "import and from-import statements, resolved to files as Python's import system would",
+          "source": "https://docs.python.org/3/reference/import.html#regular-packages"
+        },
+        "typescript": {
+          "folder_entry_stem": "index",
+          "folder_entry": "index files: an import of a folder resolves to its index file",
+          "definitions": "top-level function, class, interface, enum and type alias declarations, and const or let declarations whose value is a function, exported or not: the text up to the body, and the first line of the /** doc comment directly above",
+          "file_doc": "the comments before the file's first statement",
+          "importers": "static import and export-from statements, import() and require() with a string specifier, resolved as the import rules resolve them (relative, then tsconfig paths and baseUrl)",
+          "source": "https://www.typescriptlang.org/docs/handbook/modules/reference.html#directory-modules-index-file-resolution"
+        },
+        "go": {
+          "folder_entry_stem": null,
+          "folder_entry": "none: every file of a Go package declares the package in its package clause, so no file stands for the folder",
+          "definitions": "top-level function, method and type declarations: the text up to the body, and the first line of the doc comment directly above",
+          "file_doc": "the package doc comment directly above the package clause",
+          "importers": "a Go import names a package, not a file: each built file of the folder an import path names (module path plus folder) has that import's importers; a file outside every module imports no repository package",
+          "source": "https://go.dev/ref/spec#Import_declarations"
+        }
+      },
+      "STRUCT.consumer-candidates": {
+        "program": "a file the package runs as a program, that no other file imports, that the repository neither declares as the package's command nor launches by path, and that sits inside a package rather than in a root folder of its own (fixtures, migrations, scripts, tests)",
+        "python": {
+          "package_file": "__init__.py",
+          "package": "the nearest folder above the file holding __init__.py, below the repository root; the top package is the outermost folder of that run",
+          "program": "any run marker",
+          "run_markers": {
+            "main_guard": "(?m)^\\s*if\\s+__name__\\s*==\\s*['\"]__main__['\"]",
+            "argparse": "\\bArgumentParser\\s*\\(",
+            "click": "@click\\.(command|group)\\b",
+            "typer": "\\btyper\\.(Typer|run)\\s*\\(",
+            "fire": "\\bfire\\.Fire\\s*\\(",
+            "streamlit": "(?m)^\\s*(import\\s+streamlit|from\\s+streamlit\\b)",
+            "dash": "\\b(dash\\.)?Dash\\s*\\(\\s*__name__",
+            "gradio": "(?m)^\\s*(import\\s+gradio|from\\s+gradio\\b)",
+            "flask": "\\bFlask\\s*\\(\\s*__name__",
+            "fastapi": "\\bFastAPI\\s*\\(",
+            "textual_app": "(?m)^\\s*class\\s+\\w+\\(\\s*(textual\\.app\\.)?App(\\[[^\\]]*\\])?\\s*\\)",
+            "rich_live": "from\\s+rich\\.live\\s+import|rich\\.live\\.Live\\b"
+          },
+          "ui_app_markers": [
+            "dash",
+            "gradio",
+            "rich_live",
+            "streamlit",
+            "textual_app"
+          ],
+          "ui_libraries": [
+            "altair",
+            "blessed",
+            "bokeh",
+            "curses",
+            "dash",
+            "flet",
+            "gradio",
+            "jinja2",
+            "matplotlib",
+            "nicegui",
+            "panel",
+            "plotly",
+            "prettytable",
+            "prompt_toolkit",
+            "pygal",
+            "questionary",
+            "rich",
+            "seaborn",
+            "streamlit",
+            "tabulate",
+            "textual",
+            "tkinter",
+            "urwid"
+          ],
+          "own_imports": "relative imports and imports whose first name is the top package",
+          "declared_commands": "[project.scripts], [project.gui-scripts] and [tool.poetry.scripts] in pyproject.toml, and console_scripts in setup.cfg or setup.py",
+          "command_manifests": ["pyproject.toml", "setup.cfg", "setup.py"],
+          "launched_by_path": "a string literal in non-test source naming the file by its dotted module name, its path or (inside its top package) its file name",
+          "package_run_module": "__main__.py",
+          "description": "the first docstring line of the top package's __init__.py",
+          "source": "https://packaging.python.org/en/latest/specifications/entry-points/"
+        },
+        "typescript": {
+          "package_file": "package.json",
+          "package": "the nearest folder at or above the file holding package.json, the repository root included",
+          "program": "any run marker",
+          "run_markers": {
+            "require_main": "\\brequire\\.main\\s*===?\\s*module\\b",
+            "import_meta_main": "\\bimport\\.meta\\.main\\b",
+            "argv_entry_check": "import\\.meta\\.(url|filename|path)[^\\n]*process\\.argv\\[1\\]|process\\.argv\\[1\\][^\\n]*import\\.meta\\.(url|filename|path)",
+            "shebang": "^#![^\\n]*\\b(node|bun|deno|tsx|ts-node)\\b",
+            "parse_args": "\\bparseArgs\\s*\\(",
+            "commander": "\\bnew\\s+Command\\s*\\(|\\bprogram\\s*\\.\\s*parse(Async)?\\s*\\(",
+            "yargs": "\\byargs\\s*\\(",
+            "process_argv": "\\bprocess\\.argv\\.slice\\s*\\(\\s*2\\s*\\)|\\bBun\\.argv\\b|\\bDeno\\.args\\b",
+            "http_server": "\\bBun\\.serve\\s*\\(|\\bDeno\\.serve\\s*\\(|\\bcreateServer\\s*\\(|\\bexpress\\s*\\(\\s*\\)|\\bfastify\\s*\\(|\\bnew\\s+Hono\\s*\\(",
+            "react_root": "\\bcreateRoot\\s*\\(|\\bReactDOM\\.render\\s*\\(",
+            "ink_app": "\\brender\\s*\\(\\s*<",
+            "blessed_screen": "\\bblessed\\.screen\\s*\\("
+          },
+          "ui_app_markers": ["blessed_screen", "ink_app", "react_root"],
+          "ui_libraries": [
+            "@clack/prompts",
+            "@inquirer/prompts",
+            "asciichart",
+            "blessed",
+            "blessed-contrib",
+            "chart.js",
+            "cli-table3",
+            "d3",
+            "echarts",
+            "ejs",
+            "enquirer",
+            "handlebars",
+            "ink",
+            "inquirer",
+            "mustache",
+            "nunjucks",
+            "plotly.js",
+            "prompts",
+            "react-dom",
+            "recharts",
+            "table",
+            "terminal-kit",
+            "vega-lite"
+          ],
+          "own_imports": "imports that resolve to a file inside the package folder",
+          "declared_commands": "package.json bin: a path or a map of command names to paths, relative to the package folder",
+          "command_manifests": ["package.json"],
+          "launched_by_path": "a package.json scripts command, or a <script src> of a tracked HTML file, naming the file by its path from the manifest's or page's folder (a leading / is the page's folder); and a string literal in non-test source naming the file by its path or (inside its package) its file name",
+          "package_run_module": null,
+          "package_run_module_reason": "Node has no file a package runs as itself, as python -m runs __main__.py; a package's own command is its bin entry, already a declared command.",
+          "description": "the package.json description",
+          "source": "https://docs.npmjs.com/cli/v11/configuring-npm/package-json#bin"
+        },
+        "go": {
+          "package_file": "go.mod",
+          "package": "the module: the nearest folder at or above the file holding go.mod, the repository root included",
+          "program": "the main_package marker: a built non-test file of package main that declares func main; the other markers only describe the program",
+          "run_markers": {
+            "flag_parse": "\\bflag\\.Parse\\s*\\(",
+            "cobra": "\\bcobra\\.Command\\s*\\{",
+            "urfave_cli": "\\bcli\\.(App|Command)\\s*\\{",
+            "kong": "\\bkong\\.Parse\\s*\\(",
+            "http_server": "\\bhttp\\.ListenAndServe(TLS)?\\s*\\(|\\bgin\\.(Default|New)\\s*\\(|\\becho\\.New\\s*\\(|\\bfiber\\.New\\s*\\(",
+            "bubbletea_program": "\\btea\\.NewProgram\\s*\\(",
+            "tview_application": "\\btview\\.NewApplication\\s*\\("
+          },
+          "ui_app_markers": ["bubbletea_program", "tview_application"],
+          "ui_libraries": [
+            "github.com/charmbracelet/bubbletea",
+            "github.com/charmbracelet/huh",
+            "github.com/charmbracelet/lipgloss",
+            "github.com/gdamore/tcell",
+            "github.com/gizak/termui",
+            "github.com/go-echarts/go-echarts",
+            "github.com/jedib0t/go-pretty",
+            "github.com/manifoldco/promptui",
+            "github.com/olekukonko/tablewriter",
+            "github.com/rivo/tview",
+            "github.com/wcharczuk/go-chart",
+            "gonum.org/v1/plot",
+            "html/template",
+            "text/template"
+          ],
+          "own_imports": "imports whose path is the module path or under it",
+          "declared_commands": "a main package at the module root or in cmd/<name>/: the documented places for a module's commands, which go install installs by their import path",
+          "command_manifests": [],
+          "command_manifests_reason": "go.mod names no commands; a module's commands are its main packages, placed by layout.",
+          "launched_by_path": "a string literal in non-test source naming the file by its path or (inside its module) its file name",
+          "imported_by": "a main package cannot be imported (the go tool rejects importing a program), so a program has no importers",
+          "package_run_module": null,
+          "package_run_module_reason": "Any file of package main declares the command; the go tool runs a package, never one file name.",
+          "description": "the first line of the doc comment above the package clause of the module root's package",
+          "source": "https://go.dev/doc/modules/layout"
+        }
+      },
+      "STRUCT.name-pairs": {
+        "python": {
+          "definitions": "the shared name readers (name_pair/extract.py)",
+          "source": "https://docs.python.org/3/reference/lexical_analysis.html#identifiers",
+          "builtin_types": [
+            "bool",
+            "bytearray",
+            "bytes",
+            "complex",
+            "dict",
+            "float",
+            "frozenset",
+            "int",
+            "list",
+            "object",
+            "set",
+            "str",
+            "tuple",
+            "type"
+          ],
+          "builtin_source": "https://docs.python.org/3/library/stdtypes.html"
+        },
+        "typescript": {
+          "definitions": "the shared name readers (name_pair/extract.py): declarations, aliases and import renames",
+          "source": "https://www.typescriptlang.org/docs/handbook/modules/reference.html",
+          "builtin_types": [
+            "any",
+            "bigint",
+            "boolean",
+            "never",
+            "null",
+            "number",
+            "object",
+            "string",
+            "symbol",
+            "undefined",
+            "unknown",
+            "void"
+          ],
+          "builtin_source": "https://www.typescriptlang.org/docs/handbook/2/everyday-types.html",
+          "alias_targets": "an import rename or re-export resolves through its specifier as the import rules resolve it (modules.ScriptResolver): to a definition in the file it names, else in that file's folder; a specifier that names no tracked file names no repository concept and proposes no pair"
+        },
+        "go": {
+          "definitions": "the shared name readers (name_pair/extract.py): package-level declarations and their members",
+          "source": "https://go.dev/ref/spec#Declarations_and_scope",
+          "builtin_types": [
+            "any",
+            "bool",
+            "byte",
+            "comparable",
+            "complex128",
+            "complex64",
+            "error",
+            "float32",
+            "float64",
+            "int",
+            "int16",
+            "int32",
+            "int64",
+            "int8",
+            "rune",
+            "string",
+            "uint",
+            "uint16",
+            "uint32",
+            "uint64",
+            "uint8",
+            "uintptr"
+          ],
+          "builtin_source": "https://go.dev/ref/spec#Predeclared_identifiers"
+        },
+        "about": "An alias of a language's built-in type (builtin_types) gives a role a type, never a second name for a repository concept, so it proposes no pair."
+      }
+    }
   }
 }

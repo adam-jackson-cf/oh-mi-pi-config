@@ -5,29 +5,27 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from guardrails.commands.adapters.go.dialect import XFAIL_PREFIX
+from guardrails.commands.adapters import hook_vocabulary, owned_source
+from guardrails.commands.adapters.go.dialect import XFAIL_PREFIX, vocabulary
 from guardrails.commands.adapters.go.ownership import (
+    GoModules,
     owned_import,
     owned_imports,
     owned_path,
+    owned_roots,
 )
+from guardrails.commands.adapters.go.symbol_usage import test_only_findings
 from guardrails.commands.adapters.go.syntax import (
     arguments,
     call_name,
     first_parameter,
     go_files,
-    imports,
-    parse,
-    string_value,
     test_functions,
     walk,
-    words,
 )
 from guardrails.commands.adapters.marker_bindings import inline_bindings
 from guardrails.context.config.house_style import apply_exceptions
-from guardrails.context.config.reader import tests_settings
 from guardrails.foundation.findings import Finding
-from guardrails.foundation.inventory import normalized_path, repo_paths
 from guardrails.foundation.source import go as go_source, tree
 
 if TYPE_CHECKING:
@@ -37,39 +35,10 @@ SELF_MOCKING = "TEST.no-self-mocking"
 EVASION = "TEST.no-evasion"
 SEED = "TEST.property-seed"
 HOOKS = "TEST.no-test-hooks"
-SKIP_CALLS = frozenset({"Skip", "Skipf", "SkipNow"})
-PATCH_PACKAGES = frozenset({
-    "github.com/agiledragon/gomonkey",
-    "github.com/agiledragon/gomonkey/v2",
-    "bou.ke/monkey",
-    "github.com/bouk/monkey",
-    "github.com/undefinedlabs/go-mpatch",
-})
-RETRY_PACKAGES = frozenset({
-    "github.com/hashicorp/consul/sdk/testutil/retry",
-    "github.com/avast/retry-go",
-    "github.com/avast/retry-go/v2",
-    "github.com/avast/retry-go/v3",
-    "github.com/avast/retry-go/v4",
-})
-QUICK_PACKAGE = "testing/quick"
-QUICK_CHECKS = frozenset({"Check", "CheckEqual"})
-TESTING_PACKAGE = "testing"
-MARKER_READS = frozenset({("os", "Getenv"), ("os", "LookupEnv"), ("flag", "Lookup")})
-MARKER = re.compile(
-    r"^([A-Z0-9_]*_)?(GO_?TEST[A-Z0-9_]*|TESTING|TEST_MODE|UNDER_TEST|TESTS?)(_[A-Z0-9_]*)?$"
-    r"|^test\.\w+$"
+COMPARISONS = frozenset({"==", "!="})
+MARKER_MESSAGE = (
+    "production code reads a test marker from the environment or test flags ({})"
 )
-HOOK_PHRASES = frozenset({
-    ("for", "test"),
-    ("for", "tests"),
-    ("for", "testing"),
-    ("test", "hook"),
-    ("test", "hooks"),
-    ("testing", "only"),
-    ("test", "only"),
-    ("test", "mode"),
-})
 DECLARING = frozenset({
     "function_declaration",
     "method_declaration",
@@ -80,17 +49,20 @@ DECLARING = frozenset({
     "type_spec",
 })
 NAMES = frozenset({"identifier", "field_identifier", "type_identifier"})
-MOCK_CONSTRUCTOR = re.compile(r"^NewMock(\w+)$")
-SELF_MOCKING_FIX = (
-    "test the owned code through its public entry point; fake only boundaries"
-)
-EVASION_FIX = "make the test run and pass, or record an owner-approved exception"
-SEED_FIX = "give quick.Config a Rand built from a fixed seed"
-HOOKS_FIX = "remove the hook; tests must exercise the production path unchanged"
-SYMBOL_FIX = (
-    "drive the behaviour through a public entry point and delete the symbol, or give it a "
-    "production caller; production code never carries hooks only tests use"
-)
+
+
+def names(key: str) -> frozenset[str]:
+    return frozenset(vocabulary()[key])
+
+
+def calls_named(key: str) -> frozenset[tuple[str, str]]:
+    """Calls as (package import path, function), such as os.Getenv."""
+    return frozenset((package, name) for package, name in vocabulary()[key])
+
+
+def fix(rule: str) -> str:
+    text: str = vocabulary()["fixes"][rule]
+    return text
 
 
 @dataclass(frozen=True)
@@ -138,14 +110,14 @@ def self_mocking(
     found = []
     for call in calls(source.root):
         qualifier, name = call_name(call)
-        patching = (
-            qualifier is not None and source.imports.get(qualifier) in PATCH_PACKAGES
+        patching = qualifier is not None and source.imports.get(qualifier) in names(
+            "patch_packages"
         )
         if patching and any(
             references_owned(item, aliases) for item in arguments(call)
         ):
             found.append((call, f"patches owned code ({snippet(call)})"))
-        mock = MOCK_CONSTRUCTOR.match(name or "")
+        mock = re.match(vocabulary()["mock_constructor"], name or "")
         if mock and mock.group(1) in owned_types:
             found.append((call, f"builds a mock of owned type {mock.group(1)}"))
     for node in walk(source.root):
@@ -162,7 +134,10 @@ def self_mocking(
             found.append((node, f"rebinds owned package state ({snippet(node)})"))
     return [
         Finding(
-            SELF_MOCKING, source.path, f"line {line(node)}: {message}", SELF_MOCKING_FIX
+            SELF_MOCKING,
+            source.path,
+            f"line {line(node)}: {message}",
+            fix(SELF_MOCKING),
         )
         for node, message in found
     ]
@@ -170,7 +145,7 @@ def self_mocking(
 
 def skip_call(call: SgNode, receiver: str | None) -> bool:
     qualifier, name = call_name(call)
-    return name in SKIP_CALLS and (receiver is None or qualifier == receiver)
+    return name in names("skip_calls") and (receiver is None or qualifier == receiver)
 
 
 def body_statements(function: SgNode) -> list[SgNode]:
@@ -206,7 +181,7 @@ def evasion(source: Source) -> list[Finding]:
     ]
     for call in calls(source.root):
         values = arguments(call)
-        reason = string_value(values[0]) if values else None
+        reason = go_source.string_value(values[0]) if values else None
         if (
             skip_call(call, None)
             and reason is not None
@@ -214,11 +189,13 @@ def evasion(source: Source) -> list[Finding]:
         ):
             found.append((call, f"expected-failure marker ({snippet(call)})"))
         qualifier, _ = call_name(call)
-        if qualifier is not None and source.imports.get(qualifier) in RETRY_PACKAGES:
+        if qualifier is not None and source.imports.get(qualifier) in names(
+            "retry_packages"
+        ):
             found.append((call, f"retries until green ({snippet(call)})"))
     unique = {(line(node), message): node for node, message in found}
     return [
-        Finding(EVASION, source.path, f"line {number}: {message}", EVASION_FIX)
+        Finding(EVASION, source.path, f"line {number}: {message}", fix(EVASION))
         for number, message in sorted(unique)
     ]
 
@@ -256,18 +233,19 @@ def seeded(literal: SgNode | None) -> bool:
     for item in walk(literal):
         if item.kind() == "keyed_element":
             key = tree.named(item)[0] if tree.named(item) else None
-            if key is not None and key.text() == "Rand":
+            if key is not None and key.text() == vocabulary()["property"]["seed_field"]:
                 return True
     return False
 
 
 def property_seed(source: Source) -> list[Finding]:
     found = []
+    quick = vocabulary()["property"]
     for call in calls(source.root):
         qualifier, name = call_name(call)
-        if qualifier is None or source.imports.get(qualifier) != QUICK_PACKAGE:
+        if qualifier is None or source.imports.get(qualifier) != quick["package"]:
             continue
-        if name not in QUICK_CHECKS:
+        if name not in quick["checks"]:
             continue
         values = arguments(call)
         options = config_literal(values[-1], source.root) if values else None
@@ -278,15 +256,29 @@ def property_seed(source: Source) -> list[Finding]:
                     source.path,
                     f"line {line(call)}: quick property test neither fixes nor reports "
                     f"its seed ({snippet(call)})",
-                    SEED_FIX,
+                    fix(SEED),
                 )
             )
     return found
 
 
-def hook_phrase(name: str) -> bool:
-    parts = words(name)
-    return any(pair in HOOK_PHRASES for pair in zip(parts, parts[1:], strict=False))
+def marker_name(value: str) -> bool:
+    """A test marker an environment read or a flag lookup names: a shared marker name
+    (test-hook-patterns.json) or a go test flag (test.v)."""
+    return hook_vocabulary.matches("marker_name", value) or (
+        re.fullmatch(vocabulary()["flag_marker"], value) is not None
+    )
+
+
+def reads(call: SgNode | None, source: Source, key: str) -> bool:
+    """Whether a node is a call of one of the vocabulary's calls (by import path)."""
+    if call is None or call.kind() != "call_expression":
+        return False
+    qualifier, name = call_name(call)
+    return qualifier is not None and (
+        source.imports.get(qualifier),
+        name,
+    ) in calls_named(key)
 
 
 def marker_read(node: SgNode, source: Source) -> bool:
@@ -299,35 +291,46 @@ def marker_read(node: SgNode, source: Source) -> bool:
         or call.kind() != "call_expression"
     ):
         return False
-    qualifier, name = call_name(call)
-    return (
-        qualifier is not None and (source.imports.get(qualifier), name) in MARKER_READS
+    return reads(call, source, "marker_reads")
+
+
+def value_comparison(node: SgNode, source: Source) -> bool:
+    """Whether a node compares an environment value with a test marker value, as in
+    os.Getenv("APP_ENV") == "test"."""
+    operator = node.field("operator")
+    if node.kind() != "binary_expression" or operator is None:
+        return False
+    sides = [node.field("left"), node.field("right")]
+    return operator.text() in COMPARISONS and any(
+        (value := go_source.string_value(side)) is not None
+        and hook_vocabulary.matches("marker_value", value)
+        and reads(other, source, "value_reads")
+        for side, other in (sides, sides[::-1])
     )
 
 
 def marker_reads(source: Source) -> list[tuple[SgNode, str]]:
+    inlined = tree.tolerant_tree(
+        inline_bindings(source.root.text(), source.root, "go"), "go"
+    )
     return [
-        (
-            node,
-            "production code reads a test marker from the environment or test flags "
-            f"({snippet(node)})",
+        (node, MARKER_MESSAGE.format(snippet(node)))
+        for node in walk(inlined)
+        if (
+            (value := go_source.string_value(node)) is not None
+            and marker_name(value)
+            and marker_read(node, source)
         )
-        for node in walk(parse(inline_bindings(source.root.text(), "go")))
-        if (value := string_value(node)) is not None
-        and MARKER.match(value)
-        and marker_read(node, source)
+        or value_comparison(node, source)
     ]
 
 
 def hook_findings(source: Source) -> list[Finding]:
     found = []
+    probe = tuple(vocabulary()["test_probe"])
     for call in calls(source.root):
         qualifier, name = call_name(call)
-        if (
-            qualifier is not None
-            and source.imports.get(qualifier) == TESTING_PACKAGE
-            and name == "Testing"
-        ):
+        if qualifier is not None and (source.imports.get(qualifier), name) == probe:
             found.append((
                 call,
                 f"production code asks whether it runs under test ({snippet(call)})",
@@ -336,104 +339,16 @@ def hook_findings(source: Source) -> list[Finding]:
     for node in walk(source.root):
         if node.kind() in DECLARING:
             for item in tree.named(node):
-                if item.kind() in NAMES and hook_phrase(item.text()):
+                if item.kind() in NAMES and hook_vocabulary.hook_phrase(item.text()):
                     found.append((
                         item,
                         f"production code declares a test-only hook ({item.text()})",
                     ))
     unique = {(line(node), message) for node, message in found}
     return [
-        Finding(HOOKS, source.path, f"line {number}: {message}", HOOKS_FIX)
+        Finding(HOOKS, source.path, f"line {number}: {message}", fix(HOOKS))
         for number, message in sorted(unique)
     ]
-
-
-def declared_names(root: SgNode) -> list[tuple[str, int]]:
-    found = []
-    for node in tree.named(root):
-        if node.kind() == "function_declaration":
-            name = node.field("name")
-            if name is not None and name.text() not in {"main", "init"}:
-                found.append((name.text(), line(name)))
-        if node.kind() == "type_declaration":
-            for spec in tree.named(node):
-                name = spec.field("name")
-                if spec.kind() == "type_spec" and name is not None:
-                    found.append((name.text(), line(name)))
-    return found
-
-
-def definition_starts(root: SgNode) -> frozenset[int]:
-    starts = set()
-    for node in walk(root):
-        if node.kind() in {"function_declaration", "type_spec"}:
-            name = node.field("name")
-            if name is not None:
-                starts.add(name.range().start.index)
-    return frozenset(starts)
-
-
-def used_names(root: SgNode, *, skip_definitions: bool = False) -> set[str]:
-    skipped = definition_starts(root) if skip_definitions else frozenset()
-    return {
-        node.text()
-        for node in walk(root)
-        if node.kind() in NAMES and node.range().start.index not in skipped
-    }
-
-
-def entry_point_symbols(config: dict[str, Any]) -> set[str]:
-    entries = tests_settings(config, "public_entry_points")
-    symbols: set[str] = set()
-    for value in entries.values() if isinstance(entries, dict) else []:
-        items = value if isinstance(value, list) else [value]
-        for item in items:
-            text = str(item)
-            symbols.add(text.rsplit(":", 1)[-1].rsplit(".", 1)[-1].strip())
-    return symbols
-
-
-def test_only_symbols(
-    production: dict[str, Source],
-    tests: dict[str, Source],
-    config: dict[str, Any],
-    reported: set[str],
-) -> list[Finding]:
-    production_uses: set[str] = set()
-    defined: list[tuple[str, str, int]] = []
-    for path, source in production.items():
-        production_uses |= used_names(source.root, skip_definitions=True)
-        if path in reported:
-            defined.extend(
-                (path, name, number) for name, number in declared_names(source.root)
-            )
-    test_uses: dict[str, str] = {}
-    for path, source in sorted(tests.items()):
-        for name in used_names(source.root):
-            test_uses.setdefault(name, path)
-    public = entry_point_symbols(config)
-    return [
-        Finding(
-            HOOKS,
-            path,
-            f"line {number}: production symbol '{name}' is used only by tests ({test_uses[name]})",
-            SYMBOL_FIX,
-        )
-        for path, name, number in defined
-        if name in test_uses and name not in production_uses and name not in public
-    ]
-
-
-def load(repo: Path, path: str) -> Source | None:
-    try:
-        text = (repo / path).read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
-        return None
-    try:
-        root = tree.parse(path, text)
-    except tree.SourceError:
-        return None
-    return Source(path, root, imports(root))
 
 
 def type_names(root: SgNode) -> set[str]:
@@ -453,32 +368,85 @@ def owned_type_names(sources: dict[str, Source]) -> frozenset[str]:
     )
 
 
-def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
-    every = go_files(repo_paths(repo))
-    chosen = (
-        go_files([item for raw in paths if (item := normalized_path(repo, raw))])
-        if paths
-        else every
-    )
-    owned = owned_imports(repo, config)
-    production: dict[str, Source] = {}
-    tests: dict[str, Source] = {}
-    for path in every:
-        if go_source.is_test_file(path) or owned_path(path, config):
-            source = load(repo, path)
-            if source is not None:
-                (tests if go_source.is_test_file(path) else production)[path] = source
-    owned_types = owned_type_names(production)
+def built_sources(
+    loaded: dict[str, owned_source.Source],
+) -> tuple[dict[str, Source], list[Finding]]:
+    """The loaded files the go tool builds (a //go:build ignore file is no package's
+    source), each with its imports; a file with no package clause is unreadable."""
+    built: dict[str, Source] = {}
     findings: list[Finding] = []
-    reported: set[str] = set()
-    for path in chosen:
-        if path in tests:
-            source = tests[path]
-            findings.extend(self_mocking(source, owned, owned_types))
-            findings.extend(evasion(source))
-            findings.extend(property_seed(source))
-        elif path in production:
-            findings.extend(hook_findings(production[path]))
-            reported.add(path)
-    findings.extend(test_only_symbols(production, tests, config, reported))
+    for path, loaded_source in loaded.items():
+        root = loaded_source.root
+        try:
+            if go_source.build_ignored(root):
+                continue
+        except tree.SourceError as error:
+            test = go_source.is_test_file(path)
+            findings.append(owned_source.unparseable(path, error, test=test))
+            continue
+        built[path] = Source(path, root, go_source.import_aliases(root))
+    return built, findings
+
+
+@dataclass(frozen=True)
+class Scan:
+    """The test and owned Go files a lint run reads, the findings for those it cannot,
+    and the modules and owned folders they resolve in."""
+
+    built: dict[str, Source]
+    unreadable: list[Finding]
+    modules: GoModules
+    roots: tuple[str, ...]
+
+
+def scan(repo: Path, tracked: list[str], roots: tuple[str, ...]) -> Scan:
+    is_test = go_source.is_test_file
+    read = [
+        path for path in go_files(tracked) if is_test(path) or owned_path(path, roots)
+    ]
+    loaded, unreadable = owned_source.load_all(repo, read, is_test)
+    built, broken = built_sources(loaded)
+    return Scan(built, [*unreadable, *broken], GoModules(repo, set(tracked)), roots)
+
+
+def file_lint(
+    source: Source, found: Scan, owned_types: frozenset[str]
+) -> list[Finding]:
+    if go_source.is_test_file(source.path):
+        owned = owned_imports(found.roots, found.modules)
+        return [
+            *self_mocking(source, owned, owned_types),
+            *evasion(source),
+            *property_seed(source),
+        ]
+    return hook_findings(source)
+
+
+def lint(repo: Path, config: dict[str, Any], paths: list[str]) -> list[Finding]:
+    points = owned_source.configured_entry_points(config)
+    if isinstance(points, Finding):
+        return [points]
+    tracked = owned_source.repository_paths(repo)
+    chosen = set(
+        go_files(owned_source.repository_paths(repo, paths) if paths else tracked)
+    )
+    found = scan(repo, tracked, owned_roots(points))
+    production = {
+        path: item
+        for path, item in found.built.items()
+        if not go_source.is_test_file(path)
+    }
+    owned_types = owned_type_names(production)
+    findings = [item for item in found.unreadable if item.path in chosen]
+    for path in sorted(chosen & found.built.keys()):
+        findings.extend(file_lint(found.built[path], found, owned_types))
+    reported = chosen & production.keys()
+    if reported:
+        trees = {path: item.root for path, item in found.built.items()}
+        findings.extend(
+            test_only_findings(
+                trees, go_source.is_test_file, reported, found.modules, points
+            )
+        )
+    findings.extend(found.modules.problems.values())
     return apply_exceptions(findings, config)

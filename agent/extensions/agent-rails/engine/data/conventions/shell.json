@@ -8,9 +8,13 @@
     },
     "placement": {
       "root": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
+      "test_data_dirs": "https://jestjs.io/docs/snapshot-testing",
       "fixtures_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "support_dir": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping",
       "beside_code": "agent/extensions/agent-rails/references/structure-and-naming.md#structure-and-grouping"
+    },
+    "comment_syntax": {
+      "#": "https://pubs.opengroup.org/onlinepubs/9799919799/utilities/V3_chap02.html"
     }
   },
   "convention_notes": [
@@ -30,8 +34,14 @@
   ],
   "placement": {
     "root": "tests",
+    "test_data_dirs": ["__snapshots__", "golden", "goldens"],
     "fixtures_dir": "fixtures",
     "support_dir": "support",
     "beside_code": false
+  },
+  "comment_syntax": {
+    "line": ["#"],
+    "word_delimiters": " \t\n;&|()<>",
+    "quotes": ["\"", "'", "`"]
   }
 }

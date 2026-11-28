@@ -157,9 +157,10 @@ def repeated_remediations(entries: list[dict[str, Any]]) -> list[str]:
 
 def adapter_rule_files() -> dict[str, list[dict[str, Any]]]:
     data = ENGINE / "data"
+    script = json.loads((data / "javascript-patterns.json").read_text())
     return {
-        name: json.loads((data / name).read_text())
-        for name in ("pytest-patterns.json", "javascript-patterns.json")
+        "pytest-patterns.json": json.loads((data / "pytest-patterns.json").read_text()),
+        "javascript-patterns.json": script["patterns"],
     }
 
 

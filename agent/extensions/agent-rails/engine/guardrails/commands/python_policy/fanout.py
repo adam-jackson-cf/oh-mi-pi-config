@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import ast
 import sys
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from guardrails.checker.python_rules.settings import (
     PythonSettings,
@@ -14,14 +13,18 @@ from guardrails.checker.python_rules.settings import (
     matched_root,
     parse_paths,
     python_files,
-    read_source,
     segments,
     setting_finding,
 )
 from guardrails.context.config import house_style
-from guardrails.context.config.reader import tests_settings
+from guardrails.context.config.entry_points import packages as entry_point_packages
+from guardrails.context.config.section_schema import ConfigValueError
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import GLOB_CHARACTERS, InventoryError, as_list
+from guardrails.foundation.source import modules, python, tree
+
+if TYPE_CHECKING:
+    from ast_grep_py import SgNode
 
 GENERAL = "FANOUT.general"
 LARGE = "FANOUT.large-module"
@@ -36,35 +39,14 @@ FIX = "split the module by responsibility or route imports through a narrower ow
 @dataclass(frozen=True)
 class Module:
     relpath: str
-    name: str | None
-    is_package: bool
+    module: modules.PythonModule | None
 
 
 def module_for(relpath: str, roots: list[str]) -> Module:
     depth = matched_root(relpath, roots)
     if depth is None:
-        return Module(relpath, None, False)
-    parts = segments(relpath)[depth:]
-    if parts[-1] == "__init__.py":
-        return Module(relpath, ".".join(parts[:-1]) or None, True)
-    return Module(
-        relpath, ".".join((*parts[:-1], PurePosixPath(parts[-1]).stem)), False
-    )
-
-
-def resolve_relative(current: Module, node: ast.ImportFrom) -> str | None:
-    if node.level == 0:
-        return node.module
-    if current.name is None:
-        return None
-    package = (
-        current.name.split(".") if current.is_package else current.name.split(".")[:-1]
-    )
-    if node.level > 1:
-        package = package[: -(node.level - 1)]
-    if node.module:
-        package.extend(node.module.split("."))
-    return ".".join(package)
+        return Module(relpath, None)
+    return Module(relpath, modules.python_module("/".join(segments(relpath)[depth:])))
 
 
 class ImportCollector:
@@ -83,48 +65,30 @@ class ImportCollector:
                 return candidate
         return root
 
-    def from_import(self, node: ast.ImportFrom, current: Module) -> set[str]:
-        module = resolve_relative(current, node)
-        if module is None:
-            return set()
-        if module.split(".", 1)[0] not in self.root_packages:
-            return {module}
-        found = set()
-        for alias in node.names:
-            candidate = module if alias.name == "*" else f"{module}.{alias.name}"
-            found.add(self.normalise(candidate if candidate in self.known else module))
-        return found
+    def first_party(self, module: str) -> bool:
+        return module.split(".", 1)[0] in self.root_packages
 
-    def imports(self, tree: ast.Module, current: Module) -> set[str]:
+    def import_modules(
+        self, item: python.PythonImport, importer: modules.PythonModule
+    ) -> set[str]:
+        target = modules.absolute(item, importer)
+        if item.statement == "import" or not self.first_party(target):
+            return {self.normalise(target)}
+        return {self.normalise(name) for name in modules.imported_names(item, importer)}
+
+    def imports(self, root: SgNode, current: Module) -> set[str]:
+        """The architectural modules a file imports; SourceError for a relative import
+        that does not resolve."""
+        importer = current.module or modules.PythonModule("", is_package=True)
+        statements = [
+            *python.imports(root),
+            *(item for _, item in python.dynamic_imports(root)),
+        ]
         found: set[str] = set()
-        for node in ast.walk(tree):
-            literal = literal_import_module(node)
-            if literal is not None:
-                found.add(self.normalise(literal))
-            elif isinstance(node, ast.Import):
-                found.update(self.normalise(alias.name) for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                found.update(self.from_import(node, current))
-        found.discard(current.name or "")
+        for item in statements:
+            found.update(self.import_modules(item, importer))
+        found.discard(importer.name)
         return {module for module in found if not is_stdlib(module)}
-
-
-def literal_import_module(node: ast.AST) -> str | None:
-    if not (
-        isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "import_module"
-        and isinstance(node.func.value, ast.Name)
-        and node.func.value.id == "importlib"
-        and node.args
-    ):
-        return None
-    first = node.args[0]
-    return (
-        first.value
-        if isinstance(first, ast.Constant) and isinstance(first.value, str)
-        else None
-    )
 
 
 def is_stdlib(module: str) -> bool:
@@ -144,8 +108,7 @@ def root_packages(config: dict[str, Any], options: PythonSettings) -> set[str]:
     section = options.mapping("fanout")
     if "root_packages" in section:
         return set(as_list(section["root_packages"]))
-    entry_points = tests_settings(config, "public_entry_points")
-    return set(entry_points) if isinstance(entry_points, dict) else set()
+    return set(entry_point_packages(config))
 
 
 def limits(options: PythonSettings) -> dict[str, Any]:
@@ -168,7 +131,13 @@ def setting_findings(
         for root in roots
         if not GLOB_CHARACTERS & set(root) and not (repo / root).is_dir()
     ]
-    packages = root_packages(config, options)
+    try:
+        packages = root_packages(config, options)
+    except ConfigValueError as error:
+        return [
+            *found,
+            setting_finding(GENERAL, "fanout.root_packages", f"is unset and {error}"),
+        ]
     if not packages or any(not package.isidentifier() for package in packages):
         found.append(
             setting_finding(
@@ -223,32 +192,34 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
         everything = python_files(repo, options, [])
     except InventoryError as error:
         return [inventory_finding(GENERAL, error)]
-    modules = [
+    found_modules = [
         module_for(path, roots)
         for path in everything
         if matched_root(path, roots) is not None
     ]
     collector = ImportCollector(
-        root_packages(config, options), {m.name for m in modules if m.name}
+        root_packages(config, options),
+        {m.module.name for m in found_modules if m.module and m.module.name},
     )
     chosen = set(python_files(repo, options, selected)) if selected else None
     limit = limits(options)
     found: list[Finding] = []
-    for module in modules:
+    for module in found_modules:
         if chosen is not None and module.relpath not in chosen:
             continue
-        source = read_source(repo, module.relpath)
-        if source.tree is None:
+        try:
+            text = tree.read(repo, module.relpath)
+            imports = collector.imports(tree.parse(module.relpath, text), module)
+        except tree.SourceError as error:
             found.append(
                 finding(
                     GENERAL,
                     module.relpath,
                     None,
-                    source.error,
-                    "restore readable UTF-8 Python",
+                    str(error),
+                    "restore readable UTF-8 Python with imports that resolve",
                 )
             )
             continue
-        imports = collector.imports(source.tree, module)
-        found.extend(module_findings(module, imports, source_nloc(source.text), limit))
+        found.extend(module_findings(module, imports, source_nloc(text), limit))
     return house_style.apply_exceptions(found, config)

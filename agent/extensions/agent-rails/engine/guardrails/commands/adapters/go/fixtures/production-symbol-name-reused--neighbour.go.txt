@@ -1,0 +1,11 @@
+package shop
+
+type cache struct{}
+
+func (cache) ResetCache() int {
+	return 0
+}
+
+func Warm() int {
+	return cache{}.ResetCache()
+}

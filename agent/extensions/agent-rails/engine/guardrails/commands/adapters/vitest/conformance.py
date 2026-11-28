@@ -11,6 +11,8 @@ from guardrails.foundation.findings import Finding
 from guardrails.host.process import run_bytes, run_text
 
 FIXTURES = Path(__file__).with_name("fixtures")
+COMPANIONS = {"test": "tests/case.test.ts", "neighbour": "shop/neighbour.ts"}
+INSTALL_REMEDY = "install the target's pinned dependencies, including vitest, then run conformance again"
 BASE_CONFIG: dict[str, Any] = {
     "tests": {
         "adapters": [
@@ -24,7 +26,7 @@ BASE_CONFIG: dict[str, Any] = {
                 },
             }
         ],
-        "public_entry_points": {"shop/core.ts": ["publicApi"]},
+        "public_entry_points": {"shop": ["shop/core.ts:publicApi"]},
         "tiers": {"t1": {"command": "vitest run"}},
         "layout": {
             "test_file_patterns": ["*.test.ts"],
@@ -77,10 +79,9 @@ def build_project(
     (project / placed).write_text(
         fixture_source(conformance.fixture_case(case["id"])), encoding="utf-8"
     )
+    conformance.place_companions(project, case, COMPANIONS, fixture_source)
     config = copy.deepcopy(BASE_CONFIG)
     config["exceptions"] = conformance.case_exceptions(case, placed)
-    if production:
-        config["tests"]["public_entry_points"][placed] = ["publicApi"]
     return conformance.Project(root, placed, config)
 
 
@@ -168,18 +169,14 @@ def check_collection(
     return conformance.collection_verdict(case, reported, ids, expected)
 
 
-def run_conformance(
-    case_ids: list[str],
-    *,
-    repo: Path,
-    config: dict[str, Any],
-) -> list[conformance.CaseResult]:
-    selected = conformance.select_cases(case_ids)
+def harness(repo: Path, config: dict[str, Any]) -> conformance.Harness:
     try:
         command, modules = native_installation(repo, config)
+        missing = None
     except (OSError, ValueError) as error:
-        return conformance.failed_cases(selected, str(error))
-    harness = conformance.Harness(
+        command, modules = [], None
+        missing = conformance.Prerequisite(str(error), INSTALL_REMEDY)
+    return conformance.Harness(
         label="the Vitest adapter",
         prefix="guardrails-vitest-conformance-",
         build=lambda root, case: build_project(root, case, modules),
@@ -191,8 +188,18 @@ def run_conformance(
                 project, case, command
             ),
         },
+        missing=missing,
     )
-    return conformance.run_cases(harness, selected)
+
+
+def run_conformance(
+    case_ids: list[str],
+    *,
+    repo: Path,
+    config: dict[str, Any],
+) -> list[conformance.CaseResult]:
+    selected = conformance.select_cases(case_ids)
+    return conformance.run_cases(harness(repo, config), selected)
 
 
 def run_cases(
@@ -201,5 +208,6 @@ def run_cases(
     repo: Path,
     config: dict[str, Any],
 ) -> list[Finding]:
-    results = run_conformance(case_ids, repo=repo, config=config)
-    return conformance.findings(results, "the Vitest adapter")
+    chosen = harness(repo, config)
+    results = conformance.run_cases(chosen, conformance.select_cases(case_ids))
+    return conformance.findings(chosen, results)

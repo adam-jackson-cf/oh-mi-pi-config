@@ -6,10 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from guardrails.commands.structure_naming.scan_scope import (
-    is_test_path,
-    is_vendored_path,
-)
+from guardrails.commands.structure_naming.scan_scope import is_vendored_path
 from guardrails.commands.structure_naming.tokens import Gram, definition_grams
 from guardrails.context.changes import (
     DiffError,
@@ -19,6 +16,7 @@ from guardrails.context.changes import (
 )
 from guardrails.context.config.house_style import apply_exceptions
 from guardrails.context.config.reader import checker_settings
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation.findings import Finding
 from guardrails.foundation.inventory import as_list, matches_any
 from guardrails.foundation.source.tree import (
@@ -68,12 +66,14 @@ def measured_cutoffs() -> dict[str, float]:
     }
 
 
-def unit_of(path: str, bundles: set[str], languages: frozenset[str]) -> str | None:
+def unit_of(
+    path: str, bundles: set[str], languages: frozenset[str], config: dict[str, Any]
+) -> str | None:
     pure = PurePosixPath(path)
     folder = pure.parent
     if (
         language_of(path) not in languages
-        or is_test_path(path)
+        or is_test_source(path, config)
         or is_vendored_path(path)
     ):
         return None
@@ -176,9 +176,10 @@ def overlap_findings(
 
 
 def head_units(
-    repo: Path, head: str, excluded: list[str], languages: frozenset[str]
+    repo: Path, head: str, config: dict[str, Any], languages: frozenset[str]
 ) -> tuple[dict[str, str], dict[str, str]]:
     entries = tree_entries(repo, head)
+    excluded = excluded_paths(config)
     bundles = {
         PurePosixPath(path).parent.as_posix()
         for path in entries
@@ -188,7 +189,7 @@ def head_units(
         path: unit
         for path, (mode, kind, _, _) in entries.items()
         if kind == "blob" and mode != "120000" and not matches_any(path, excluded)
-        if (unit := unit_of(path, bundles, languages)) is not None
+        if (unit := unit_of(path, bundles, languages, config)) is not None
     }
     return units, {path: entries[path].oid for path in units}
 
@@ -208,9 +209,9 @@ def unit_definitions(
 
 
 def overlap_candidates(
-    repo: Path, head: str, language: str, excluded: list[str]
+    repo: Path, head: str, language: str, config: dict[str, Any]
 ) -> list[Overlap]:
-    units, oids = head_units(repo, head, excluded, frozenset({language}))
+    units, oids = head_units(repo, head, config, frozenset({language}))
     found = unit_definitions(repo, units, oids)
     return [pair for _, pair in sorted(overlaps(found, set(units.values())).items())]
 
@@ -230,9 +231,7 @@ def run(repo: Path, config: dict[str, Any], argv: list[str]) -> list[Finding]:
     args = parser.parse_args(argv)
     cutoffs = measured_cutoffs()
     try:
-        units, oids = head_units(
-            repo, args.head, excluded_paths(config), frozenset(cutoffs)
-        )
+        units, oids = head_units(repo, args.head, config, frozenset(cutoffs))
         changed: dict[str, set[str]] = defaultdict(set)
         for path in changed_paths(repo, args.base, args.head, "AMR"):
             if path in units:

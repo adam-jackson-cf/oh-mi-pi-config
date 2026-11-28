@@ -343,7 +343,16 @@ describe("judged-rails helpers", () => {
 
 const shippedJudgments = join(import.meta.dir, "../agent/extensions/agent-rails/judgments");
 const decisionSchema = z.object({ threshold: z.number().min(0).max(1).optional(), round_up_floor: z.number().optional(), mode: z.enum(["enforced", "shadow"]), shadow_exit: z.object({ labelled_flags: z.number().int().min(1) }).optional() }).passthrough();
-const thresholdsSchema = z.object({ decisions: z.record(z.string(), decisionSchema) }).passthrough();
+// A per-language decision holds each language's mode and cutoff under languages.<language>.
+const entrySchema = z.object({ languages: z.record(z.string(), decisionSchema.partial()).optional() }).passthrough();
+type ThresholdEntry = z.infer<typeof entrySchema>;
+const thresholdsSchema = z.object({ decisions: z.record(z.string(), entrySchema) }).passthrough();
+/** Each decision in force: one per language for a per-language decision. */
+const settings = (ident: string, decision: ThresholdEntry): [string, z.infer<typeof decisionSchema>][] => {
+	const { languages, ...shared } = decision;
+	if (languages === undefined) return [[ident, decisionSchema.parse(shared)]];
+	return Object.entries(languages).map(([language, own]) => [`${ident} for ${language}`, decisionSchema.parse({ ...shared, ...own })]);
+};
 
 describe("every shipped judgment acts or is in reviewable shadow", () => {
 	test("no shipped judgment has a status or a band: each decision is one threshold, enforced or a shadow with an exit", () => {
@@ -352,7 +361,7 @@ describe("every shipped judgment acts or is in reviewable shadow", () => {
 		for (const name of names) {
 			const thresholds = thresholdsSchema.parse(JSON.parse(readFileSync(join(shippedJudgments, name, "thresholds.json"), "utf8")));
 			assert.equal("status" in thresholds, false, name);
-			for (const [ident, decision] of Object.entries(thresholds.decisions)) {
+			for (const [ident, decision] of Object.entries(thresholds.decisions).flatMap(([key, value]) => settings(key, value))) {
 				assert.equal("status" in decision, false, `${name}/${ident}`);
 				assert.equal("no_at_most" in decision || "yes_at_least" in decision, false, `${name}/${ident} has a band`);
 				if (decision.mode === "shadow") {

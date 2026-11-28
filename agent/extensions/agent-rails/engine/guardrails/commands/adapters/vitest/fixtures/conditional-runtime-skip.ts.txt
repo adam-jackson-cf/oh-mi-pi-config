@@ -1,0 +1,11 @@
+import { test, expect } from 'vitest';
+
+test.skipIf(!process.env.DOCKER_HOST)('total when docker is present', () => {
+  expect(6).toBe(6);
+});
+test('total from the vendor when it is ready', context => {
+  if (!process.env.VENDOR_READY) {
+    context.skip('waiting on vendor fix');
+  }
+  expect(6).toBe(6);
+});

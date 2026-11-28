@@ -12,6 +12,7 @@ sys.path.insert(
 import pytest
 
 from guardrails.commands.structure_naming import naming
+from guardrails.context.config.suite_files import is_test_source
 from guardrails.foundation import conventions
 from guardrails.foundation.inventory import name_matches
 
@@ -158,6 +159,14 @@ class LanguagePackTests(unittest.TestCase):
             "oxlintrc/.oxlintrc.json",
             "vitest/vitest.config.ts",
             "importlinter/.importlinter",
+            "setup/setup.cfg",
+            "pytest/pytest.ini",
+            "eslintrc/.eslintrc.json",
+            "nycrc/.nycrc",
+            "jest/jest.config.js",
+            "bun/bun.lockb",
+            "lefthook/lefthook.yml",
+            "precommit/.pre-commit-config.yaml",
         )
         with tempfile.TemporaryDirectory() as directory:
             for path in paths:
@@ -215,3 +224,76 @@ class LanguagePackTests(unittest.TestCase):
             assert "file" in pack
             assert "directory" in pack
             assert "placement" in pack
+
+
+class TestSourceTests(unittest.TestCase):
+    def test_runner_patterns_support_files_and_holder_folders_are_test_source(
+        self,
+    ) -> None:
+        for path in (
+            "conftest.py",
+            "src/a.test.mts",
+            "src/a.spec.cts",
+            "pkg/total_test.go",
+            "account/__tests__/balance.ts",
+            "tests/helpers.py",
+            "src/shop/fixtures/data.py",
+            "pkg/support/client.ts",
+        ):
+            with self.subTest(path=path):
+                assert is_test_source(path, {})
+
+    def test_names_that_only_start_like_tests_are_not_test_source(self) -> None:
+        for path in (
+            "src/testimonials/views.py",
+            "src/testing.go",
+            "pkg/fixture_loader.py",
+            "src/spec/view.ts",
+            "testament.py",
+        ):
+            with self.subTest(path=path):
+                assert not is_test_source(path, {})
+
+    def test_configured_holders_and_patterns_add_test_source_but_tiers_do_not(
+        self,
+    ) -> None:
+        config = {
+            "tests": {
+                "adapters": [{"name": "vitest", "tiers": {"t1": {"location": "src"}}}],
+                "layout": {
+                    "test_file_patterns": ["check_*.py"],
+                    "fixtures_dir": "e2e/data",
+                },
+            }
+        }
+        assert is_test_source("e2e/data/flow.py", config)
+        assert is_test_source("src/check_total.py", config)
+        assert is_test_source("src/golden/total.json", config)
+        assert not is_test_source("src/total.ts", config)
+
+
+class IgnoredFolderTests(unittest.TestCase):
+    def test_installed_generated_and_tool_state_folders_are_ignored(self) -> None:
+        for path in (
+            "build/lib/x.py",
+            "pkg/dist/x.py",
+            ".venv/lib/site.py",
+            "lib/site-packages/x.py",
+            "web/coverage/x.test.ts",
+            "web/node_modules/lib/index.js",
+            "vendor/lib/lib.go",
+            "src/__pycache__/x.pyc",
+            ".mypy_cache/x.json",
+        ):
+            with self.subTest(path=path):
+                assert conventions.ignored_path(path)
+        assert not conventions.ignored_path("src/shop/cart.py")
+
+    def test_testdata_is_ignored_for_go_only(self) -> None:
+        assert conventions.ignored_path("pkg/testdata/y_test.go")
+        assert not conventions.ignored_path("pkg/testdata/y.py")
+        assert not conventions.ignored_path("pkg/testdata/case.json")
+
+
+if __name__ == "__main__":
+    unittest.main()

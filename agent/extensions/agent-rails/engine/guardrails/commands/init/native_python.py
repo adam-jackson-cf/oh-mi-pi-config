@@ -2,26 +2,26 @@ from __future__ import annotations
 
 import json
 import re
-import tomllib
 from pathlib import Path
 from typing import Any, TypeGuard
 
 from guardrails.commands.init.native_tools import HEADER, load_data
 from guardrails.context.config.reader import structure_settings
 from guardrails.context.config.section_schema import PLACEHOLDER
+from guardrails.foundation import conventions
+from guardrails.foundation.source import modules, tree
 
+PYPROJECT = "pyproject.toml"
 REQUIRES = re.compile(r">=\s*(\d+)\.(\d+)")
-SKIPPED = frozenset({"tests", "test", "docs", "build", "dist", "node_modules"})
+NON_PRODUCT = frozenset({"tests", "test", "docs"})
 
 
 def pyproject(repo: Path) -> dict[str, Any]:
-    path = repo / "pyproject.toml"
-    if not path.is_file():
+    """The root pyproject.toml's tables, {} when there is none; SourceError when it does
+    not read as TOML."""
+    if not (repo / PYPROJECT).is_file():
         return {}
-    try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (OSError, tomllib.TOMLDecodeError):
-        return {}
+    return modules.pyproject(PYPROJECT, tree.read(repo, PYPROJECT))
 
 
 def python_version(project: dict[str, Any]) -> tuple[int, int] | None:
@@ -41,8 +41,9 @@ def packages(repo: Path) -> tuple[list[str], list[str]]:
             child.name
             for child in root.iterdir()
             if child.is_dir()
-            and (child / "__init__.py").is_file()
-            and child.name not in SKIPPED
+            and (child / modules.package_marker()).is_file()
+            and child.name not in NON_PRODUCT
+            and not conventions.ignored_path(f"{child.name}/{modules.package_marker()}")
             and not child.name.startswith(".")
         )
         if found:
@@ -147,7 +148,13 @@ def real_text(value: object) -> TypeGuard[str]:
 def planned_configs(
     repo: Path, config: dict[str, Any]
 ) -> tuple[dict[str, str], list[str]]:
-    project = pyproject(repo)
+    try:
+        project = pyproject(repo)
+    except (OSError, tree.SourceError) as error:
+        return {}, [
+            f"native: cannot read {PYPROJECT} ({error}); no Python tool configuration "
+            "proposed until it reads"
+        ]
     data = load_data()
     version = python_version(project)
     names, roots = packages(repo)

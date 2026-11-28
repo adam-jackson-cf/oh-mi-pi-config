@@ -152,6 +152,7 @@ tests/*
 !tests/test_rename_residue_languages.py
 !tests/test_rename_residue_seams.py
 !tests/test_responsibility_overlap.py
+!tests/test_source_comments.py
 !tests/test_source_go.py
 !tests/test_source_modules.py
 !tests/test_source_python.py

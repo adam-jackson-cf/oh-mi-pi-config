@@ -20,8 +20,35 @@ What the rails do not catch or measure today.
   as unreadable. tree-sitter also accepts a few Python errors CPython rejects (a repeated keyword
   argument); the parser adds CPython's argument-order check, which keeps the measured Python results
   identical on 57,016 definitions in 8 repositories.
+- tree-sitter-python in the pinned ast-grep-py 0.51.0 rejects Python 3.13 type-parameter defaults
+  (`class Box[T = int]:`, `def f[T = int]()`, `type X[T = int] = list[T]`). The engine reads Python
+  through tree-sitter, so such a file is unparseable: `CODE.no-comments`, `PYS000` from the
+  naming and layout checks, and `FANOUT.general` report it, and the prefix-folder, overlap and
+  candidate proposers skip it. The PYQ, PYS and `TEST.subprocess-timeouts` checks read CPython's
+  own tree (they compare `ast.unparse` text with configured annotations) and accept it.
+- The tree-sitter TSX and JavaScript grammars reject a bare `&` in JSX text
+  (`<span>Findings & annotations</span>`), which React accepts. Such a file gets a blocking
+  "cannot parse source" finding from the bun_test and vitest adapters and from
+  `CODE.no-comments` (which reads TypeScript, JavaScript and Go comments through the grammars),
+  and is unreadable to the structure rules. ast-grep-py 0.51.3, the newest release on 2026-11-26,
+  still rejects it; the engine pins 0.51.0. Writing `&amp;` or `{"&"}` avoids it. A Go file using
+  Go 1.26 `new(expression)` likewise gets a `CODE.no-comments` "cannot parse" finding.
+- `TEST.no-test-hooks` tallies top-level functions and classes (Python), package-level
+  functions and types (Go) and top-level declarations (TypeScript): a method only tests call is
+  not reported. A reference resolves through imports and module attributes, so a call through an
+  object (`cache.reset()`) is no use of a module's `reset`, and a local name that shadows a
+  top-level one in the same file counts as a use of it. Python console scripts and modules a file
+  names by a literal dotted string (importlib dispatch) count as production uses; a module named
+  by a computed string, a function fetched from a dictionary of helpers, or code held in a string
+  does not, so such a function is reported unless it is the package's public entry point.
 - The structure-naming candidate proposers (`kind-candidates`, `consumer-candidates`, `name-pairs`)
-  propose Python only: their judgments were measured on Python cases.
+  propose for the languages their question has settings for in thresholds.json. Every Go setting and
+  TypeScript's kind and consumer settings run in shadow: those judgments rest on few labelled
+  violations (Go `same_thing` 5, TypeScript and Go `consumer_placement` none). The TypeScript
+  consumer reading maps a package.json `bin` path to TypeScript source only for the same stem
+  (`bin/x.js` to `bin/x.ts`), not across a build's output folder (`dist/` to `src/`); a Go import
+  names a package, so every file of a package has the package's importers. `name-pairs` reads every
+  language's code with comments (and Python docstrings) blanked from the parse tree.
 - `structure-naming/same_thing` judges only the name pairs `name-pairs` proposes (alias, head noun,
   synonym, constant value, clone); two names for one concept that none of those rules links are
   never asked. Its held-out precision is 0.72 (13/18), below the 0.75 floor, by owner acceptance.

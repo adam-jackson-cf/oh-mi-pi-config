@@ -30,11 +30,26 @@ An adapter does only these six things. No framework is assumed.
 4. **Source patterns.** Supply `ast-grep` patterns for the framework's mock,
    patch, skip, focus, retry and seed idioms (`TEST.no-self-mocking`,
    `TEST.no-test-hooks`, `TEST.no-evasion`, `TEST.property-seed`). "Owned code"
-   means the packages owning the config's `tests.public_entry_points`. For
-   `TEST.no-test-hooks`, report production reads of test markers (environment
-   reads and loaded-module or runner-global checks), never marker-shaped strings
-   held as data, and also report production symbols that only tests use. Each
-   pattern carries a `remediation` with its root cause and a holistic fix.
+   means the packages the config's `tests.public_entry_points` names, read through
+   `context/config/entry_points.py`. For `TEST.no-test-hooks`, report production
+   reads of test markers (environment reads, comparisons of an environment value
+   with a test value, and loaded-module or runner-global checks), never
+   marker-shaped strings held as data, and declared names that end with a hook phrase.
+   The marker names, values, runner modules and hook phrases are one vocabulary,
+   `data/test-hook-patterns.json`, read through `hook_vocabulary.py`; a pattern file
+   splices a fragment in as `%name%`. Each pattern carries a `remediation` with
+   its root cause and a holistic fix.
+   - Read every test and owned file through `owned_source.load`: a file that
+     cannot be read or parsed is a finding (`TEST.no-evasion` for a test file,
+     `TEST.no-test-hooks` for production), never a silent skip.
+   - Report production symbols only tests use through the shared tally in
+     `symbol_tally.py`: resolve each reference to the file that defines it with the
+     language's shared reader in `foundation/source/`, never by bare name.
+   - A static skip is one that always runs: a skip marker or registration with no
+     condition, or a skip call that is a statement of the test body itself.
+     `TEST.no-evasion` reports it. A skip that depends on a runtime condition
+     (`skipif`, `skipIf`, `runIf`, or a skip call inside a condition) is a
+     runtime skip; the run report records it for the shared report checks.
 5. **Mutation tool.** Name the framework's mutation tool, pin it, and convert
    its results into the shared mutation report (mutant, file, line span,
    status). `guardrails mutation-check` judges that report against the diff
@@ -64,14 +79,18 @@ It includes, for example:
 - a property test without a set or reported seed → `TEST.property-seed`.
 
 1. Write every case as a fixture test in the target framework, with its
-   expected verdict. The fixtures are harness tests beside the adapter, never
+   expected verdict. A case's `companions` are further fixtures, named
+   `<case id>--<role>`, placed as a test file (`test`) or a second owned module
+   (`neighbour`). The fixtures are harness tests beside the adapter, never
    files in the target repository.
 2. Freeze the fixtures before writing the adapter, as agent-rails freezes proofs:
    the adapter changes, the fixtures do not.
 3. Run the shared checkers over the adapter's evidence for each fixture. The
    adapter is accepted only when every case produces its expected verdict.
    A case the framework cannot express is a blocker for the owner, never a
-   silent skip.
+   silent skip. When the framework's runner cannot start, the shared run
+   (`conformance.py`) reports `GUARDRAILS.adapter-prerequisite` once and still
+   runs the source and static cases; a crash inside one case fails that case only.
 
 ## Where the adapter lives
 
@@ -84,7 +103,9 @@ It includes, for example:
 - Parts two or more adapters use live beside them in `adapters/`: `contract.py`
   (tier guards, evidence output and guard evidence), `conformance.py` (the
   shared conformance run), `marker_bindings.py` (marker-read inlining for
-  lint) and `javascript/` (the Vitest and Bun case collector, lint, Stryker
+  lint, from constant bindings the syntax tree holds), `hook_vocabulary.py` (the
+  shared test-marker vocabulary and hook-phrase matcher) and `javascript/`
+  (the Vitest and Bun case collector, lint, Stryker
   normaliser and `node_guard/` runtime). Source patterns are run-time data in
   `engine/data/<name>-patterns.json`.
 - The harness runs the adapter against the target from outside its tree; JUnit

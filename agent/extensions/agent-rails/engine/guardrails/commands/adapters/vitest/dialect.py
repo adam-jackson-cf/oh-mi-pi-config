@@ -7,7 +7,7 @@ from guardrails.commands.adapters import contract
 from guardrails.foundation.findings import Finding
 from guardrails.test_report.junit import Dialect
 
-DIALECT = Dialect(name="vitest", source_suffix=".ts")
+DIALECT = Dialect(name="vitest")
 RERUN = "rerun Vitest with the adapter's junit arguments"
 
 

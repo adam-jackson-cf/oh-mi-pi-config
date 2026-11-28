@@ -13,7 +13,6 @@ from guardrails.foundation.findings import Finding
 from guardrails.subcommand.dispatch import SUBCOMMANDS
 
 NAME = DIALECT.name
-SUFFIXES = (".py",)
 MUTATION_TIER = "t3"
 WRITING_ACTIONS = frozenset({"tiers", "junit-args", "mutation-report"})
 
@@ -62,8 +61,9 @@ def affected_arguments(
     repo: Path, config: dict[str, Any], base: str, head: str
 ) -> list[Finding]:
     from guardrails.checker.affected import TierCommand, print_affected
+    from guardrails.commands.adapters.pytest import cases
 
-    command = TierCommand(NAME, SUFFIXES, t2_arguments)
+    command = TierCommand(NAME, cases.SUFFIXES, t2_arguments)
     return print_affected(repo, config, command, base, head)
 
 

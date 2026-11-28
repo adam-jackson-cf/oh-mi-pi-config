@@ -1,0 +1,5 @@
+package shop
+
+func Warm() int {
+	return ResetCache()
+}
