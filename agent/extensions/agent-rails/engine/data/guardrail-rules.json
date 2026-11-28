@@ -11,7 +11,8 @@
         "diff_scoped_renamed_folders_and_files": true,
         "whole_segment_retired_names": true,
         "head_owned_directory_or_module_preserves_term": true,
-        "no_exemption_list": true
+        "no_exemption_list": true,
+        "limits": "sees a rename only at Git's 50% rename similarity; a rewrite recorded as a delete plus an add gives no rename evidence, and a retired term reused outside the renamed folder or file is not flagged"
       },
       "summary": "Reject retired path and defined names left in a renamed folder or file.",
       "remediation": {
@@ -195,7 +196,8 @@
         "event_scope": "added and renamed paths only; content edits do not trigger structure; explicit CLI paths or no-path full scans remain available",
         "exceptions": "config exceptions entries {rule, path, reason}",
         "unreadable_source_is_a_finding": true,
-        "diagnostic_names_file_and_code_folder": true
+        "diagnostic_names_file_and_code_folder": true,
+        "limits": "judges each language on its own: in a folder holding Python and TypeScript, Python still flags JSON the TypeScript code imports; data whose nearest code sits in a sibling folder, and .md templates, are not flagged"
       },
       "summary": "Reject runtime data and template files inside a folder of code.",
       "remediation": {
@@ -287,7 +289,8 @@
           }
         },
         "exceptions": "a config exceptions entry {rule, path, reason} on either folder of a pair suppresses that pair; each pair is reported once, on one changed folder",
-        "diagnostic_names_both_units_and_closest_definition_pair": true
+        "diagnostic_names_both_units_and_closest_definition_pair": true,
+        "limits": "copies built from common idioms score low; repeats inside one folder are not flagged"
       },
       "summary": "Reject a changed folder whose code repeats another folder's code in the same language.",
       "remediation": {
@@ -548,7 +551,8 @@
         "parallel_gate_aggregate_fails_on_failed_cancelled_or_skipped_tiers": true,
         "scope": "full_t1_and_t2_suite_on_every_push_and_pull_request",
         "check_only": true,
-        "nonzero_exit_propagates": true
+        "nonzero_exit_propagates": true,
+        "limits": "shellcheck and shfmt have no repo-native version pin file, so shell tools get no pin check"
       },
       "summary": "Make CI execute exactly the declared commands.ci: the full T1 and T2 suite.",
       "remediation": {
@@ -614,7 +618,8 @@
       "applicability": "conditional",
       "contract": {
         "count": "distinct_non_stdlib_architectural_imports",
-        "max_non_stdlib_dependencies": 10
+        "max_non_stdlib_dependencies": 10,
+        "limits": "Python imports only: TypeScript fan-out is the repo-owned OXLINT.LIMIT.max-dependencies, golangci-lint has no import-count linter, and shell scripts have no imports"
       },
       "summary": "Bound non-stdlib architectural imports.",
       "remediation": {
@@ -2050,7 +2055,7 @@
         "async_process_wait_requires_bounded_wait": true,
         "diagnostic_names_file_line_and_timeout_fix": true,
         "languages": ["python"],
-        "limits": "Python test source only (conftest.py, test files and files under test locations); no adapter reads TypeScript or Go subprocess calls"
+        "limits": "Python test source only (conftest.py, test files and files under test locations); no adapter reads TypeScript or Go subprocess calls, oxlint has no rule that bounds a child process, and shell scripts run processes by design"
       },
       "summary": "Bound subprocess calls in tests and keep failure output diagnosable.",
       "remediation": {
@@ -2140,7 +2145,8 @@
         "mechanism": "adapter_source_patterns",
         "diagnostic_names_symbol_and_production_input_fix": true,
         "vocabulary": "engine/data/test-hook-patterns.json: marker names, marker values, runner modules and hook phrases, shared by every adapter",
-        "hook_names": "declared names (functions, classes, methods, parameters, variables, constants, fields) whose last two words, split at underscores, digits and case changes, are a hook phrase such as for tests, test only or test mode"
+        "hook_names": "declared names (functions, classes, methods, parameters, variables, constants, fields) whose last two words, split at underscores, digits and case changes, are a hook phrase such as for tests, test only or test mode",
+        "limits": "tallies top-level functions and classes (Python), package-level functions and types (Go) and top-level declarations (TypeScript), so a method only tests call is not reported; a call through an object (cache.reset()) is no use of a module's reset, and a local name that shadows a top-level one in the same file counts as a use of it; a module named by a computed string, a function fetched from a dictionary of helpers and code held in a string are no production use, so such a function is reported unless it is a public entry point"
       },
       "summary": "Reject test-only flags, hooks and production symbols that only tests use.",
       "remediation": {
